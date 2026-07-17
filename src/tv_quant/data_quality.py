@@ -68,3 +68,16 @@ def load_standardized_csv(path: str | Path) -> tuple[pd.DataFrame, list[str]]:
         data["timestamp_utc"] = pd.to_datetime(data["timestamp_utc"], utc=True, errors="coerce")
     warnings = validate_ohlcv(data)
     return data, warnings
+
+
+def merge_standardized_daily(existing: pd.DataFrame | None, incoming: pd.DataFrame) -> pd.DataFrame:
+    """Merge incoming bars, retaining incoming values for duplicate daily records."""
+    frames = [frame for frame in (existing, incoming) if frame is not None and not frame.empty]
+    if not frames:
+        raise DataQualityError("empty OHLCV data")
+    combined = pd.concat(frames, ignore_index=True)
+    combined["timestamp_utc"] = pd.to_datetime(combined["timestamp_utc"], utc=True, errors="coerce")
+    combined = combined.drop_duplicates(subset=["timestamp_utc", "ticker"], keep="last")
+    combined = combined.sort_values(["timestamp_utc", "ticker"], kind="stable").reset_index(drop=True)
+    validate_ohlcv(combined)
+    return combined

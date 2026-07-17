@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 from .data_quality import load_standardized_csv
@@ -11,6 +11,8 @@ from .downloader import SUPPORTED_TICKERS, default_date_range, download_daily, s
 from .metrics import buy_and_hold_return, calculate_metrics
 from .reporting import write_reports
 from .strategy import run_backtest
+from .futu_downloader import update_futu_csv
+from .futu_quota import QuotaSnapshot, check_quota, read_quota_history, write_quota_log
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -19,6 +21,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     download = commands.add_parser("download", help="download standardized SPY/QQQ daily CSV files")
     download.add_argument("--tickers", nargs="*", default=list(SUPPORTED_TICKERS), choices=SUPPORTED_TICKERS)
+    download.add_argument("--source", choices=("futu", "yfinance"), default="futu")
     download.add_argument("--years", type=int, default=10)
     download.add_argument("--start", type=date.fromisoformat)
     download.add_argument("--end", type=date.fromisoformat)
@@ -49,10 +52,59 @@ def _download(args: argparse.Namespace) -> int:
     end = args.end or default_end
     if start >= end:
         raise ValueError("--start must precede --end")
-    for ticker in args.tickers:
-        path = save_daily_csv(download_daily(ticker, start, end), args.out_dir, args.overwrite)
-        print(path)
+    if args.source == "yfinance":
+        for ticker in args.tickers:
+            path = save_daily_csv(download_daily(ticker, start, end), args.out_dir, args.overwrite)
+            print(path)
+        return 0
+    _download_futu(args, start, end)
     return 0
+
+
+def _download_futu(args: argparse.Namespace, requested_start: date, requested_end: date) -> None:
+    try:
+        from futu import AuType, KLType, OpenQuoteContext, RET_OK
+    except ImportError as error:
+        raise RuntimeError("Futu source selected but futu-api is not installed") from error
+    context = OpenQuoteContext(host="127.0.0.1", port=11111)
+    log_path = Path("logs/futu_quota.jsonl")
+    try:
+        for ticker in args.tickers:
+            code = f"US.{ticker}"
+            history = read_quota_history(log_path)
+            quota = _futu_quota(context, RET_OK)
+            decision = check_quota(quota, code, datetime_now_utc(), history)
+            write_quota_log(log_path, "pre", quota, code, decision, "allowed")
+            destination = args.out_dir / f"{ticker}_daily.csv"
+            start, end = (requested_start, requested_end) if args.start or args.end else _futu_range(destination)
+            path = update_futu_csv(destination, code, start, end, context, ret_ok=RET_OK, ktype=KLType.K_DAY, autype=AuType.QFQ)
+            post = _futu_quota(context, RET_OK)
+            write_quota_log(log_path, "post", post, code, decision, "success")
+            print(path)
+    finally:
+        context.close()
+
+
+def _futu_quota(context: object, ret_ok: int) -> QuotaSnapshot:
+    import time
+    time.sleep(1)
+    ret, data = context.get_history_kl_quota(get_detail=True)
+    if ret != ret_ok:
+        raise RuntimeError(f"Futu quota request failed: {data}")
+    used, remain, detail = data
+    return QuotaSnapshot(int(used), int(remain), list(detail))
+
+
+def _futu_range(destination: Path) -> tuple[date, date]:
+    end = date.today()
+    if destination.exists():
+        return end - timedelta(days=10), end
+    return end.replace(year=end.year - 10), end
+
+
+def datetime_now_utc():
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc)
 
 
 def _backtest(args: argparse.Namespace) -> int:

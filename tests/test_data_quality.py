@@ -2,6 +2,8 @@ import pandas as pd
 import pytest
 
 from tv_quant.data_quality import DataQualityError, validate_ohlcv
+from tv_quant.data_quality import merge_standardized_daily
+from tv_quant.data_quality import merge_standardized_daily
 
 
 def make_frame() -> pd.DataFrame:
@@ -64,3 +66,11 @@ def test_validate_ohlcv_returns_large_price_move_warning():
 def test_validate_ohlcv_rejects_non_standard_finite_daily_values(mutator, message):
     with pytest.raises(DataQualityError, match=message):
         validate_ohlcv(mutator(make_frame()))
+
+
+def test_merge_standardized_daily_replaces_duplicates_and_sorts():
+    existing = make_frame().iloc[[1, 0]].reset_index(drop=True)
+    incoming = make_frame().iloc[[1, 2]].assign(close=[200.0, 102.5], high=[201.0, 103.0]).reset_index(drop=True)
+    merged = merge_standardized_daily(existing, incoming)
+    assert merged["timestamp_utc"].is_monotonic_increasing and len(merged) == 3
+    assert merged.loc[merged["timestamp_utc"] == pd.Timestamp("2024-01-02", tz="UTC"), "close"].item() == 200.0

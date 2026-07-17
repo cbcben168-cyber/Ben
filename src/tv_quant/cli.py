@@ -61,14 +61,42 @@ def _download(args: argparse.Namespace) -> int:
     return 0
 
 
-def _download_futu(args: argparse.Namespace, requested_start: date, requested_end: date) -> None:
+def _import_futu() -> tuple[object, object, object, object, object]:
+    """Import Futu after directing its mandatory SDK log to the project workspace."""
+    import os
+
+    log_root = Path(__file__).resolve().parents[2] / "logs" / "futu_sdk_appdata"
+    log_root.mkdir(parents=True, exist_ok=True)
+    os.environ["APPDATA"] = str(log_root)
     try:
-        from futu import AuType, KLType, OpenQuoteContext, RET_OK
+        from futu import AuType, KLType, OpenQuoteContext, ProgramStatusType, RET_OK
     except ImportError as error:
         raise RuntimeError("Futu source selected but futu-api is not installed") from error
-    context = OpenQuoteContext(host="127.0.0.1", port=11111)
-    log_path = Path("logs/futu_quota.jsonl")
+    return AuType, KLType, OpenQuoteContext, ProgramStatusType, RET_OK
+
+
+def _validate_opend(context: object, ret_ok: int, ready: object) -> None:
+    ret, state = context.get_global_state()
+    if ret != ret_ok:
+        raise RuntimeError(f"Futu OpenD status request failed: {state}. 请启动 Futu OpenD 并登录")
+    qot_logined = state.get("qot_logined") if isinstance(state, dict) else None
+    program_status = state.get("program_status_type") if isinstance(state, dict) else None
+    if str(qot_logined).lower() not in {"1", "true"} or program_status != ready:
+        raise RuntimeError(
+            "Futu OpenD is unavailable: "
+            f"qot_logined={qot_logined!r}, program_status_type={program_status!r}. 请启动 Futu OpenD 并登录"
+        )
+
+
+def _download_futu(args: argparse.Namespace, requested_start: date, requested_end: date) -> None:
     try:
+        AuType, KLType, OpenQuoteContext, ProgramStatusType, RET_OK = _import_futu()
+    except RuntimeError:
+        raise
+    context = OpenQuoteContext(host="127.0.0.1", port=11111)
+    log_path = Path(__file__).resolve().parents[2] / "logs" / "futu_quota.jsonl"
+    try:
+        _validate_opend(context, RET_OK, ProgramStatusType.READY)
         for ticker in args.tickers:
             code = f"US.{ticker}"
             history = read_quota_history(log_path)
@@ -77,10 +105,13 @@ def _download_futu(args: argparse.Namespace, requested_start: date, requested_en
             write_quota_log(log_path, "pre", quota, code, decision, "allowed")
             destination = args.out_dir / f"{ticker}_daily.csv"
             start, end = (requested_start, requested_end) if args.start or args.end else _futu_range(destination)
-            path = update_futu_csv(destination, code, start, end, context, ret_ok=RET_OK, ktype=KLType.K_DAY, autype=AuType.QFQ)
-            post = _futu_quota(context, RET_OK)
-            write_quota_log(log_path, "post", post, code, decision, "success")
-            print(path)
+            post_snapshot: QuotaSnapshot | None = None
+            def verify_post_download(_: object) -> None:
+                nonlocal post_snapshot
+                post_snapshot = _futu_quota(context, RET_OK)
+                write_quota_log(log_path, "post", post_snapshot, code, decision, "success")
+            update = update_futu_csv(destination, code, start, end, context, ret_ok=RET_OK, ktype=KLType.K_DAY, autype=AuType.QFQ, before_replace=verify_post_download)
+            print(f"{update.path} (new_rows={update.new_rows}, updated_rows={update.updated_rows}, total_rows={update.total_rows})")
     finally:
         context.close()
 
@@ -99,7 +130,10 @@ def _futu_range(destination: Path) -> tuple[date, date]:
     end = date.today()
     if destination.exists():
         return end - timedelta(days=10), end
-    return end.replace(year=end.year - 10), end
+    try:
+        return end.replace(year=end.year - 10), end
+    except ValueError:  # February 29 has no equivalent in non-leap years.
+        return end.replace(year=end.year - 10, day=28), end
 
 
 def datetime_now_utc():
@@ -115,6 +149,8 @@ def _backtest(args: argparse.Namespace) -> int:
     result = run_backtest(data, args.initial_cash, args.commission_bps, args.slippage_bps)
     metrics = calculate_metrics(result.equity, result.trades, args.initial_cash)
     ticker = next(iter(tickers))
+    benchmark_return = buy_and_hold_return(data, args.initial_cash, args.commission_bps, args.slippage_bps)
+    strategy_minus_buy_hold = metrics["total_return"] - benchmark_return
     summary: dict[str, object] = {
         "ticker": ticker,
         "data_start_utc": data["timestamp_utc"].iloc[0],
@@ -127,7 +163,9 @@ def _backtest(args: argparse.Namespace) -> int:
             "slippage_bps": args.slippage_bps,
         },
         **metrics,
-        "buy_and_hold_return": buy_and_hold_return(data, args.initial_cash, args.commission_bps, args.slippage_bps),
+        "buy_and_hold_return": benchmark_return,
+        "strategy_minus_buy_hold": strategy_minus_buy_hold,
+        "buy_and_hold_comparison": "BEAT_BUY_HOLD" if strategy_minus_buy_hold > 0 else "UNDERPERFORM_BUY_HOLD",
         "validation_warnings": data_warnings + result.warnings,
     }
     paths = write_reports(args.out_dir, summary, result.equity, result.trades)

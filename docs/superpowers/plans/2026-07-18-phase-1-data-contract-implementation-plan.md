@@ -13,16 +13,20 @@
 ## Global Constraints
 
 - Authoritative design baseline: commit `28a234d` and `docs/superpowers/specs/2026-07-18-quant-swing-research-system-design.md`.
-- Scope is Implementation Phase 1 only: schemas, XNYS calendar, 30-minute Futu RTH data, raw/research fields, corporate actions, daily and strict 60-minute aggregation, Data Manifest, hashing, publication, and isolated CLI.
+- Scope is Implementation Phase 1 only: schemas, XNYS calendar, 30-minute Futu RTH data for `QQQ`, `SPY`, `IWM`, `RSP`, and `DIA`, raw/research fields, corporate actions, daily and strict 60-minute aggregation, Data Manifest, hashing, publication, and isolated CLI.
 - Phase 2 and later strategy logic is excluded: EMA, ATR, volatility, pivot, pullback, recovery, entries, exits, stops, positions, costs, performance metrics, parameter search, Walk-forward, Locked OOS, external ETF validation, TradingView, options, portfolio logic, paper trading, and live trading.
 - Internal instants are timezone-aware UTC; session rules are calculated in `America/New_York` with XNYS. Fixed UTC offsets are prohibited.
 - An ordinary complete XNYS session contains 13 half-hour bars beginning 09:30 through 15:30 local. An early close uses `(session_close - session_open) / 30 minutes`; 09:30–13:00 contains 7 bars.
 - Early-close sessions publish 30-minute and daily data but publish no 60-minute research bars; manifest policy is exactly `EXCLUDE_FROM_60M_SEQUENCE`.
-- Futu `time_key` meaning is accepted only from a checked-in verified fixture. Internal timestamps always represent bar start.
+- `TimeKeyFixtureKind` is exactly `TEST | PRODUCTION_CAPTURE`. Checked-in files below `tests/fixtures/phase1/` are always `TEST`; CSV/offline tests may use them, but a Futu build requires separately captured `PRODUCTION_CAPTURE` evidence. Setting `verified=true` never upgrades `TEST` evidence.
+- `validate-time-key` validates evidence structure, SHA-256 syntax, and expected time conversion only; it never claims to prove Futu semantics. Real Futu semantic confirmation is a separate manual integration step.
+- Internal `symbol` is the bare ETF symbol such as `QQQ`; supplier `provider_code` is separate, such as `US.QQQ`. They are never stored interchangeably.
 - Futu 30-minute requests use `KLType.K_30M`, `AuType.NONE`, and no extended-hours request. Futu failure is explicit and cannot trigger another provider.
 - Futu's documented `split_ratio` is vendor-oriented; the adapter converts it to the design contract `new_shares / old_shares` by `Decimal(1) / vendor_split_ratio`.
 - Raw OHLCV is immutable. Research OHLC is divided by cumulative future verified split factors, research volume is multiplied by the same factors, and dividends never alter research fields.
-- Every blocking data error produces `DATA_QUALITY_FAILED` or `DATA_ACTIONS_UNVERIFIED`, prevents publication, and returns a nonzero CLI exit code.
+- Every blocking data error produces `DATA_QUALITY_FAILED` or `DATA_ACTIONS_UNVERIFIED`, prevents publication, and returns a documented nonzero CLI exit code; expected calendar, contract, source-mixing, aggregation, and publication errors never escape as an uncaught traceback.
+- Corporate-action content hash excludes `fetched_at_utc`; source-response hash is tracked separately; fetch time is audit metadata only and cannot change `dataset_id`.
+- Before rename, the publisher parses staged `manifest.json`, validates schema and publishable statuses, verifies the exact declared file set, recomputes every file hash and dataset hash, recomputes `dataset_id`, and verifies that the destination directory name matches it.
 - Dataset directories are immutable. A failed staging write or validation cannot replace an existing valid dataset.
 - The legacy files `src/tv_quant/cli.py`, `src/tv_quant/downloader.py`, `src/tv_quant/futu_downloader.py`, `src/tv_quant/data_quality.py`, `src/tv_quant/strategy.py`, and existing tests remain unchanged.
 - Each task follows red-green-refactor order, runs its focused tests, runs all existing tests, and creates one independent local commit.
@@ -47,7 +51,7 @@
 - `src/tv_quant/phase1_data/futu.py`: Futu pagination, K_30M raw-bar retrieval, rehab retrieval, time fixture loading, timestamp normalization, and supplier-to-design split conversion.
 - `src/tv_quant/phase1_data/sessions.py`: RTH filtering and per-session 30-minute completeness validation.
 - `src/tv_quant/phase1_data/quality.py`: raw/research OHLCV and split-factor validation.
-- `src/tv_quant/phase1_data/corporate_actions.py`: canonical corporate-action hash and split adjustment.
+- `src/tv_quant/phase1_data/corporate_actions.py`: canonical corporate-action content hash and split adjustment.
 - `src/tv_quant/phase1_data/aggregation.py`: same-source daily aggregation and strict normal-session 60-minute aggregation.
 - `src/tv_quant/phase1_data/manifest.py`: canonical dataset identity and `DataManifest` construction.
 - `src/tv_quant/phase1_data/storage.py`: canonical serialization, SHA-256 helpers, staging validation, and atomic immutable publication.
@@ -57,6 +61,7 @@
 ### New tests and fixtures
 
 - `tests/phase1_data/test_models.py`
+- `tests/phase1_data/helpers.py`
 - `tests/phase1_data/test_calendar.py`
 - `tests/phase1_data/test_futu.py`
 - `tests/phase1_data/test_sessions.py`
@@ -65,6 +70,7 @@
 - `tests/phase1_data/test_aggregation.py`
 - `tests/phase1_data/test_manifest_storage.py`
 - `tests/phase1_data/test_pipeline_cli.py`
+- `tests/phase1_data/test_public_contract.py`
 - `tests/phase1_data/test_phase1_acceptance.py`
 - `tests/fixtures/phase1/futu_time_key_start.json`
 - `tests/fixtures/phase1/futu_time_key_end.json`
@@ -78,12 +84,15 @@
 
 ```text
 data/phase1/
+├── evidence/
+│   └── futu_time_key_<symbol>_<captured_at_utc>.json
 ├── staging/<run_id>/
-│   ├── bars_30m.csv
-│   ├── bars_60m.csv
-│   ├── daily.csv
-│   ├── corporate_actions.json
-│   └── manifest.json
+│   └── <dataset_id>/
+│       ├── bars_30m.csv
+│       ├── bars_60m.csv
+│       ├── daily.csv
+│       ├── corporate_actions.json
+│       └── manifest.json
 └── datasets/<dataset_id>/
     ├── bars_30m.csv
     ├── bars_60m.csv
@@ -101,7 +110,7 @@ class DataProvider(Protocol):
     source_name: str
     source_version: str
     def fetch_30m(self, symbol: str, start: date, end: date) -> pd.DataFrame: ...
-    def fetch_corporate_actions(self, symbol: str, start: date, end: date) -> tuple[CorporateAction, ...]: ...
+    def fetch_corporate_actions(self, symbol: str, start: date, end: date) -> CorporateActionBatch: ...
 
 class TradingCalendar(Protocol):
     library_name: str
@@ -110,18 +119,22 @@ class TradingCalendar(Protocol):
     def session(self, session_date: date) -> SessionSchedule: ...
     def schedule_hash(self, start: date, end: date) -> str: ...
 
+def load_time_key_fixture(path: str | Path) -> TimeKeyEvidence: ...
+def require_futu_production_evidence(evidence: TimeKeyEvidence, symbol: str, provider_code: str) -> None: ...
 def normalize_futu_timestamp(source_timestamp: str, semantics: TimeKeySemantics) -> NormalizedTimestamp: ...
 def filter_rth_bars(bars: Sequence[Bar30mRecord], schedule: SessionSchedule) -> tuple[Bar30mRecord, ...]: ...
 def validate_30m_session(bars: Sequence[Bar30mRecord], schedule: SessionSchedule) -> SessionValidationResult: ...
 def validate_ohlcv(bars: Sequence[Bar30mRecord]) -> DataQualityResult: ...
 def validate_split_factors(bars: Sequence[Bar30mRecord]) -> DataQualityResult: ...
+def calculate_corporate_action_content_sha256(actions: Sequence[CorporateAction]) -> str: ...
 def apply_split_adjustment(bars: Sequence[Bar30mRecord], actions: Sequence[CorporateAction]) -> tuple[Bar30mRecord, ...]: ...
 def aggregate_daily_bars(bars: Sequence[Bar30mRecord]) -> tuple[DailyBarRecord, ...]: ...
 def aggregate_60m_research_bars(bars: Sequence[Bar30mRecord], schedule: SessionSchedule) -> tuple[Bar60mRecord, ...]: ...
 def build_data_manifest(request: ManifestRequest) -> DataManifest: ...
 def calculate_file_sha256(path: str | Path) -> str: ...
 def calculate_dataset_sha256(files: Mapping[str, bytes]) -> str: ...
-def atomic_write_dataset(destination: Path, files: Mapping[str, bytes], quality: DataQualityResult, actions_status: DataStatus) -> Path: ...
+def calculate_dataset_id(manifest_payload: Mapping[str, object]) -> str: ...
+def atomic_write_dataset(destination: Path, files: Mapping[str, bytes]) -> Path: ...
 ```
 
 ## Task 1: Freeze schemas, enums, and error states
@@ -134,22 +147,41 @@ def atomic_write_dataset(destination: Path, files: Mapping[str, bytes], quality:
 
 **Interfaces:**
 - Consumes: Python standard-library `date`, `datetime`, `Decimal`, `Enum`, and frozen dataclasses.
-- Produces: `DataStatus`, `DataWarning`, `TimeKeySemantics`, `EarlyClose60mPolicy`, `CorporateActionType`, `SessionSchedule`, `NormalizedTimestamp`, `Bar30mRecord`, `Bar60mRecord`, `DailyBarRecord`, `CorporateAction`, `DataQualityResult`, `SessionValidationResult`, `ManifestRequest`, `DataManifest`, and the complete Phase 1 exception hierarchy.
+- Produces: the five-symbol `PHASE1_SYMBOLS` allow-list; time-key evidence types; invariant-checking schedule/bar records; separate corporate-action content/source evidence; manifest requests/results; and the complete Phase 1 exception hierarchy.
+- Deliberately defers public `__all__` exports to Task 10 so its first red test fails only on the public API/documentation contract, not on an unfinished pipeline.
 
 - [ ] **Step 1: Write the failing schema tests**
 
 ```python
 # tests/phase1_data/test_models.py
 from dataclasses import FrozenInstanceError, fields
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 import pytest
 
+from tv_quant.phase1_data.errors import DataContractError
 from tv_quant.phase1_data.models import (
-    Bar30mRecord, CorporateAction, CorporateActionType, DataQualityResult,
-    DataStatus, EarlyClose60mPolicy, TimeKeySemantics,
+    PHASE1_SYMBOLS, Bar30mRecord, Bar60mRecord, CorporateAction, CorporateActionBatch,
+    CorporateActionType, DataQualityResult, DataStatus, EarlyClose60mPolicy,
+    NormalizedTimestamp, SessionSchedule, TimeKeyFixtureKind, TimeKeySemantics,
 )
+
+NY = ZoneInfo("America/New_York")
+
+
+def valid_bar() -> Bar30mRecord:
+    start_local = datetime(2024, 11, 27, 9, 30, tzinfo=NY)
+    end_local = start_local + timedelta(minutes=30)
+    return Bar30mRecord(
+        "2024-11-27 09:30:00", start_local, end_local,
+        start_local.astimezone(timezone.utc), end_local.astimezone(timezone.utc),
+        date(2024, 11, 27), True, False, "FUTU", "QQQ", "US.QQQ",
+        Decimal("500"), Decimal("502"), Decimal("499"), Decimal("501"),
+        Decimal("1000"), Decimal("500"), Decimal("502"), Decimal("499"),
+        Decimal("501"), Decimal("1000"), Decimal("1"),
+    )
 
 
 def test_bar30m_contract_is_frozen_and_contains_raw_and_research_fields():
@@ -157,26 +189,21 @@ def test_bar30m_contract_is_frozen_and_contains_raw_and_research_fields():
     assert names == {
         "source_timestamp", "bar_start_local", "bar_end_local", "bar_start_utc",
         "bar_end_utc", "session_date", "is_regular_session", "is_early_close",
-        "source", "symbol", "raw_open", "raw_high", "raw_low", "raw_close",
+        "source", "symbol", "provider_code", "raw_open", "raw_high", "raw_low", "raw_close",
         "raw_volume", "research_open", "research_high", "research_low",
         "research_close", "research_volume", "split_factor_t",
     }
-    bar = Bar30mRecord(
-        "2024-11-27 09:30:00", datetime(2024, 11, 27, 9, 30),
-        datetime(2024, 11, 27, 10, 0), datetime(2024, 11, 27, 14, 30, tzinfo=timezone.utc),
-        datetime(2024, 11, 27, 15, 0, tzinfo=timezone.utc), date(2024, 11, 27),
-        True, False, "FUTU", "QQQ", Decimal("500"), Decimal("502"),
-        Decimal("499"), Decimal("501"), Decimal("1000"), Decimal("500"),
-        Decimal("502"), Decimal("499"), Decimal("501"), Decimal("1000"), Decimal("1"),
-    )
+    bar = valid_bar()
     with pytest.raises(FrozenInstanceError):
         bar.raw_close = Decimal("0")
 
 
-def test_exact_machine_states_and_split_definition_are_frozen():
+def test_exact_machine_states_symbols_and_split_definition_are_frozen():
     assert {state.value for state in DataStatus} == {
         "VALID", "DATA_QUALITY_FAILED", "DATA_ACTIONS_UNVERIFIED"
     }
+    assert PHASE1_SYMBOLS == frozenset({"QQQ", "SPY", "IWM", "RSP", "DIA"})
+    assert {kind.value for kind in TimeKeyFixtureKind} == {"TEST", "PRODUCTION_CAPTURE"}
     assert TimeKeySemantics.BAR_START.value == "BAR_START"
     assert TimeKeySemantics.BAR_END.value == "BAR_END"
     assert EarlyClose60mPolicy.EXCLUDE.value == "EXCLUDE_FROM_60M_SEQUENCE"
@@ -185,6 +212,61 @@ def test_exact_machine_states_and_split_definition_are_frozen():
         Decimal("2"), datetime(2024, 1, 1, tzinfo=timezone.utc), "a" * 64, True,
     )
     assert action.ratio_new_over_old == Decimal("2")
+    batch = CorporateActionBatch((action,), "b" * 64, action.fetched_at_utc, True)
+    assert batch.source_sha256 == "b" * 64
+
+
+@pytest.mark.parametrize(
+    ("local_start", "utc_start"),
+    [
+        (datetime(2024, 3, 8, 9, 30, tzinfo=NY), datetime(2024, 3, 8, 14, 30, tzinfo=timezone.utc)),
+        (datetime(2024, 3, 11, 9, 30, tzinfo=NY), datetime(2024, 3, 11, 13, 30, tzinfo=timezone.utc)),
+    ],
+)
+def test_normalized_timestamp_accepts_dst_aware_matching_instants(local_start, utc_start):
+    value = NormalizedTimestamp(
+        "source", local_start, local_start + timedelta(minutes=30),
+        utc_start, utc_start + timedelta(minutes=30),
+    )
+    assert value.bar_start_local.astimezone(timezone.utc) == value.bar_start_utc
+
+
+def test_schedule_and_bars_reject_naive_mismatched_or_wrong_duration_times():
+    with pytest.raises(DataContractError, match="timezone-aware"):
+        NormalizedTimestamp(
+            "source", datetime(2024, 11, 27, 9, 30), datetime(2024, 11, 27, 10),
+            datetime(2024, 11, 27, 14, 30, tzinfo=timezone.utc),
+            datetime(2024, 11, 27, 15, tzinfo=timezone.utc),
+        )
+    start = datetime(2024, 11, 27, 9, 30, tzinfo=NY)
+    with pytest.raises(DataContractError, match="same instant"):
+        NormalizedTimestamp(
+            "source", start, start + timedelta(minutes=30),
+            datetime(2024, 11, 27, 14, 31, tzinfo=timezone.utc),
+            datetime(2024, 11, 27, 15, 1, tzinfo=timezone.utc),
+        )
+    with pytest.raises(DataContractError, match="30 minutes"):
+        NormalizedTimestamp(
+            "source", start, start + timedelta(minutes=29),
+            start.astimezone(timezone.utc), (start + timedelta(minutes=29)).astimezone(timezone.utc),
+        )
+    with pytest.raises(DataContractError, match="session_date"):
+        SessionSchedule(
+            date(2024, 11, 28), start, start + timedelta(hours=6, minutes=30),
+            start.astimezone(timezone.utc),
+            (start + timedelta(hours=6, minutes=30)).astimezone(timezone.utc), False, 13,
+        )
+
+
+def test_bar60_requires_exactly_sixty_matching_minutes():
+    start = datetime(2024, 11, 27, 9, 30, tzinfo=NY)
+    end = start + timedelta(minutes=59)
+    values = (Decimal("500"), Decimal("502"), Decimal("499"), Decimal("501"), Decimal("1000"))
+    with pytest.raises(DataContractError, match="60 minutes"):
+        Bar60mRecord(
+            start, end, start.astimezone(timezone.utc), end.astimezone(timezone.utc),
+            start.date(), "FUTU", "QQQ", "US.QQQ", *values, *values,
+        )
 
 
 def test_quality_result_requires_errors_for_a_failed_state():
@@ -251,11 +333,47 @@ class AtomicWriteError(Phase1DataError):
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from enum import StrEnum
 from pathlib import Path
 from typing import Mapping
+from zoneinfo import ZoneInfo
+
+from .errors import DataContractError
+
+
+NEW_YORK = ZoneInfo("America/New_York")
+PHASE1_SYMBOLS = frozenset({"QQQ", "SPY", "IWM", "RSP", "DIA"})
+
+
+def _require_aware(value: datetime, name: str) -> None:
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise DataContractError(f"{name} must be timezone-aware")
+
+
+def _validate_interval(
+    start_local: datetime,
+    end_local: datetime,
+    start_utc: datetime,
+    end_utc: datetime,
+    minutes: int,
+) -> None:
+    for name, value in (
+        ("start_local", start_local), ("end_local", end_local),
+        ("start_utc", start_utc), ("end_utc", end_utc),
+    ):
+        _require_aware(value, name)
+    if getattr(start_local.tzinfo, "key", None) != NEW_YORK.key or getattr(end_local.tzinfo, "key", None) != NEW_YORK.key:
+        raise DataContractError("local timestamps must use America/New_York")
+    if start_utc.utcoffset() != timedelta(0) or end_utc.utcoffset() != timedelta(0):
+        raise DataContractError("UTC timestamps must have zero offset")
+    if end_utc <= start_utc or end_local <= start_local:
+        raise DataContractError("bar end must follow bar start")
+    if end_utc - start_utc != timedelta(minutes=minutes):
+        raise DataContractError(f"bar duration must be exactly {minutes} minutes")
+    if start_local.astimezone(timezone.utc) != start_utc or end_local.astimezone(timezone.utc) != end_utc:
+        raise DataContractError("local and UTC timestamps must identify the same instant")
 
 
 class DataStatus(StrEnum):
@@ -273,6 +391,11 @@ class TimeKeySemantics(StrEnum):
     BAR_END = "BAR_END"
 
 
+class TimeKeyFixtureKind(StrEnum):
+    TEST = "TEST"
+    PRODUCTION_CAPTURE = "PRODUCTION_CAPTURE"
+
+
 class EarlyClose60mPolicy(StrEnum):
     EXCLUDE = "EXCLUDE_FROM_60M_SEQUENCE"
 
@@ -280,6 +403,30 @@ class EarlyClose60mPolicy(StrEnum):
 class CorporateActionType(StrEnum):
     SPLIT = "SPLIT"
     DIVIDEND = "DIVIDEND"
+
+
+@dataclass(frozen=True)
+class TimeKeyEvidence:
+    fixture_version: str
+    fixture_kind: TimeKeyFixtureKind
+    verified: bool
+    semantics: TimeKeySemantics
+    source_timestamp: str
+    expected_bar_start_local: datetime
+    symbol: str
+    provider_code: str
+    ktype: str
+    captured_at_utc: datetime
+    futu_api_version: str
+    opend_version: str
+    raw_response_sha256: str
+    evidence: str
+
+    def __post_init__(self) -> None:
+        _require_aware(self.expected_bar_start_local, "expected_bar_start_local")
+        _require_aware(self.captured_at_utc, "captured_at_utc")
+        if self.captured_at_utc.utcoffset() != timedelta(0):
+            raise DataContractError("captured_at_utc must have zero offset")
 
 
 @dataclass(frozen=True)
@@ -292,6 +439,12 @@ class SessionSchedule:
     is_early_close: bool
     expected_bar_count: int
 
+    def __post_init__(self) -> None:
+        minutes = self.expected_bar_count * 30
+        _validate_interval(self.open_local, self.close_local, self.open_utc, self.close_utc, minutes)
+        if self.session_date != self.open_local.date():
+            raise DataContractError("session_date must equal the New York open date")
+
 
 @dataclass(frozen=True)
 class NormalizedTimestamp:
@@ -300,6 +453,12 @@ class NormalizedTimestamp:
     bar_end_local: datetime
     bar_start_utc: datetime
     bar_end_utc: datetime
+
+    def __post_init__(self) -> None:
+        _validate_interval(
+            self.bar_start_local, self.bar_end_local,
+            self.bar_start_utc, self.bar_end_utc, 30,
+        )
 
 
 @dataclass(frozen=True)
@@ -314,6 +473,7 @@ class Bar30mRecord:
     is_early_close: bool
     source: str
     symbol: str
+    provider_code: str
     raw_open: Decimal
     raw_high: Decimal
     raw_low: Decimal
@@ -326,6 +486,16 @@ class Bar30mRecord:
     research_volume: Decimal
     split_factor_t: Decimal
 
+    def __post_init__(self) -> None:
+        _validate_interval(
+            self.bar_start_local, self.bar_end_local,
+            self.bar_start_utc, self.bar_end_utc, 30,
+        )
+        if self.session_date != self.bar_start_local.date():
+            raise DataContractError("session_date must equal local bar start date")
+        if self.symbol not in PHASE1_SYMBOLS:
+            raise DataContractError(f"unsupported Phase 1 symbol: {self.symbol}")
+
 
 @dataclass(frozen=True)
 class Bar60mRecord:
@@ -336,6 +506,7 @@ class Bar60mRecord:
     session_date: date
     source: str
     symbol: str
+    provider_code: str
     raw_open: Decimal
     raw_high: Decimal
     raw_low: Decimal
@@ -347,12 +518,21 @@ class Bar60mRecord:
     research_close: Decimal
     research_volume: Decimal
 
+    def __post_init__(self) -> None:
+        _validate_interval(
+            self.bar_start_local, self.bar_end_local,
+            self.bar_start_utc, self.bar_end_utc, 60,
+        )
+        if self.session_date != self.bar_start_local.date():
+            raise DataContractError("session_date must equal local bar start date")
+
 
 @dataclass(frozen=True)
 class DailyBarRecord:
     session_date: date
     source: str
     symbol: str
+    provider_code: str
     raw_open: Decimal
     raw_high: Decimal
     raw_low: Decimal
@@ -374,6 +554,14 @@ class CorporateAction:
     ratio_new_over_old: Decimal
     fetched_at_utc: datetime
     source_sha256: str
+    verified: bool
+
+
+@dataclass(frozen=True)
+class CorporateActionBatch:
+    actions: tuple[CorporateAction, ...]
+    source_sha256: str
+    fetched_at_utc: datetime
     verified: bool
 
 
@@ -419,10 +607,14 @@ class ManifestRequest:
     calendar_library_version: str
     calendar_schedule_hash: str
     early_close_60m_policy: EarlyClose60mPolicy
-    corporate_action_sha256: str
+    corporate_action_content_sha256: str
+    corporate_action_source_sha256: str
+    corporate_actions_fetched_at_utc: datetime
     corporate_action_status: DataStatus
+    time_key_fixture_kind: TimeKeyFixtureKind
     time_key_semantics: TimeKeySemantics
     time_key_fixture_sha256: str
+    time_key_raw_response_sha256: str
 
 
 @dataclass(frozen=True)
@@ -445,10 +637,14 @@ class DataManifest:
     calendar_library_version: str
     calendar_schedule_hash: str
     early_close_60m_policy: EarlyClose60mPolicy
-    corporate_action_sha256: str
+    corporate_action_content_sha256: str
+    corporate_action_source_sha256: str
+    corporate_actions_fetched_at_utc: datetime
     corporate_action_status: DataStatus
+    time_key_fixture_kind: TimeKeyFixtureKind
     time_key_semantics: TimeKeySemantics
     time_key_fixture_sha256: str
+    time_key_raw_response_sha256: str
 
 
 @dataclass(frozen=True)
@@ -458,7 +654,7 @@ class DatasetPaths:
     datasets: Path
 ```
 
-`src/tv_quant/phase1_data/__init__.py` re-exports the public names listed in **Frozen Public Interfaces** and does not import the CLI.
+At this task, `src/tv_quant/phase1_data/__init__.py` contains only a module docstring and `__version__ = "0.1.0"`; Task 10 adds the frozen public `__all__` after the entire implementation exists. It never imports the CLI.
 
 - [ ] **Step 4: Run schema tests and the legacy regression suite**
 
@@ -492,7 +688,7 @@ git commit -m "Add phase 1 data contracts"
 
 ```python
 # tests/phase1_data/test_calendar.py
-from datetime import date
+from datetime import date, datetime, timezone
 
 import pytest
 
@@ -629,7 +825,17 @@ class XNYSCalendar:
         return hashlib.sha256(encoded).hexdigest()
 ```
 
-- [ ] **Step 4: Run calendar tests and all regressions**
+- [ ] **Step 4: Install the exact dependency set and verify the resolved calendar version**
+
+Run: `python -m pip install -r requirements.txt`
+
+Expected: exit code 0; `exchange-calendars==4.13.2` is installed.
+
+Run: `python -c "import exchange_calendars; print(exchange_calendars.__version__)"`
+
+Expected: exactly `4.13.2`.
+
+- [ ] **Step 5: Run calendar tests and all regressions**
 
 Run: `python -m pytest tests/phase1_data/test_calendar.py -q`
 
@@ -639,7 +845,7 @@ Run: `python -m pytest tests -q`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit the calendar boundary**
+- [ ] **Step 6: Commit the calendar boundary**
 
 ```bash
 git add requirements.txt src/tv_quant/phase1_data/calendar.py tests/phase1_data/test_calendar.py
@@ -657,41 +863,47 @@ git commit -m "Add XNYS phase 1 calendar"
 - Create: `tests/fixtures/phase1/futu_time_key_unverified.json`
 
 **Interfaces:**
-- Consumes: injected Futu quote context, `TimeKeySemantics`, `CorporateAction`, and unadjusted provider frames.
-- Produces: `DataProvider`, `CSVProvider`, `FutuProvider`, `load_time_key_fixture(path)`, `normalize_futu_timestamp(source_timestamp, semantics)`, and supplier split events converted to `new_shares / old_shares`.
+- Consumes: internal bare symbols, injected Futu quote context, explicit `TEST` or `PRODUCTION_CAPTURE` time-key evidence, and unadjusted provider frames.
+- Produces: `DataProvider`, `CSVProvider`, `FutuProvider`, reversible symbol mapping, `TimeKeyEvidence`, normalized timestamps, and `CorporateActionBatch` with a raw-response hash distinct from action-content identity.
+- TEST evidence is permitted only for CSV/offline deterministic tests. Constructing `FutuProvider` requires verified `PRODUCTION_CAPTURE` evidence with all required metadata and a valid raw-response SHA-256; no checked-in TEST fixture can authorize a production build.
 
 - [ ] **Step 1: Check in explicit semantic fixtures and failing tests**
 
 File `tests/fixtures/phase1/futu_time_key_start.json`:
 
 ```json
-{"fixture_version":"1","verified":true,"semantics":"BAR_START","source_timestamp":"2024-11-27 09:30:00","expected_bar_start_local":"2024-11-27T09:30:00-05:00","evidence":"captured K_30M row matched against the documented XNYS 09:30 open"}
+{"fixture_version":"1","fixture_kind":"TEST","verified":true,"semantics":"BAR_START","source_timestamp":"2024-11-27 09:30:00","expected_bar_start_local":"2024-11-27T09:30:00-05:00","symbol":"QQQ","provider_code":"US.QQQ","ktype":"K_30M","captured_at_utc":"2024-11-27T15:00:00+00:00","futu_api_version":"TEST","opend_version":"TEST","raw_response_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","evidence":"synthetic start-label conversion fixture; not production evidence"}
 ```
 
 File `tests/fixtures/phase1/futu_time_key_end.json`:
 
 ```json
-{"fixture_version":"1","verified":true,"semantics":"BAR_END","source_timestamp":"2024-11-27 10:00:00","expected_bar_start_local":"2024-11-27T09:30:00-05:00","evidence":"controlled end-label fixture for conversion regression"}
+{"fixture_version":"1","fixture_kind":"TEST","verified":true,"semantics":"BAR_END","source_timestamp":"2024-11-27 10:00:00","expected_bar_start_local":"2024-11-27T09:30:00-05:00","symbol":"QQQ","provider_code":"US.QQQ","ktype":"K_30M","captured_at_utc":"2024-11-27T15:00:00+00:00","futu_api_version":"TEST","opend_version":"TEST","raw_response_sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","evidence":"synthetic end-label conversion fixture; not production evidence"}
 ```
 
 File `tests/fixtures/phase1/futu_time_key_unverified.json`:
 
 ```json
-{"fixture_version":"1","verified":false,"semantics":"BAR_START","source_timestamp":"2024-11-27 09:30:00","expected_bar_start_local":"2024-11-27T09:30:00-05:00","evidence":"not independently checked"}
+{"fixture_version":"1","fixture_kind":"TEST","verified":false,"semantics":"BAR_START","source_timestamp":"2024-11-27 09:30:00","expected_bar_start_local":"2024-11-27T09:30:00-05:00","symbol":"QQQ","provider_code":"US.QQQ","ktype":"K_30M","captured_at_utc":"2024-11-27T15:00:00+00:00","futu_api_version":"TEST","opend_version":"TEST","raw_response_sha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","evidence":"intentionally unverified fixture"}
 ```
 
 ```python
 # tests/phase1_data/test_futu.py
 from datetime import date
 from decimal import Decimal
+import json
 from pathlib import Path
 
 import pandas as pd
 import pytest
 
-from tv_quant.phase1_data.errors import ProviderError, TimestampSemanticsUnverifiedError
-from tv_quant.phase1_data.futu import FutuProvider, load_time_key_fixture, normalize_futu_timestamp
-from tv_quant.phase1_data.models import TimeKeySemantics
+from tv_quant.phase1_data.errors import DataContractError, ProviderError, TimestampSemanticsUnverifiedError
+from tv_quant.phase1_data.futu import (
+    FutuProvider, load_time_key_fixture, normalize_futu_timestamp,
+    require_futu_production_evidence, to_futu_provider_code,
+)
+from tv_quant.phase1_data.models import CorporateActionBatch, TimeKeyFixtureKind
+from tv_quant.phase1_data.providers import CSVProvider
 
 FIXTURES = Path("tests/fixtures/phase1")
 
@@ -710,50 +922,99 @@ class QuoteContext:
         return 0, self.rehab
 
 
+@pytest.fixture
+def production_fixture(tmp_path):
+    payload = json.loads((FIXTURES / "futu_time_key_start.json").read_text(encoding="utf-8"))
+    payload.update({
+        "fixture_kind": "PRODUCTION_CAPTURE", "verified": True,
+        "futu_api_version": "10.9.0", "opend_version": "10.9.0",
+        "raw_response_sha256": "d" * 64,
+        "evidence": "operator compared captured raw row with XNYS session open",
+    })
+    path = tmp_path / "production.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
+
+
 def test_start_and_end_fixtures_normalize_to_the_same_internal_start():
-    start_semantics, _ = load_time_key_fixture(FIXTURES / "futu_time_key_start.json")
-    end_semantics, _ = load_time_key_fixture(FIXTURES / "futu_time_key_end.json")
-    start = normalize_futu_timestamp("2024-11-27 09:30:00", start_semantics)
-    end = normalize_futu_timestamp("2024-11-27 10:00:00", end_semantics)
+    start_evidence = load_time_key_fixture(FIXTURES / "futu_time_key_start.json")
+    end_evidence = load_time_key_fixture(FIXTURES / "futu_time_key_end.json")
+    assert start_evidence.fixture_kind is TimeKeyFixtureKind.TEST
+    start = normalize_futu_timestamp("2024-11-27 09:30:00", start_evidence.semantics)
+    end = normalize_futu_timestamp("2024-11-27 10:00:00", end_evidence.semantics)
     assert start.bar_start_local == end.bar_start_local
     assert start.bar_start_utc.isoformat() == "2024-11-27T14:30:00+00:00"
     assert start.source_timestamp != end.source_timestamp
 
 
-def test_unverified_semantics_blocks_provider_use():
+def test_test_fixture_is_allowed_offline_but_rejected_by_futu():
+    evidence = load_time_key_fixture(FIXTURES / "futu_time_key_start.json")
+    assert evidence.verified
+    with pytest.raises(TimestampSemanticsUnverifiedError, match="PRODUCTION_CAPTURE"):
+        require_futu_production_evidence(evidence, "QQQ", "US.QQQ")
+
+
+def test_unverified_semantics_blocks_even_offline_use():
     with pytest.raises(TimestampSemanticsUnverifiedError, match="not verified"):
         load_time_key_fixture(FIXTURES / "futu_time_key_unverified.json")
 
 
-def test_futu_provider_pages_unadjusted_30m_rth_requests_and_preserves_source_timestamp():
+@pytest.mark.parametrize(("field", "value"), [("raw_response_sha256", ""), ("verified", False)])
+def test_production_evidence_requires_raw_hash_and_verification(production_fixture, field, value):
+    payload = json.loads(production_fixture.read_text(encoding="utf-8"))
+    payload[field] = value
+    production_fixture.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(TimestampSemanticsUnverifiedError):
+        FutuProvider(QuoteContext([], pd.DataFrame()), production_fixture, ret_ok=0, k_30m="K_30M", no_adjust="NONE", sleep=lambda _: None)
+
+
+def test_symbol_mapping_is_explicit_and_csv_mismatch_is_rejected(tmp_path):
+    assert to_futu_provider_code("QQQ") == "US.QQQ"
+    assert to_futu_provider_code("IWM") == "US.IWM"
+    csv_path = tmp_path / "mismatch.csv"
+    csv_path.write_text(
+        "symbol,provider_code,source_timestamp,open,high,low,close,volume\n"
+        "QQQ,US.SPY,2024-11-27 09:30:00,500,502,499,501,1000\n",
+        encoding="utf-8",
+    )
+    evidence = load_time_key_fixture(FIXTURES / "futu_time_key_start.json")
+    actions = CorporateActionBatch((), "a" * 64, datetime(2024, 1, 1, tzinfo=timezone.utc), True)
+    with pytest.raises(DataContractError, match="symbol/provider_code mismatch"):
+        CSVProvider(csv_path, actions, evidence).fetch_30m("QQQ", date(2024, 11, 27), date(2024, 11, 27))
+
+
+def test_futu_provider_pages_unadjusted_30m_rth_requests_and_preserves_source_timestamp(production_fixture):
     first = pd.DataFrame({
         "code": ["US.QQQ"], "time_key": ["2024-11-27 09:30:00"],
         "open": [500.0], "high": [502.0], "low": [499.0], "close": [501.0], "volume": [1000],
     })
     context = QuoteContext([(0, first, b"next"), (0, first.assign(time_key="2024-11-27 10:00:00"), None)], pd.DataFrame())
-    provider = FutuProvider(context, FIXTURES / "futu_time_key_start.json", ret_ok=0, k_30m="K_30M", no_adjust="NONE", sleep=lambda _: None)
+    provider = FutuProvider(context, production_fixture, ret_ok=0, k_30m="K_30M", no_adjust="NONE", sleep=lambda _: None)
     bars = provider.fetch_30m("QQQ", date(2024, 11, 27), date(2024, 11, 27))
     assert bars["source_timestamp"].tolist() == ["2024-11-27 09:30:00", "2024-11-27 10:00:00"]
     assert [request["page_req_key"] for request in context.requests] == [None, b"next"]
     assert all(request["ktype"] == "K_30M" and request["autype"] == "NONE" for request in context.requests)
     assert all(request["extended_time"] is False for request in context.requests)
+    assert bars["symbol"].unique().tolist() == ["QQQ"]
+    assert bars["provider_code"].unique().tolist() == ["US.QQQ"]
 
 
-def test_vendor_split_ratio_is_inverted_to_new_shares_over_old_shares():
+def test_vendor_split_ratio_is_inverted_to_new_shares_over_old_shares(production_fixture):
     rehab = pd.DataFrame({
         "ex_div_date": ["2022-06-06"], "split_base": [1.0], "split_ert": [2.0],
         "join_base": [0.0], "join_ert": [0.0], "split_ratio": [0.5],
     })
     context = QuoteContext([], rehab)
-    provider = FutuProvider(context, FIXTURES / "futu_time_key_start.json", ret_ok=0, k_30m="K_30M", no_adjust="NONE", sleep=lambda _: None)
-    action = provider.fetch_corporate_actions("QQQ", date(2020, 1, 1), date(2024, 1, 1))[0]
+    provider = FutuProvider(context, production_fixture, ret_ok=0, k_30m="K_30M", no_adjust="NONE", sleep=lambda _: None)
+    batch = provider.fetch_corporate_actions("QQQ", date(2020, 1, 1), date(2024, 1, 1))
+    action = batch.actions[0]
     assert action.ratio_new_over_old == Decimal("2")
     assert action.verified
 
 
-def test_futu_failure_is_explicit_without_provider_fallback():
+def test_futu_failure_is_explicit_without_provider_fallback(production_fixture):
     context = QuoteContext([(1, "permission denied", None)], pd.DataFrame())
-    provider = FutuProvider(context, FIXTURES / "futu_time_key_start.json", ret_ok=0, k_30m="K_30M", no_adjust="NONE", sleep=lambda _: None)
+    provider = FutuProvider(context, production_fixture, ret_ok=0, k_30m="K_30M", no_adjust="NONE", sleep=lambda _: None)
     with pytest.raises(ProviderError, match="permission denied"):
         provider.fetch_30m("QQQ", date(2024, 11, 27), date(2024, 11, 27))
 ```
@@ -776,36 +1037,51 @@ from typing import Protocol
 
 import pandas as pd
 
-from .models import CorporateAction
+from .errors import DataContractError, ProviderError
+from .models import CorporateActionBatch, PHASE1_SYMBOLS, TimeKeyEvidence
 
 
 class DataProvider(Protocol):
     source_name: str
     source_version: str
     def fetch_30m(self, symbol: str, start: date, end: date) -> pd.DataFrame: ...
-    def fetch_corporate_actions(self, symbol: str, start: date, end: date) -> tuple[CorporateAction, ...]: ...
+    def fetch_corporate_actions(self, symbol: str, start: date, end: date) -> CorporateActionBatch: ...
 
 
 class CSVProvider:
     source_name = "CSV"
     source_version = "fixture/1"
 
-    def __init__(self, bars_path: Path, actions: tuple[CorporateAction, ...]) -> None:
+    def __init__(self, bars_path: Path, actions: CorporateActionBatch, time_key_evidence: TimeKeyEvidence) -> None:
         self._bars_path = Path(bars_path)
         self._actions = actions
+        self.time_key_evidence = time_key_evidence
 
     def fetch_30m(self, symbol: str, start: date, end: date) -> pd.DataFrame:
         frame = pd.read_csv(self._bars_path, dtype={"source_timestamp": str})
+        required = {"symbol", "provider_code", "source_timestamp"}
+        if missing := required.difference(frame.columns):
+            raise DataContractError(f"CSV missing columns: {', '.join(sorted(missing))}")
+        if symbol not in PHASE1_SYMBOLS:
+            raise DataContractError(f"unsupported Phase 1 symbol: {symbol}")
+        expected_code = f"US.{symbol}"
+        mismatched = frame.loc[frame["symbol"].eq(symbol) & ~frame["provider_code"].eq(expected_code)]
+        if not mismatched.empty:
+            raise DataContractError(f"CSV symbol/provider_code mismatch for {symbol}")
         selected = frame.loc[
             frame["symbol"].str.upper().eq(symbol.upper())
             & pd.to_datetime(frame["source_timestamp"]).dt.date.between(start, end)
         ]
         if selected.empty:
-            raise ValueError(f"no CSV 30-minute rows for {symbol}")
+            raise ProviderError(f"no CSV 30-minute rows for {symbol}")
         return selected.reset_index(drop=True)
 
-    def fetch_corporate_actions(self, symbol: str, start: date, end: date) -> tuple[CorporateAction, ...]:
-        return tuple(action for action in self._actions if action.symbol == symbol and start <= action.effective_date <= end)
+    def fetch_corporate_actions(self, symbol: str, start: date, end: date) -> CorporateActionBatch:
+        selected = tuple(action for action in self._actions.actions if action.symbol == symbol and start <= action.effective_date <= end)
+        return CorporateActionBatch(
+            selected, self._actions.source_sha256,
+            self._actions.fetched_at_utc, self._actions.verified,
+        )
 ```
 
 `src/tv_quant/phase1_data/futu.py` must implement the following exact rules:
@@ -814,16 +1090,57 @@ class CSVProvider:
 NEW_YORK = ZoneInfo("America/New_York")
 
 
-def load_time_key_fixture(path: str | Path) -> tuple[TimeKeySemantics, str]:
+def load_time_key_fixture(path: str | Path) -> TimeKeyEvidence:
     raw = Path(path).read_bytes()
     payload = json.loads(raw)
     if payload.get("verified") is not True:
         raise TimestampSemanticsUnverifiedError(f"time_key fixture {path} is not verified")
-    semantics = TimeKeySemantics(payload["semantics"])
-    normalized = normalize_futu_timestamp(payload["source_timestamp"], semantics)
+    required = {
+        "fixture_version", "fixture_kind", "verified", "semantics", "source_timestamp",
+        "expected_bar_start_local", "symbol", "provider_code", "ktype", "captured_at_utc",
+        "futu_api_version", "opend_version", "raw_response_sha256", "evidence",
+    }
+    if missing := required.difference(payload):
+        raise TimestampSemanticsUnverifiedError(f"time_key fixture missing fields: {sorted(missing)}")
+    evidence = TimeKeyEvidence(
+        payload["fixture_version"], TimeKeyFixtureKind(payload["fixture_kind"]), True,
+        TimeKeySemantics(payload["semantics"]), payload["source_timestamp"],
+        datetime.fromisoformat(payload["expected_bar_start_local"]), payload["symbol"],
+        payload["provider_code"], payload["ktype"], datetime.fromisoformat(payload["captured_at_utc"]),
+        payload["futu_api_version"], payload["opend_version"],
+        payload["raw_response_sha256"], payload["evidence"],
+    )
+    normalized = normalize_futu_timestamp(evidence.source_timestamp, evidence.semantics)
     if normalized.bar_start_local.isoformat() != payload["expected_bar_start_local"]:
         raise TimestampSemanticsUnverifiedError(f"time_key fixture {path} contradicts expected start")
-    return semantics, hashlib.sha256(raw).hexdigest()
+    return evidence
+
+
+def require_futu_production_evidence(evidence: TimeKeyEvidence, symbol: str, provider_code: str) -> None:
+    if evidence.fixture_kind is not TimeKeyFixtureKind.PRODUCTION_CAPTURE:
+        raise TimestampSemanticsUnverifiedError("Futu builds require PRODUCTION_CAPTURE evidence")
+    if not evidence.verified or not re.fullmatch(r"[0-9a-f]{64}", evidence.raw_response_sha256):
+        raise TimestampSemanticsUnverifiedError("production evidence is unverified or lacks raw SHA-256")
+    if not all((evidence.futu_api_version, evidence.opend_version, evidence.evidence)):
+        raise TimestampSemanticsUnverifiedError("production evidence lacks version or operator evidence")
+    if (evidence.symbol, evidence.provider_code, evidence.ktype) != (symbol, provider_code, "K_30M"):
+        raise TimestampSemanticsUnverifiedError("production evidence does not match requested symbol/provider/ktype")
+
+
+def to_futu_provider_code(symbol: str) -> str:
+    normalized = symbol.upper()
+    if normalized not in PHASE1_SYMBOLS:
+        raise DataContractError(f"unsupported Phase 1 symbol: {symbol}")
+    return f"US.{normalized}"
+
+
+def from_futu_provider_code(provider_code: str) -> str:
+    if not provider_code.startswith("US."):
+        raise DataContractError(f"unsupported Futu provider_code: {provider_code}")
+    symbol = provider_code[3:]
+    if to_futu_provider_code(symbol) != provider_code:
+        raise DataContractError(f"unsupported Futu provider_code: {provider_code}")
+    return symbol
 
 
 def normalize_futu_timestamp(source_timestamp: str, semantics: TimeKeySemantics) -> NormalizedTimestamp:
@@ -847,10 +1164,19 @@ class FutuProvider:
         self._k_30m = k_30m
         self._no_adjust = no_adjust
         self._sleep = sleep
-        self.time_key_semantics, self.time_key_fixture_sha256 = load_time_key_fixture(fixture_path)
+        fixture_bytes = Path(fixture_path).read_bytes()
+        self.time_key_evidence = load_time_key_fixture(fixture_path)
+        require_futu_production_evidence(
+            self.time_key_evidence,
+            self.time_key_evidence.symbol,
+            self.time_key_evidence.provider_code,
+        )
+        self.time_key_semantics = self.time_key_evidence.semantics
+        self.time_key_fixture_sha256 = hashlib.sha256(fixture_bytes).hexdigest()
 
     def fetch_30m(self, symbol: str, start: date, end: date) -> pd.DataFrame:
-        code = f"US.{symbol.upper()}"
+        code = to_futu_provider_code(symbol)
+        require_futu_production_evidence(self.time_key_evidence, symbol.upper(), code)
         pages = []
         page_key = None
         while True:
@@ -883,15 +1209,15 @@ class FutuProvider:
             "bar_end_local": [item.bar_end_local for item in normalized],
             "bar_start_utc": [item.bar_start_utc for item in normalized],
             "bar_end_utc": [item.bar_end_utc for item in normalized],
-            "symbol": symbol.upper(),
+            "symbol": from_futu_provider_code(code), "provider_code": code,
             "open": merged["open"], "high": merged["high"], "low": merged["low"],
             "close": merged["close"], "volume": merged["volume"],
         })
 
     def fetch_corporate_actions(
         self, symbol: str, start: date, end: date,
-    ) -> tuple[CorporateAction, ...]:
-        code = f"US.{symbol.upper()}"
+    ) -> CorporateActionBatch:
+        code = to_futu_provider_code(symbol)
         ret, data = self._context.get_rehab(code)
         if ret != self._ret_ok:
             raise ProviderError(f"Futu rehab request failed for {code}: {data}")
@@ -924,22 +1250,33 @@ class FutuProvider:
                 "FUTU", symbol.upper(), CorporateActionType.SPLIT, effective_date,
                 design_ratio, fetched_at, source_sha256, True,
             ))
-        return tuple(actions)
+        return CorporateActionBatch(tuple(actions), source_sha256, fetched_at, True)
 ```
 
-The module imports `hashlib`, `json`, `time`, `date`, `datetime`, `timedelta`, `timezone`, `Decimal`, `Path`, `ZoneInfo`, pandas, `ProviderError`, `TimestampSemanticsUnverifiedError`, and the model types used above. Rows without positive split or join numerator/denominator pairs remain in the hashed source evidence but do not produce split adjustments.
+The module imports `hashlib`, `json`, `re`, `time`, `date`, `datetime`, `timedelta`, `timezone`, `Decimal`, `Path`, `ZoneInfo`, pandas, provider/data-contract exceptions, and the model types used above. Rows without positive split or join numerator/denominator pairs remain in the raw-response hash but do not produce split adjustments. Tests also write a CSV row with `symbol=QQQ, provider_code=US.SPY` and require `CSVProvider.fetch_30m()` to raise `DataContractError`; valid CSV rows retain the bare symbol and provider code as separate columns.
 
 - [ ] **Step 4: Run adapter tests and all regressions**
 
 Run: `python -m pytest tests/phase1_data/test_futu.py -q`
 
-Expected: PASS, including both timestamp meanings, unverified rejection, pagination, unadjusted K_30M arguments, source preservation, supplier ratio inversion, and explicit failure.
+Expected: PASS, including TEST-only offline use, TEST rejection by Futu, unverified/missing-hash production rejection, both timestamp meanings, five-symbol mapping, CSV mismatch rejection, pagination, unadjusted K_30M arguments, source preservation, supplier ratio inversion, and explicit failure.
 
 Run: `python -m pytest tests -q`
 
-Expected: PASS.
+Expected: PASS. These tests do not assert that a TEST fixture proves real Futu semantics.
 
-- [ ] **Step 5: Commit providers and evidence fixtures**
+- [ ] **Step 5: Perform the separate manual production-capture integration gate**
+
+This is an operator gate, outside pytest and before the first official Futu dataset build:
+
+1. With the approved Futu OpenD environment, capture the canonical raw response bytes for one known full-session symbol using `K_30M`, `AuType.NONE`, and `extended_time=False`.
+2. Save `data/phase1/evidence/futu_time_key_<symbol>_<captured_at_utc>.json` with `fixture_kind=PRODUCTION_CAPTURE`, the real API/OpenD versions, symbol, provider code, ktype, capture time, raw-response SHA-256, source timestamp, expected New York bar start, semantics, and the operator comparison evidence.
+3. Manually compare the captured row to the XNYS open/close sequence and set `verified=true` only after the label meaning is confirmed.
+4. Run: `python -m tv_quant.phase1_data.cli validate-time-key --fixture <captured-json>`
+
+Expected: `STRUCTURE_VALID MANUAL_SEMANTICS_CONFIRMATION_REQUIRED`. This command verifies schema, hashes, and time conversion only; it never claims the provider's real semantics were proved automatically. A missing raw hash, TEST kind, or `verified=false` exits nonzero and blocks the Futu build.
+
+- [ ] **Step 6: Commit providers and TEST evidence fixtures**
 
 ```bash
 git add src/tv_quant/phase1_data/providers.py src/tv_quant/phase1_data/futu.py tests/phase1_data/test_futu.py tests/fixtures/phase1/futu_time_key_start.json tests/fixtures/phase1/futu_time_key_end.json tests/fixtures/phase1/futu_time_key_unverified.json
@@ -950,6 +1287,7 @@ git commit -m "Add verified Futu 30 minute adapter"
 
 **Files:**
 - Create: `src/tv_quant/phase1_data/sessions.py`
+- Create: `tests/phase1_data/helpers.py`
 - Create: `tests/phase1_data/test_sessions.py`
 - Create: `tests/fixtures/phase1/normal_session_2024-11-27.csv`
 - Create: `tests/fixtures/phase1/early_close_2024-11-29.csv`
@@ -960,37 +1298,77 @@ git commit -m "Add verified Futu 30 minute adapter"
 
 - [ ] **Step 1: Create deterministic session fixture generation and failing tests**
 
-The two CSV fixtures use these exact columns and values. `normal_session_2024-11-27.csv` has starts from `2024-11-27 09:30:00` through `15:30:00` in 30-minute increments; `early_close_2024-11-29.csv` has starts from `09:30:00` through `12:30:00`. Every row uses `US.QQQ`, OHLC `500,502,499,501`, volume `1000`, and includes no premarket or postmarket row.
+The two CSV fixtures use explicit `symbol=QQQ` and `provider_code=US.QQQ` columns. `normal_session_2024-11-27.csv` has starts from `2024-11-27 09:30:00` through `15:30:00` in 30-minute increments; `early_close_2024-11-29.csv` has starts from `09:30:00` through `12:30:00`. Every row uses OHLC `500,502,499,501`, volume `1000`, and includes no premarket or postmarket row.
+
+All Phase 1 tests import shared factories from this non-test module; no test module imports another test module:
+
+```python
+# tests/phase1_data/helpers.py
+import hashlib
+import json
+from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
+from pathlib import Path
+
+from tv_quant.phase1_data.calendar import XNYSCalendar
+from tv_quant.phase1_data.models import (
+    Bar30mRecord, CorporateAction, CorporateActionBatch, CorporateActionType,
+)
+
+
+def make_bar30m(start_local: datetime, *, minutes: int = 30, source: str = "FUTU", symbol: str = "QQQ") -> Bar30mRecord:
+    end_local = start_local + timedelta(minutes=minutes)
+    one = Decimal("1")
+    return Bar30mRecord(
+        start_local.replace(tzinfo=None).strftime("%Y-%m-%d %H:%M:%S"),
+        start_local, end_local, start_local.astimezone(timezone.utc),
+        end_local.astimezone(timezone.utc), start_local.date(), True, False,
+        source, symbol, f"US.{symbol}", Decimal("500"), Decimal("502"),
+        Decimal("499"), Decimal("501"), Decimal("1000"), Decimal("500"),
+        Decimal("502"), Decimal("499"), Decimal("501"), Decimal("1000"), one,
+    )
+
+
+def scheduled_bars(session_date: date, *, symbol: str = "QQQ") -> tuple[Bar30mRecord, ...]:
+    schedule = XNYSCalendar().session(session_date)
+    return tuple(
+        make_bar30m(schedule.open_local + index * timedelta(minutes=30), symbol=symbol)
+        for index in range(schedule.expected_bar_count)
+    )
+
+
+def load_phase1_actions(path: Path) -> CorporateActionBatch:
+    raw = path.read_bytes()
+    payload = json.loads(raw)
+    required = {"source", "symbol", "fetched_at_utc", "verified", "actions"}
+    if missing := required.difference(payload):
+        raise ValueError(f"corporate-action fixture missing fields: {sorted(missing)}")
+    fetched_at = datetime.fromisoformat(payload["fetched_at_utc"])
+    source_sha256 = hashlib.sha256(raw).hexdigest()
+    actions = tuple(
+        CorporateAction(
+            payload["source"], payload["symbol"], CorporateActionType(item["action_type"]),
+            date.fromisoformat(item["effective_date"]), Decimal(item["ratio_new_over_old"]),
+            fetched_at, source_sha256, bool(payload["verified"]),
+        )
+        for item in payload["actions"]
+    )
+    return CorporateActionBatch(actions, source_sha256, fetched_at, bool(payload["verified"]))
+```
+
+The helper contains no pytest fixture magic, and production code never imports it.
 
 ```python
 # tests/phase1_data/test_sessions.py
 from dataclasses import replace
-from datetime import date, datetime, timedelta, timezone
-from decimal import Decimal
+from datetime import date, timedelta
 
 import pytest
 
 from tv_quant.phase1_data.calendar import XNYSCalendar
-from tv_quant.phase1_data.models import Bar30mRecord, DataStatus
+from tv_quant.phase1_data.models import DataStatus
 from tv_quant.phase1_data.sessions import filter_rth_bars, validate_30m_session
-
-
-def bar(start_local: datetime, *, minutes=30, source="FUTU") -> Bar30mRecord:
-    end_local = start_local + timedelta(minutes=minutes)
-    start_utc = start_local.astimezone(timezone.utc)
-    end_utc = end_local.astimezone(timezone.utc)
-    one = Decimal("1")
-    return Bar30mRecord(
-        start_local.replace(tzinfo=None).strftime("%Y-%m-%d %H:%M:%S"), start_local,
-        end_local, start_utc, end_utc, start_local.date(), True, False, source, "QQQ",
-        Decimal("500"), Decimal("502"), Decimal("499"), Decimal("501"), Decimal("1000"),
-        Decimal("500"), Decimal("502"), Decimal("499"), Decimal("501"), Decimal("1000"), one,
-    )
-
-
-def scheduled_bars(session_date: date) -> tuple[Bar30mRecord, ...]:
-    schedule = XNYSCalendar().session(session_date)
-    return tuple(bar(schedule.open_local + index * timedelta(minutes=30)) for index in range(schedule.expected_bar_count))
+from tests.phase1_data.helpers import make_bar30m, scheduled_bars
 
 
 def test_ordinary_session_has_exactly_thirteen_expected_bars():
@@ -1028,8 +1406,8 @@ def test_session_integrity_failures_are_blocking(mutate, message):
 def test_premarket_and_postmarket_are_filtered_before_validation():
     schedule = XNYSCalendar().session(date(2024, 11, 27))
     regular = scheduled_bars(schedule.session_date)
-    pre = replace(bar(schedule.open_local - timedelta(minutes=30)), is_regular_session=False)
-    post = replace(bar(schedule.close_local), is_regular_session=False)
+    pre = replace(make_bar30m(schedule.open_local - timedelta(minutes=30)), is_regular_session=False)
+    post = replace(make_bar30m(schedule.close_local), is_regular_session=False)
     filtered = filter_rth_bars((pre,) + regular + (post,), schedule)
     assert filtered == regular
     assert validate_30m_session(filtered, schedule).status is DataStatus.VALID
@@ -1118,7 +1496,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit session validation**
 
 ```bash
-git add src/tv_quant/phase1_data/sessions.py tests/phase1_data/test_sessions.py tests/fixtures/phase1/normal_session_2024-11-27.csv tests/fixtures/phase1/early_close_2024-11-29.csv
+git add src/tv_quant/phase1_data/sessions.py tests/phase1_data/helpers.py tests/phase1_data/test_sessions.py tests/fixtures/phase1/normal_session_2024-11-27.csv tests/fixtures/phase1/early_close_2024-11-29.csv
 git commit -m "Validate phase 1 RTH sessions"
 ```
 
@@ -1143,7 +1521,7 @@ import pytest
 
 from tv_quant.phase1_data.models import DataStatus, DataWarning
 from tv_quant.phase1_data.quality import validate_ohlcv, validate_split_factors
-from tests.phase1_data.test_sessions import scheduled_bars
+from tests.phase1_data.helpers import scheduled_bars
 
 
 def valid_bar():
@@ -1273,15 +1651,13 @@ git commit -m "Enforce phase 1 OHLCV quality"
 
 **Interfaces:**
 - Consumes: unmodified raw `Bar30mRecord` values and source-verified `CorporateAction` events.
-- Produces: `hash_corporate_actions(actions) -> str` and `apply_split_adjustment(bars, actions) -> tuple[Bar30mRecord, ...]`.
+- Produces: `calculate_corporate_action_content_sha256(actions) -> str` and `apply_split_adjustment(bars, actions) -> tuple[Bar30mRecord, ...]`.
+- The deterministic content hash excludes `fetched_at_utc`, while `CorporateActionBatch.source_sha256` retains the raw supplier-response identity and `fetched_at_utc` remains audit metadata only.
 
 - [ ] **Step 1: Add the canonical event fixture and failing adjustment tests**
 
 ```json
-[
-  {"source":"FUTU","symbol":"QQQ","action_type":"SPLIT","effective_date":"2022-06-06","ratio_new_over_old":"2","fetched_at_utc":"2024-01-01T00:00:00+00:00","source_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","verified":true},
-  {"source":"FUTU","symbol":"QQQ","action_type":"DIVIDEND","effective_date":"2023-12-20","ratio_new_over_old":"1","fetched_at_utc":"2024-01-01T00:00:00+00:00","source_sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","verified":true}
-]
+{"source":"FUTU","symbol":"QQQ","fetched_at_utc":"2024-01-01T00:00:00+00:00","verified":true,"actions":[{"action_type":"SPLIT","effective_date":"2022-06-06","ratio_new_over_old":"2"},{"action_type":"DIVIDEND","effective_date":"2023-12-20","ratio_new_over_old":"1"}]}
 ```
 
 ```python
@@ -1292,10 +1668,12 @@ from decimal import Decimal
 
 import pytest
 
-from tv_quant.phase1_data.corporate_actions import apply_split_adjustment, hash_corporate_actions
+from tv_quant.phase1_data.corporate_actions import (
+    apply_split_adjustment, calculate_corporate_action_content_sha256,
+)
 from tv_quant.phase1_data.errors import CorporateActionsUnverifiedError
 from tv_quant.phase1_data.models import CorporateAction, CorporateActionType
-from tests.phase1_data.test_sessions import scheduled_bars
+from tests.phase1_data.helpers import scheduled_bars
 
 
 def action(kind, effective, ratio, verified=True):
@@ -1340,11 +1718,31 @@ def test_unverified_action_blocks_adjustment():
         apply_split_adjustment((source_bar(date(2024, 1, 2)),), (action(CorporateActionType.SPLIT, date(2024, 1, 3), "2", False),))
 
 
-def test_action_hash_is_canonical_and_changes_with_event_content():
-    original = (action(CorporateActionType.SPLIT, date(2024, 1, 3), "2"),)
-    assert hash_corporate_actions(original) == hash_corporate_actions(tuple(reversed(original)))
-    changed = (replace(original[0], ratio_new_over_old=Decimal("3")),)
-    assert hash_corporate_actions(original) != hash_corporate_actions(changed)
+def test_action_content_hash_is_order_and_fetch_time_invariant():
+    original = (
+        action(CorporateActionType.SPLIT, date(2024, 1, 3), "2"),
+        action(CorporateActionType.DIVIDEND, date(2024, 1, 3), "1"),
+    )
+    hash_one = calculate_corporate_action_content_sha256(original)
+    hash_two = calculate_corporate_action_content_sha256(tuple(reversed(original)))
+    hash_three = calculate_corporate_action_content_sha256(tuple(
+        replace(item, fetched_at_utc=datetime(2025, 1, 1, tzinfo=timezone.utc)) for item in original
+    ))
+    assert hash_one == hash_two == hash_three
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda item: replace(item, ratio_new_over_old=Decimal("3")),
+        lambda item: replace(item, effective_date=date(2024, 1, 4)),
+        lambda item: replace(item, source="CSV"),
+        lambda item: replace(item, source_sha256="b" * 64),
+    ],
+)
+def test_action_content_hash_changes_with_identity_content(mutation):
+    original = action(CorporateActionType.SPLIT, date(2024, 1, 3), "2")
+    assert calculate_corporate_action_content_sha256((original,)) != calculate_corporate_action_content_sha256((mutation(original),))
 ```
 
 - [ ] **Step 2: Run tests and verify the missing adjustment module failure**
@@ -1361,7 +1759,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import asdict, replace
+from dataclasses import replace
 from decimal import Decimal
 from typing import Sequence
 
@@ -1370,18 +1768,29 @@ from .models import Bar30mRecord, CorporateAction, CorporateActionType
 
 
 def _canonical_actions(actions: Sequence[CorporateAction]) -> bytes:
-    rows = []
-    for action in sorted(actions, key=lambda item: (item.symbol, item.effective_date, item.action_type.value)):
-        row = asdict(action)
-        row["action_type"] = action.action_type.value
-        row["effective_date"] = action.effective_date.isoformat()
-        row["ratio_new_over_old"] = str(action.ratio_new_over_old)
-        row["fetched_at_utc"] = action.fetched_at_utc.isoformat()
-        rows.append(row)
+    ordered = sorted(
+        actions,
+        key=lambda item: (
+            item.source, item.symbol, item.action_type.value, item.effective_date,
+            item.ratio_new_over_old, item.source_sha256,
+        ),
+    )
+    rows = [
+        {
+            "source": action.source,
+            "symbol": action.symbol,
+            "action_type": action.action_type.value,
+            "effective_date": action.effective_date.isoformat(),
+            "ratio_new_over_old": str(action.ratio_new_over_old),
+            "source_sha256": action.source_sha256,
+            "verified": action.verified,
+        }
+        for action in ordered
+    ]
     return json.dumps(rows, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
-def hash_corporate_actions(actions: Sequence[CorporateAction]) -> str:
+def calculate_corporate_action_content_sha256(actions: Sequence[CorporateAction]) -> str:
     return hashlib.sha256(_canonical_actions(actions)).hexdigest()
 
 
@@ -1415,7 +1824,7 @@ def apply_split_adjustment(
 
 Run: `python -m pytest tests/phase1_data/test_corporate_actions.py tests/phase1_data/test_quality.py -q`
 
-Expected: PASS for no split, 2-for-1, cumulative factors, effective-date boundary, raw immutability, volume adjustment, unverified block, hash change, and dividend exclusion.
+Expected: PASS for no split, 2-for-1, cumulative factors, effective-date boundary, raw immutability, volume adjustment, unverified block, fetched-time invariance, same-date reorder invariance, ratio/date/source/source-hash sensitivity, and dividend exclusion.
 
 Run: `python -m pytest tests -q`
 
@@ -1451,7 +1860,7 @@ import pytest
 from tv_quant.phase1_data.aggregation import aggregate_60m_research_bars, aggregate_daily_bars
 from tv_quant.phase1_data.calendar import XNYSCalendar
 from tv_quant.phase1_data.errors import AggregationError, SourceMixingError
-from tests.phase1_data.test_sessions import scheduled_bars
+from tests.phase1_data.helpers import scheduled_bars
 
 
 def test_two_30m_bars_aggregate_raw_and_research_independently():
@@ -1522,7 +1931,10 @@ def _one_source_and_symbol(bars: Sequence[Bar30mRecord]) -> tuple[str, str]:
         raise SourceMixingError("aggregation requires a single source")
     if len(symbols) != 1:
         raise AggregationError("aggregation requires a single symbol")
-    return next(iter(sources)), next(iter(symbols))
+    provider_codes = {item.provider_code for item in bars}
+    if len(provider_codes) != 1:
+        raise AggregationError("aggregation requires a single provider_code")
+    return next(iter(sources)), next(iter(symbols)), next(iter(provider_codes))
 
 
 def aggregate_daily_bars(bars: Sequence[Bar30mRecord]) -> tuple[DailyBarRecord, ...]:
@@ -1532,9 +1944,9 @@ def aggregate_daily_bars(bars: Sequence[Bar30mRecord]) -> tuple[DailyBarRecord, 
     result: list[DailyBarRecord] = []
     for session_date in sorted(grouped):
         items = sorted(grouped[session_date], key=lambda item: item.bar_start_utc)
-        source, symbol = _one_source_and_symbol(items)
+        source, symbol, provider_code = _one_source_and_symbol(items)
         result.append(DailyBarRecord(
-            session_date, source, symbol,
+            session_date, source, symbol, provider_code,
             items[0].raw_open, max(item.raw_high for item in items), min(item.raw_low for item in items), items[-1].raw_close, sum(item.raw_volume for item in items),
             items[0].research_open, max(item.research_high for item in items), min(item.research_low for item in items), items[-1].research_close, sum(item.research_volume for item in items),
         ))
@@ -1551,7 +1963,7 @@ def aggregate_60m_research_bars(
         raise AggregationError("normal session requires 13 validated bars")
     if any(item.session_date != schedule.session_date for item in items):
         raise AggregationError("cannot aggregate across session_date")
-    source, symbol = _one_source_and_symbol(items)
+    source, symbol, provider_code = _one_source_and_symbol(items)
     result: list[Bar60mRecord] = []
     for index in range(0, 12, 2):
         first, second = items[index:index + 2]
@@ -1559,7 +1971,7 @@ def aggregate_60m_research_bars(
             raise AggregationError("60-minute component bar is missing")
         result.append(Bar60mRecord(
             first.bar_start_local, second.bar_end_local, first.bar_start_utc, second.bar_end_utc,
-            schedule.session_date, source, symbol,
+            schedule.session_date, source, symbol, provider_code,
             first.raw_open, max(first.raw_high, second.raw_high), min(first.raw_low, second.raw_low), second.raw_close, first.raw_volume + second.raw_volume,
             first.research_open, max(first.research_high, second.research_high), min(first.research_low, second.research_low), second.research_close, first.research_volume + second.research_volume,
         ))
@@ -1570,7 +1982,7 @@ def aggregate_60m_research_bars(
 
 Run: `python -m pytest tests/phase1_data/test_aggregation.py -q`
 
-Expected: PASS for raw/research OHLCV, six-pair construction, tail exclusion, cross-session rejection, missing component, daily ordinary/early-close aggregation, and source mixing rejection.
+Expected: PASS for raw/research OHLCV, six-pair construction, tail exclusion, cross-session rejection, missing component, daily ordinary/early-close aggregation, source mixing rejection, and provider-code mixing rejection.
 
 Run: `python -m pytest tests -q`
 
@@ -1592,13 +2004,16 @@ git commit -m "Aggregate phase 1 research bars"
 - Modify: `.gitignore:15`
 
 **Interfaces:**
-- Consumes: canonical output bytes, `ManifestRequest`, final quality result, and corporate-action status.
-- Produces: `calculate_file_sha256`, `calculate_dataset_sha256`, `build_data_manifest`, `manifest_json_bytes`, and `atomic_write_dataset`.
+- Consumes: canonical output bytes and a self-contained `manifest.json` that is the sole publication truth.
+- Produces: file/dataset hashes, deterministic dataset identity, manifest serialization, staged-manifest validation, and immutable atomic publication.
+- Publication parses the staged manifest and independently verifies schema version, blocking statuses, exact required files, every declared file hash, dataset hash, recomputed dataset ID, and destination directory name before rename.
 
 - [ ] **Step 1: Add failing manifest, hash, and failure-injection tests**
 
 ```python
 # tests/phase1_data/test_manifest_storage.py
+import hashlib
+import json
 from dataclasses import replace
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -1609,26 +2024,46 @@ from tv_quant.phase1_data.errors import AtomicWriteError, PublicationBlockedErro
 from tv_quant.phase1_data.manifest import build_data_manifest, manifest_json_bytes
 from tv_quant.phase1_data.models import (
     DataQualityResult, DataStatus, EarlyClose60mPolicy, ManifestRequest,
-    TimeKeySemantics,
+    TimeKeyFixtureKind, TimeKeySemantics,
 )
 from tv_quant.phase1_data.storage import (
     atomic_write_dataset, calculate_dataset_sha256, calculate_file_sha256,
 )
 
 
-def request(dataset_hash="1" * 64, action_hash="2" * 64, schedule_hash="3" * 64):
+DATA_FILES = {
+    "bars_30m.csv": b"symbol,provider_code,close\nQQQ,US.QQQ,501\n",
+    "bars_60m.csv": b"symbol,provider_code,close\nQQQ,US.QQQ,501\n",
+    "daily.csv": b"symbol,provider_code,close\nQQQ,US.QQQ,501\n",
+    "corporate_actions.json": b"[]\n",
+}
+
+
+def request(*, files=DATA_FILES, fetched_at=datetime(2026, 7, 18, tzinfo=timezone.utc), action_content_hash="2" * 64):
+    file_hashes = {name: hashlib.sha256(content).hexdigest() for name, content in files.items()}
     return ManifestRequest(
         source="FUTU", source_version="10.9", generated_at_utc=datetime(2026, 7, 18, tzinfo=timezone.utc),
         timezone="UTC", start_date=date(2024, 11, 27), end_date=date(2024, 11, 29),
-        row_counts={"bars_30m.csv": 20, "bars_60m.csv": 6, "daily.csv": 2},
+        row_counts={"bars_30m.csv": 20, "bars_60m.csv": 6, "daily.csv": 2, "corporate_actions.json": 1},
         fields={"bars_30m.csv": ("bar_start_utc", "raw_open", "research_open")},
-        file_hashes={"bars_30m.csv": "4" * 64}, dataset_sha256=dataset_hash,
+        file_hashes=file_hashes, dataset_sha256=calculate_dataset_sha256(files),
         quality_status=DataStatus.VALID, warnings=(), calendar_library="exchange_calendars",
-        calendar_library_version="4.13.2", calendar_schedule_hash=schedule_hash,
+        calendar_library_version="4.13.2", calendar_schedule_hash="3" * 64,
         early_close_60m_policy=EarlyClose60mPolicy.EXCLUDE,
-        corporate_action_sha256=action_hash, corporate_action_status=DataStatus.VALID,
-        time_key_semantics=TimeKeySemantics.BAR_START, time_key_fixture_sha256="5" * 64,
+        corporate_action_content_sha256=action_content_hash,
+        corporate_action_source_sha256="4" * 64,
+        corporate_actions_fetched_at_utc=fetched_at,
+        corporate_action_status=DataStatus.VALID,
+        time_key_fixture_kind=TimeKeyFixtureKind.PRODUCTION_CAPTURE,
+        time_key_semantics=TimeKeySemantics.BAR_START,
+        time_key_fixture_sha256="5" * 64,
+        time_key_raw_response_sha256="6" * 64,
     )
+
+
+def publishable(tmp_path):
+    manifest = build_data_manifest(request())
+    return tmp_path / "datasets" / manifest.dataset_id, {**DATA_FILES, "manifest.json": manifest_json_bytes(manifest)}
 
 
 def test_manifest_contains_every_mandatory_field_and_deterministic_identity():
@@ -1640,8 +2075,8 @@ def test_manifest_contains_every_mandatory_field_and_deterministic_identity():
     assert manifest.calendar_schedule_hash == "3" * 64
     assert manifest.early_close_60m_policy.value == "EXCLUDE_FROM_60M_SEQUENCE"
     assert build_data_manifest(request()).dataset_id == manifest.dataset_id
-    assert build_data_manifest(request(dataset_hash="9" * 64)).dataset_id != manifest.dataset_id
-    assert build_data_manifest(request(action_hash="8" * 64)).dataset_id != manifest.dataset_id
+    assert build_data_manifest(request(fetched_at=datetime(2027, 1, 1, tzinfo=timezone.utc))).dataset_id == manifest.dataset_id
+    assert build_data_manifest(request(action_content_hash="8" * 64)).dataset_id != manifest.dataset_id
 
 
 def test_file_and_dataset_hashes_are_stable_and_content_sensitive(tmp_path):
@@ -1654,31 +2089,54 @@ def test_file_and_dataset_hashes_are_stable_and_content_sensitive(tmp_path):
 
 
 def test_atomic_publish_succeeds_only_after_staged_hash_validation(tmp_path):
-    destination = tmp_path / "datasets" / "phase1-abc"
-    files = {"bars_30m.csv": b"a,b\n1,2\n", "manifest.json": manifest_json_bytes(build_data_manifest(request()))}
-    result = atomic_write_dataset(destination, files, DataQualityResult(DataStatus.VALID, (), ()), DataStatus.VALID)
+    destination, files = publishable(tmp_path)
+    result = atomic_write_dataset(destination, files)
     assert result == destination
     assert (destination / "bars_30m.csv").read_bytes() == files["bars_30m.csv"]
-    assert not list(destination.parent.glob(".phase1-abc.tmp-*"))
+    assert not list((tmp_path / "staging").rglob("*"))
 
 
-@pytest.mark.parametrize("quality,actions", [
-    (DataQualityResult(DataStatus.DATA_QUALITY_FAILED, ("bad bar",), ()), DataStatus.VALID),
-    (DataQualityResult(DataStatus.VALID, (), ()), DataStatus.DATA_ACTIONS_UNVERIFIED),
+@pytest.mark.parametrize(("field", "value"), [
+    ("quality_status", "DATA_QUALITY_FAILED"),
+    ("corporate_action_status", "DATA_ACTIONS_UNVERIFIED"),
 ])
-def test_blocking_status_never_publishes(tmp_path, quality, actions):
+def test_manifest_blocking_status_never_publishes(tmp_path, field, value):
+    destination, files = publishable(tmp_path)
+    payload = json.loads(files["manifest.json"])
+    payload[field] = value
+    files["manifest.json"] = (json.dumps(payload, sort_keys=True) + "\n").encode()
     with pytest.raises(PublicationBlockedError):
-        atomic_write_dataset(tmp_path / "datasets" / "blocked", {"x": b"1"}, quality, actions)
-    assert not (tmp_path / "datasets" / "blocked").exists()
+        atomic_write_dataset(destination, files)
+    assert not destination.exists()
+
+
+@pytest.mark.parametrize("fault", ["changed_csv", "changed_manifest_hash", "wrong_directory", "missing_actions", "extra_file"])
+def test_manifest_truth_faults_block_before_rename(tmp_path, fault):
+    destination, files = publishable(tmp_path)
+    if fault == "changed_csv":
+        files["bars_30m.csv"] += b"tampered\n"
+    elif fault == "changed_manifest_hash":
+        payload = json.loads(files["manifest.json"])
+        payload["file_hashes"]["daily.csv"] = "0" * 64
+        files["manifest.json"] = (json.dumps(payload, sort_keys=True) + "\n").encode()
+    elif fault == "wrong_directory":
+        destination = destination.with_name("phase1-wrong")
+    elif fault == "missing_actions":
+        del files["corporate_actions.json"]
+    else:
+        files["extra.txt"] = b"not declared"
+    with pytest.raises((AtomicWriteError, PublicationBlockedError)):
+        atomic_write_dataset(destination, files)
+    assert not destination.exists()
 
 
 def test_existing_valid_dataset_is_never_overwritten(tmp_path):
-    destination = tmp_path / "datasets" / "phase1-existing"
+    destination, files = publishable(tmp_path)
     destination.mkdir(parents=True)
     valid = destination / "bars_30m.csv"
     valid.write_bytes(b"old-valid")
     with pytest.raises(FileExistsError):
-        atomic_write_dataset(destination, {"bars_30m.csv": b"new"}, DataQualityResult(DataStatus.VALID, (), ()), DataStatus.VALID)
+        atomic_write_dataset(destination, files)
     assert valid.read_bytes() == b"old-valid"
 
 
@@ -1686,11 +2144,12 @@ def test_replace_failure_cleans_staging_and_preserves_other_datasets(tmp_path, m
     other = tmp_path / "datasets" / "phase1-old"
     other.mkdir(parents=True)
     (other / "manifest.json").write_bytes(b"old")
+    destination, files = publishable(tmp_path)
     monkeypatch.setattr("tv_quant.phase1_data.storage.os.replace", lambda *_: (_ for _ in ()).throw(OSError("disk fault")))
     with pytest.raises(AtomicWriteError, match="disk fault"):
-        atomic_write_dataset(tmp_path / "datasets" / "phase1-new", {"x": b"1"}, DataQualityResult(DataStatus.VALID, (), ()), DataStatus.VALID)
+        atomic_write_dataset(destination, files)
     assert (other / "manifest.json").read_bytes() == b"old"
-    assert not list((tmp_path / "datasets").glob(".phase1-new.tmp-*"))
+    assert not list((tmp_path / "staging").rglob(destination.name))
 ```
 
 - [ ] **Step 2: Run tests and verify missing manifest/storage modules**
@@ -1708,6 +2167,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import asdict
+from typing import Mapping
 
 from .models import DataManifest, ManifestRequest
 
@@ -1715,17 +2175,25 @@ from .models import DataManifest, ManifestRequest
 SCHEMA_VERSION = "phase1-data-contract/1.0.0"
 
 
-def build_data_manifest(request: ManifestRequest) -> DataManifest:
+def calculate_dataset_id(manifest_payload: Mapping[str, object]) -> str:
     identity_input = {
         "schema_version": SCHEMA_VERSION,
-        "dataset_sha256": request.dataset_sha256,
-        "calendar_schedule_hash": request.calendar_schedule_hash,
-        "corporate_action_sha256": request.corporate_action_sha256,
-        "time_key_fixture_sha256": request.time_key_fixture_sha256,
-        "early_close_60m_policy": request.early_close_60m_policy.value,
+        "dataset_sha256": manifest_payload["dataset_sha256"],
+        "calendar_schedule_hash": manifest_payload["calendar_schedule_hash"],
+        "corporate_action_content_sha256": manifest_payload["corporate_action_content_sha256"],
+        "corporate_action_source_sha256": manifest_payload["corporate_action_source_sha256"],
+        "time_key_fixture_sha256": manifest_payload["time_key_fixture_sha256"],
+        "time_key_raw_response_sha256": manifest_payload["time_key_raw_response_sha256"],
+        "early_close_60m_policy": str(manifest_payload["early_close_60m_policy"]),
     }
     identity = hashlib.sha256(json.dumps(identity_input, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-    return DataManifest(SCHEMA_VERSION, f"phase1-{identity[:24]}", **asdict(request))
+    return f"phase1-{identity[:24]}"
+
+
+def build_data_manifest(request: ManifestRequest) -> DataManifest:
+    payload = asdict(request)
+    payload["early_close_60m_policy"] = request.early_close_60m_policy.value
+    return DataManifest(SCHEMA_VERSION, calculate_dataset_id(payload), **asdict(request))
 
 
 def manifest_json_bytes(manifest: DataManifest) -> bytes:
@@ -1736,7 +2204,9 @@ def manifest_json_bytes(manifest: DataManifest) -> bytes:
     payload["quality_status"] = manifest.quality_status.value
     payload["warnings"] = [item.value for item in manifest.warnings]
     payload["early_close_60m_policy"] = manifest.early_close_60m_policy.value
+    payload["corporate_actions_fetched_at_utc"] = manifest.corporate_actions_fetched_at_utc.isoformat()
     payload["corporate_action_status"] = manifest.corporate_action_status.value
+    payload["time_key_fixture_kind"] = manifest.time_key_fixture_kind.value
     payload["time_key_semantics"] = manifest.time_key_semantics.value
     return (json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8")
 ```
@@ -1746,6 +2216,7 @@ def manifest_json_bytes(manifest: DataManifest) -> bytes:
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import shutil
 import uuid
@@ -1753,7 +2224,12 @@ from pathlib import Path
 from typing import Mapping
 
 from .errors import AtomicWriteError, PublicationBlockedError
-from .models import DataQualityResult, DataStatus
+from .manifest import SCHEMA_VERSION, calculate_dataset_id
+
+
+REQUIRED_DATA_FILES = frozenset({
+    "bars_30m.csv", "bars_60m.csv", "daily.csv", "corporate_actions.json",
+})
 
 
 def calculate_file_sha256(path: str | Path) -> str:
@@ -1775,38 +2251,55 @@ def calculate_dataset_sha256(files: Mapping[str, bytes]) -> str:
 def atomic_write_dataset(
     destination: Path,
     files: Mapping[str, bytes],
-    quality: DataQualityResult,
-    actions_status: DataStatus,
 ) -> Path:
     destination = Path(destination)
-    if not quality.is_valid:
-        raise PublicationBlockedError("DATA_QUALITY_FAILED prevents dataset publication")
-    if actions_status is not DataStatus.VALID:
-        raise PublicationBlockedError("DATA_ACTIONS_UNVERIFIED prevents dataset publication")
     if destination.exists():
         raise FileExistsError(f"immutable dataset already exists: {destination}")
+    if set(files) != REQUIRED_DATA_FILES | {"manifest.json"}:
+        raise PublicationBlockedError("publication requires exactly the declared Phase 1 files")
     destination.parent.mkdir(parents=True, exist_ok=True)
-    staging = destination.parent / f".{destination.name}.tmp-{uuid.uuid4().hex}"
-    staging.mkdir()
+    # destination=data/phase1/datasets/<dataset_id>; stage at the frozen runtime path.
+    phase1_root = destination.parent.parent
+    run_root = phase1_root / "staging" / uuid.uuid4().hex
+    staging = run_root / destination.name
+    staging.mkdir(parents=True)
     try:
-        expected: dict[str, str] = {}
         for relative_name, content in files.items():
             target = staging / relative_name
-            target.parent.mkdir(parents=True, exist_ok=True)
             with target.open("xb") as handle:
                 handle.write(content)
                 handle.flush()
                 os.fsync(handle.fileno())
-            expected[relative_name] = hashlib.sha256(content).hexdigest()
-        actual = {name: calculate_file_sha256(staging / name) for name in expected}
-        if actual != expected:
-            raise AtomicWriteError("staged dataset hash verification failed")
+
+        try:
+            manifest = json.loads((staging / "manifest.json").read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise AtomicWriteError(f"invalid staged manifest: {error}") from error
+        if manifest.get("schema_version") != SCHEMA_VERSION:
+            raise PublicationBlockedError("unsupported manifest schema_version")
+        if manifest.get("quality_status") != "VALID":
+            raise PublicationBlockedError("DATA_QUALITY_FAILED prevents publication")
+        if manifest.get("corporate_action_status") != "VALID":
+            raise PublicationBlockedError("DATA_ACTIONS_UNVERIFIED prevents publication")
+        declared = manifest.get("file_hashes")
+        if not isinstance(declared, dict) or set(declared) != REQUIRED_DATA_FILES:
+            raise AtomicWriteError("manifest file_hashes must declare the exact data files")
+        actual_hashes = {name: calculate_file_sha256(staging / name) for name in REQUIRED_DATA_FILES}
+        if actual_hashes != declared:
+            raise AtomicWriteError("staged file hashes contradict manifest")
+        staged_bytes = {name: (staging / name).read_bytes() for name in REQUIRED_DATA_FILES}
+        if calculate_dataset_sha256(staged_bytes) != manifest.get("dataset_sha256"):
+            raise AtomicWriteError("staged dataset hash contradicts manifest")
+        recomputed_id = calculate_dataset_id(manifest)
+        if manifest.get("dataset_id") != recomputed_id or destination.name != recomputed_id:
+            raise AtomicWriteError("dataset identity or destination directory is inconsistent")
         os.replace(staging, destination)
     except Exception as error:
-        shutil.rmtree(staging, ignore_errors=True)
+        shutil.rmtree(run_root, ignore_errors=True)
         if isinstance(error, (AtomicWriteError, FileExistsError, PublicationBlockedError)):
             raise
         raise AtomicWriteError(str(error)) from error
+    shutil.rmtree(run_root, ignore_errors=True)
     return destination
 ```
 
@@ -1821,7 +2314,7 @@ data/phase1/datasets/
 
 Run: `python -m pytest tests/phase1_data/test_manifest_storage.py -q`
 
-Expected: PASS for mandatory fields, library/version/hash metadata, policy, stable and changing SHA-256, successful atomic replacement, blocking gates, immutable destination, and injected write failure.
+Expected: PASS for mandatory fields, fetch-time-invariant identity, repeated raw-response identity, content-sensitive SHA-256, successful atomic replacement, manifest status gates, changed CSV, changed declared hash, wrong destination name, missing corporate actions, extra file, immutable destination, and injected rename failure with cleanup.
 
 Run: `python -m pytest tests -q`
 
@@ -1857,7 +2350,9 @@ import pytest
 from tv_quant.cli import build_parser as legacy_parser
 from tv_quant.phase1_data.cli import EXIT_ACTIONS, EXIT_PROVIDER, EXIT_PUBLICATION, EXIT_QUALITY, main
 from tv_quant.phase1_data.errors import (
-    CorporateActionsUnverifiedError, DataQualityFailedError, ProviderError, PublicationBlockedError,
+    AggregationError, AtomicWriteError, CalendarContractError,
+    CorporateActionsUnverifiedError, DataContractError, DataQualityFailedError,
+    ProviderError, PublicationBlockedError, SourceMixingError,
 )
 from tv_quant.phase1_data.pipeline import BuildDatasetRequest, PipelineResult
 
@@ -1874,13 +2369,24 @@ def test_new_request_rejects_legacy_input_paths_and_non_phase1_output():
         BuildDatasetRequest("QQQ", date(2024, 1, 1), date(2024, 1, 2), Path("data/raw"), Path("fixture.json"))
 
 
+@pytest.mark.parametrize("symbol", ["QQQ", "SPY", "IWM", "RSP", "DIA"])
+def test_all_frozen_phase1_symbols_are_accepted(symbol):
+    assert BuildDatasetRequest(symbol, date(2024, 1, 1), date(2024, 1, 2), Path("data/phase1"), Path("fixture.json")).symbol == symbol
+
+
 @pytest.mark.parametrize(
     ("error", "exit_code"),
     [
         (ProviderError("Futu failed"), EXIT_PROVIDER),
         (DataQualityFailedError("bad bars"), EXIT_QUALITY),
+        (CalendarContractError("bad session"), EXIT_QUALITY),
+        (DataContractError("bad record"), EXIT_QUALITY),
+        (SourceMixingError("mixed source"), EXIT_QUALITY),
+        (AggregationError("bad aggregate"), EXIT_QUALITY),
         (CorporateActionsUnverifiedError("bad actions"), EXIT_ACTIONS),
         (PublicationBlockedError("blocked"), EXIT_PUBLICATION),
+        (AtomicWriteError("rename failed"), EXIT_PUBLICATION),
+        (FileExistsError("immutable destination"), EXIT_PUBLICATION),
     ],
 )
 def test_cli_maps_blocking_failures_to_fixed_nonzero_codes(monkeypatch, capsys, error, exit_code):
@@ -1921,13 +2427,16 @@ import pandas as pd
 
 from .aggregation import aggregate_60m_research_bars, aggregate_daily_bars
 from .calendar import TradingCalendar
-from .corporate_actions import apply_split_adjustment, hash_corporate_actions
+from .corporate_actions import (
+    apply_split_adjustment, calculate_corporate_action_content_sha256,
+)
 from .errors import CorporateActionsUnverifiedError, DataQualityFailedError
 from .futu import normalize_futu_timestamp
 from .manifest import build_data_manifest, manifest_json_bytes
 from .models import (
-    Bar30mRecord, Bar60mRecord, CorporateAction, DailyBarRecord, DataQualityResult,
-    DataStatus, EarlyClose60mPolicy, ManifestRequest, TimeKeySemantics,
+    PHASE1_SYMBOLS, Bar30mRecord, Bar60mRecord, CorporateAction, DailyBarRecord,
+    DataQualityResult, DataStatus, EarlyClose60mPolicy, ManifestRequest,
+    TimeKeyEvidence, TimeKeySemantics,
 )
 from .quality import validate_ohlcv, validate_split_factors
 from .providers import DataProvider
@@ -1947,8 +2456,8 @@ class BuildDatasetRequest:
         normalized = self.output_root.as_posix().rstrip("/")
         if not normalized.endswith("data/phase1"):
             raise ValueError("output_root must end with data/phase1")
-        if self.symbol not in {"SPY", "QQQ"}:
-            raise ValueError("Phase 1 symbol must be SPY or QQQ")
+        if self.symbol not in PHASE1_SYMBOLS:
+            raise ValueError(f"unsupported Phase 1 symbol: {self.symbol}")
         if self.start > self.end:
             raise ValueError("start must not follow end")
 
@@ -1970,14 +2479,17 @@ def _csv_bytes(records, record_type) -> bytes:
 
 
 def _actions_bytes(actions: tuple[CorporateAction, ...]) -> bytes:
-    payload = []
-    for action in sorted(actions, key=lambda item: (item.symbol, item.effective_date, item.action_type.value)):
-        row = asdict(action)
-        row["action_type"] = action.action_type.value
-        row["effective_date"] = action.effective_date.isoformat()
-        row["ratio_new_over_old"] = str(action.ratio_new_over_old)
-        row["fetched_at_utc"] = action.fetched_at_utc.isoformat()
-        payload.append(row)
+    ordered = sorted(actions, key=lambda item: (
+        item.source, item.symbol, item.action_type.value, item.effective_date,
+        item.ratio_new_over_old, item.source_sha256,
+    ))
+    payload = [{
+        "source": action.source, "symbol": action.symbol,
+        "action_type": action.action_type.value,
+        "effective_date": action.effective_date.isoformat(),
+        "ratio_new_over_old": str(action.ratio_new_over_old),
+        "source_sha256": action.source_sha256, "verified": action.verified,
+    } for action in ordered]
     return (json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
 
 
@@ -2002,7 +2514,7 @@ def _records_from_frame(
         records.append(Bar30mRecord(
             normalized.source_timestamp, normalized.bar_start_local, normalized.bar_end_local,
             normalized.bar_start_utc, normalized.bar_end_utc, session_date, regular,
-            schedule.is_early_close, source, symbol, raw_open, raw_high, raw_low,
+            schedule.is_early_close, source, symbol, str(row["provider_code"]), raw_open, raw_high, raw_low,
             raw_close, raw_volume, raw_open, raw_high, raw_low, raw_close, raw_volume,
             Decimal("1"),
         ))
@@ -2013,15 +2525,16 @@ def build_phase1_dataset(
     request: BuildDatasetRequest,
     provider: DataProvider,
     calendar: TradingCalendar,
-    fixture_semantics: TimeKeySemantics,
-    fixture_hash: str,
 ) -> PipelineResult:
+    evidence = provider.time_key_evidence
+    fixture_hash = hashlib.sha256(request.time_key_fixture.read_bytes()).hexdigest()
     schedules = calendar.sessions(request.start, request.end)
     frame = provider.fetch_30m(request.symbol, request.start, request.end)
-    actions = provider.fetch_corporate_actions(request.symbol, request.start, request.end)
-    if any(not action.verified for action in actions):
+    action_batch = provider.fetch_corporate_actions(request.symbol, request.start, request.end)
+    actions = action_batch.actions
+    if not action_batch.verified or any(not action.verified for action in actions):
         raise CorporateActionsUnverifiedError("corporate action set contains an unverified event")
-    records = _records_from_frame(frame, provider.source_name, request.symbol, schedules, fixture_semantics)
+    records = _records_from_frame(frame, provider.source_name, request.symbol, schedules, evidence.semantics)
     valid_sessions = []
     session_errors = []
     for schedule in schedules:
@@ -2065,7 +2578,10 @@ def build_phase1_dataset(
         source=provider.source_name, source_version=provider.source_version,
         generated_at_utc=datetime.now(timezone.utc), timezone="UTC",
         start_date=request.start, end_date=request.end,
-        row_counts={"bars_30m.csv": len(adjusted), "bars_60m.csv": len(bars_60m), "daily.csv": len(daily)},
+        row_counts={
+            "bars_30m.csv": len(adjusted), "bars_60m.csv": len(bars_60m),
+            "daily.csv": len(daily), "corporate_actions.json": len(actions),
+        },
         fields={
             "bars_30m.csv": tuple(field.name for field in fields(Bar30mRecord)),
             "bars_60m.csv": tuple(field.name for field in fields(Bar60mRecord)),
@@ -2076,13 +2592,18 @@ def build_phase1_dataset(
         calendar_library=calendar.library_name, calendar_library_version=calendar.library_version,
         calendar_schedule_hash=calendar.schedule_hash(request.start, request.end),
         early_close_60m_policy=EarlyClose60mPolicy.EXCLUDE,
-        corporate_action_sha256=hash_corporate_actions(actions),
+        corporate_action_content_sha256=calculate_corporate_action_content_sha256(actions),
+        corporate_action_source_sha256=action_batch.source_sha256,
+        corporate_actions_fetched_at_utc=action_batch.fetched_at_utc,
         corporate_action_status=DataStatus.VALID,
-        time_key_semantics=fixture_semantics, time_key_fixture_sha256=fixture_hash,
+        time_key_fixture_kind=evidence.fixture_kind,
+        time_key_semantics=evidence.semantics,
+        time_key_fixture_sha256=fixture_hash,
+        time_key_raw_response_sha256=evidence.raw_response_sha256,
     ))
     files["manifest.json"] = manifest_json_bytes(manifest)
     destination = request.output_root / "datasets" / manifest.dataset_id
-    atomic_write_dataset(destination, files, quality, manifest.corporate_action_status)
+    atomic_write_dataset(destination, files)
     return PipelineResult(manifest.dataset_id, destination)
 ```
 
@@ -2091,6 +2612,7 @@ def build_phase1_dataset(
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from datetime import date, datetime
@@ -2099,11 +2621,13 @@ from pathlib import Path
 
 from .calendar import XNYSCalendar
 from .errors import (
-    CorporateActionsUnverifiedError, DataQualityFailedError, ProviderError,
-    PublicationBlockedError, TimestampSemanticsUnverifiedError,
+    AggregationError, AtomicWriteError, CalendarContractError,
+    CorporateActionsUnverifiedError, DataContractError, DataQualityFailedError,
+    ProviderError, PublicationBlockedError, SourceMixingError,
+    TimestampSemanticsUnverifiedError,
 )
 from .futu import FutuProvider, load_time_key_fixture
-from .models import CorporateAction, CorporateActionType
+from .models import PHASE1_SYMBOLS, CorporateAction, CorporateActionBatch, CorporateActionType
 from .pipeline import BuildDatasetRequest, PipelineResult, build_phase1_dataset
 from .providers import CSVProvider
 
@@ -2121,7 +2645,7 @@ def build_parser() -> argparse.ArgumentParser:
     validate = commands.add_parser("validate-time-key")
     validate.add_argument("--fixture", type=Path, required=True)
     build = commands.add_parser("build")
-    build.add_argument("--symbol", choices=("SPY", "QQQ"), required=True)
+    build.add_argument("--symbol", choices=tuple(sorted(PHASE1_SYMBOLS)), required=True)
     build.add_argument("--start", type=date.fromisoformat, required=True)
     build.add_argument("--end", type=date.fromisoformat, required=True)
     build.add_argument("--provider", choices=("futu", "csv"), required=True)
@@ -2132,21 +2656,24 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _load_actions(path: Path) -> tuple[CorporateAction, ...]:
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    return tuple(
+def _load_actions(path: Path) -> CorporateActionBatch:
+    raw = path.read_bytes()
+    payload = json.loads(raw)
+    fetched_at = datetime.fromisoformat(payload["fetched_at_utc"])
+    source_hash = hashlib.sha256(raw).hexdigest()
+    actions = tuple(
         CorporateAction(
-            row["source"], row["symbol"], CorporateActionType(row["action_type"]),
+            payload["source"], payload["symbol"], CorporateActionType(row["action_type"]),
             date.fromisoformat(row["effective_date"]), Decimal(row["ratio_new_over_old"]),
-            datetime.fromisoformat(row["fetched_at_utc"]), row["source_sha256"],
-            bool(row["verified"]),
+            fetched_at, source_hash, bool(payload["verified"]),
         )
-        for row in payload
+        for row in payload["actions"]
     )
+    return CorporateActionBatch(actions, source_hash, fetched_at, bool(payload["verified"]))
 
 
 def _execute_build(args: argparse.Namespace) -> PipelineResult:
-    semantics, fixture_hash = load_time_key_fixture(args.time_key_fixture)
+    evidence = load_time_key_fixture(args.time_key_fixture)
     request = BuildDatasetRequest(
         args.symbol, args.start, args.end, args.output_root, args.time_key_fixture,
     )
@@ -2154,8 +2681,8 @@ def _execute_build(args: argparse.Namespace) -> PipelineResult:
     if args.provider == "csv":
         if args.bars is None or args.actions is None:
             raise ValueError("csv provider requires --bars and --actions")
-        provider = CSVProvider(args.bars, _load_actions(args.actions))
-        return build_phase1_dataset(request, provider, calendar, semantics, fixture_hash)
+        provider = CSVProvider(args.bars, _load_actions(args.actions), evidence)
+        return build_phase1_dataset(request, provider, calendar)
 
     from futu import AuType, KLType, OpenQuoteContext, RET_OK
 
@@ -2165,7 +2692,7 @@ def _execute_build(args: argparse.Namespace) -> PipelineResult:
             context, args.time_key_fixture, ret_ok=RET_OK,
             k_30m=KLType.K_30M, no_adjust=AuType.NONE,
         )
-        return build_phase1_dataset(request, provider, calendar, semantics, fixture_hash)
+        return build_phase1_dataset(request, provider, calendar)
     finally:
         context.close()
 
@@ -2174,8 +2701,9 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         if args.command == "validate-time-key":
-            semantics, digest = load_time_key_fixture(args.fixture)
-            print(f"{semantics.value} {digest}")
+            evidence = load_time_key_fixture(args.fixture)
+            digest = hashlib.sha256(args.fixture.read_bytes()).hexdigest()
+            print(f"STRUCTURE_VALID MANUAL_SEMANTICS_CONFIRMATION_REQUIRED {evidence.semantics.value} {digest}")
             return EXIT_OK
         result = _execute_build(args)
         print(result.destination)
@@ -2183,13 +2711,16 @@ def main(argv: list[str] | None = None) -> int:
     except (ProviderError, TimestampSemanticsUnverifiedError) as error:
         print(error, file=sys.stderr)
         return EXIT_PROVIDER
-    except DataQualityFailedError as error:
+    except (
+        DataQualityFailedError, CalendarContractError, DataContractError,
+        SourceMixingError, AggregationError,
+    ) as error:
         print(error, file=sys.stderr)
         return EXIT_QUALITY
     except CorporateActionsUnverifiedError as error:
         print(error, file=sys.stderr)
         return EXIT_ACTIONS
-    except PublicationBlockedError as error:
+    except (PublicationBlockedError, AtomicWriteError, FileExistsError) as error:
         print(error, file=sys.stderr)
         return EXIT_PUBLICATION
     except ValueError as error:
@@ -2205,7 +2736,7 @@ if __name__ == "__main__":
 
 Run: `python -m pytest tests/phase1_data/test_pipeline_cli.py -q`
 
-Expected: PASS; legacy parser rejects `build`, Phase 1 paths reject `data/raw`, each blocking state has its fixed nonzero code, and successful output is an immutable dataset path.
+Expected: PASS; legacy parser rejects `build`, Phase 1 paths reject `data/raw`, all five symbols are accepted, every frozen domain exception maps to exit 3/4/5/6 (including all publication exceptions), no domain failure escapes as exit 1, and successful output is an immutable dataset path.
 
 Run: `python -m tv_quant.phase1_data.cli --help`
 
@@ -2225,6 +2756,7 @@ git commit -m "Add isolated phase 1 data pipeline"
 ## Task 10: Add offline acceptance coverage, operator documentation, and final verification
 
 **Files:**
+- Create: `tests/phase1_data/test_public_contract.py`
 - Create: `tests/phase1_data/test_phase1_acceptance.py`
 - Create: `docs/phase1-data-contract.md`
 - Modify: `src/tv_quant/phase1_data/__init__.py`
@@ -2233,7 +2765,59 @@ git commit -m "Add isolated phase 1 data pipeline"
 - Consumes: checked-in CSV/action/time fixtures and all Phase 1 public interfaces.
 - Produces: one network-free end-to-end proof, a documented operator contract, and final public exports. It does not download data or run a strategy.
 
-- [ ] **Step 1: Add failing end-to-end acceptance tests**
+- [ ] **Step 1: Add the public-contract red test first**
+
+```python
+# tests/phase1_data/test_public_contract.py
+from pathlib import Path
+
+import tv_quant.phase1_data as phase1_data
+
+
+def test_frozen_public_exports_and_operator_document_exist():
+    required = {
+        "PHASE1_SYMBOLS", "BuildDatasetRequest", "PipelineResult",
+        "build_phase1_dataset", "DataProvider", "CSVProvider", "FutuProvider",
+        "load_time_key_fixture", "calculate_dataset_id", "atomic_write_dataset",
+    }
+    assert required <= set(phase1_data.__all__)
+    document = Path("docs/phase1-data-contract.md")
+    assert document.is_file()
+    text = document.read_text(encoding="utf-8")
+    for heading in ("Scope and exclusions", "Data sources", "Time contract", "Commands", "Exit codes"):
+        assert f"## {heading}" in text
+```
+
+- [ ] **Step 2: Run the public-contract test and confirm the intentional red reason**
+
+Run: `python -m pytest tests/phase1_data/test_public_contract.py -q`
+
+Expected: FAIL only because Task 1 intentionally deferred `__all__` and `docs/phase1-data-contract.md` does not yet exist. It must not fail because the pipeline is incomplete.
+
+- [ ] **Step 3: Complete public exports and operator documentation**
+
+`src/tv_quant/phase1_data/__init__.py` must export every name under **Frozen Public Interfaces** and set `__all__` to that exact list. It must not export Futu SDK objects or import `cli.py`.
+
+Create `docs/phase1-data-contract.md` with these exact operational sections:
+
+1. `Scope and exclusions`: list Phase 1 contents and every Phase 2+ exclusion from Global Constraints; state that QQQ, SPY, IWM, RSP, and DIA are the complete Phase 1 allow-list.
+2. `Data sources`: Futu unadjusted K_30M primary input, no silent fallback, Futu 30-minute history availability risk, and CSV only as an explicit test/import provider.
+3. `Time contract`: XNYS, America/New_York localization, UTC storage, TEST versus PRODUCTION_CAPTURE, manual semantics gate, ordinary/early-close counts, and DST examples. State that `validate-time-key` checks structure/hash/conversion but does not prove real vendor semantics.
+4. `Price contract`: immutable raw fields, split-only research fields, supplier ratio inversion, dividend exclusion, content hash, raw-response hash, and fetched-time audit metadata.
+5. `Runtime layout`: the exact staging/datasets/evidence tree and immutable dataset-id usage.
+6. `Commands`: `validate-time-key`, CSV build, and Futu build examples; explicitly list all five allowed `--symbol` values and include no credentials.
+7. `Exit codes`: 0 success, 2 arguments, 3 provider/time fixture, 4 quality/calendar/data contract/source/aggregation, 5 actions, 6 publication/atomic write/existing destination.
+8. `Legacy isolation`: existing daily download/backtest commands and `data/raw` remain separate and cannot be inputs to Phase 1.
+9. `Manifest fields`: enumerate every `DataManifest` field and distinguish file, dataset, calendar, action-content, action-source, time-fixture, and raw-response hashes.
+10. `Residual risks`: Futu time semantics evidence, supplier history limits/revisions, corporate-action revisions, calendar-version changes, and 30-minute bars not proving tick-level paths.
+
+- [ ] **Step 4: Run the public-contract test green before adding acceptance coverage**
+
+Run: `python -m pytest tests/phase1_data/test_public_contract.py -q`
+
+Expected: PASS.
+
+- [ ] **Step 5: Add the offline end-to-end acceptance tests**
 
 ```python
 # tests/phase1_data/test_phase1_acceptance.py
@@ -2248,22 +2832,9 @@ from tv_quant.phase1_data.errors import DataQualityFailedError
 from tv_quant.phase1_data.futu import load_time_key_fixture
 from tv_quant.phase1_data.pipeline import BuildDatasetRequest, build_phase1_dataset
 from tv_quant.phase1_data.providers import CSVProvider
+from tests.phase1_data.helpers import load_phase1_actions
 
 FIXTURES = Path("tests/fixtures/phase1")
-
-
-def actions_from_fixture():
-    from datetime import datetime
-    from decimal import Decimal
-    from tv_quant.phase1_data.models import CorporateAction, CorporateActionType
-    return tuple(
-        CorporateAction(
-            row["source"], row["symbol"], CorporateActionType(row["action_type"]),
-            date.fromisoformat(row["effective_date"]), Decimal(row["ratio_new_over_old"]),
-            datetime.fromisoformat(row["fetched_at_utc"]), row["source_sha256"], row["verified"],
-        )
-        for row in json.loads((FIXTURES / "corporate_actions.json").read_text(encoding="utf-8"))
-    )
 
 
 def test_normal_and_early_close_publish_expected_files_and_manifest(tmp_path):
@@ -2275,15 +2846,19 @@ def test_normal_and_early_close_publish_expected_files_and_manifest(tmp_path):
         + "\n",
         encoding="utf-8",
     )
-    provider = CSVProvider(combined, actions_from_fixture())
-    semantics, fixture_hash = load_time_key_fixture(FIXTURES / "futu_time_key_start.json")
+    evidence = load_time_key_fixture(FIXTURES / "futu_time_key_start.json")
+    provider = CSVProvider(combined, load_phase1_actions(FIXTURES / "corporate_actions.json"), evidence)
+    assert len(provider.fetch_30m("QQQ", date(2024, 11, 27), date(2024, 11, 29))) == 20
     request = BuildDatasetRequest("QQQ", date(2024, 11, 27), date(2024, 11, 29), tmp_path / "data" / "phase1", FIXTURES / "futu_time_key_start.json")
-    result = build_phase1_dataset(request, provider, XNYSCalendar(), semantics, fixture_hash)
+    result = build_phase1_dataset(request, provider, XNYSCalendar())
     assert {path.name for path in result.destination.iterdir()} == {
         "bars_30m.csv", "bars_60m.csv", "daily.csv", "corporate_actions.json", "manifest.json"
     }
     manifest = json.loads((result.destination / "manifest.json").read_text(encoding="utf-8"))
-    assert manifest["row_counts"] == {"bars_30m.csv": 20, "bars_60m.csv": 6, "daily.csv": 2}
+    assert manifest["row_counts"]["bars_30m.csv"] == 20
+    assert manifest["row_counts"]["bars_60m.csv"] == 6
+    assert manifest["row_counts"]["daily.csv"] == 2
+    assert manifest["row_counts"]["corporate_actions.json"] == 2
     assert manifest["early_close_60m_policy"] == "EXCLUDE_FROM_60M_SEQUENCE"
     assert manifest["quality_status"] == "VALID"
 
@@ -2291,38 +2866,19 @@ def test_normal_and_early_close_publish_expected_files_and_manifest(tmp_path):
 def test_quality_failure_blocks_every_published_output(tmp_path):
     bad = tmp_path / "bad.csv"
     bad.write_text((FIXTURES / "normal_session_2024-11-27.csv").read_text(encoding="utf-8").replace("502", "0", 1), encoding="utf-8")
-    provider = CSVProvider(bad, actions_from_fixture())
-    semantics, fixture_hash = load_time_key_fixture(FIXTURES / "futu_time_key_start.json")
+    evidence = load_time_key_fixture(FIXTURES / "futu_time_key_start.json")
+    provider = CSVProvider(bad, load_phase1_actions(FIXTURES / "corporate_actions.json"), evidence)
     request = BuildDatasetRequest("QQQ", date(2024, 11, 27), date(2024, 11, 27), tmp_path / "data" / "phase1", FIXTURES / "futu_time_key_start.json")
     with pytest.raises(DataQualityFailedError):
-        build_phase1_dataset(request, provider, XNYSCalendar(), semantics, fixture_hash)
+        build_phase1_dataset(request, provider, XNYSCalendar())
     assert not (request.output_root / "datasets").exists()
 ```
 
-- [ ] **Step 2: Run the acceptance test and confirm the incomplete integration failure**
+- [ ] **Step 6: Run offline acceptance and complete regression verification**
 
 Run: `python -m pytest tests/phase1_data/test_phase1_acceptance.py -q`
 
-Expected: FAIL until record conversion, canonical serialization, manifest fields, and publication are fully connected.
-
-- [ ] **Step 3: Complete public exports and operator documentation**
-
-`src/tv_quant/phase1_data/__init__.py` must export every name under **Frozen Public Interfaces** and set `__all__` to that exact list. It must not export Futu SDK objects or import `cli.py`.
-
-Create `docs/phase1-data-contract.md` with these exact operational sections:
-
-1. `Scope and exclusions`: list Phase 1 contents and every Phase 2+ exclusion from Global Constraints.
-2. `Data sources`: Futu unadjusted K_30M primary input, no silent fallback, Futu 30-minute history availability risk, and CSV only as an explicit test/import provider.
-3. `Time contract`: XNYS, America/New_York localization, UTC storage, fixture gate, ordinary/early-close counts, and DST examples.
-4. `Price contract`: immutable raw fields, split-only research fields, supplier ratio inversion, dividend exclusion, and action hash invalidation.
-5. `Runtime layout`: the exact staging/datasets tree and immutable dataset-id usage.
-6. `Commands`: `validate-time-key`, CSV build, and Futu build examples using only SPY or QQQ and no credentials.
-7. `Exit codes`: 0 success, 2 arguments, 3 provider/time fixture, 4 quality, 5 actions, 6 publication.
-8. `Legacy isolation`: existing daily download/backtest commands and `data/raw` remain separate and cannot be inputs to Phase 1.
-9. `Manifest fields`: enumerate every `DataManifest` field and define dataset/file/calendar/action hashes.
-10. `Residual risks`: Futu time semantics evidence, supplier history limits/revisions, corporate-action revisions, calendar-version changes, and 30-minute bars not proving tick-level paths.
-
-- [ ] **Step 4: Run complete acceptance and regression verification**
+Expected: PASS; the combined ordinary/early-close CSV provider returns exactly 20 rows before orchestration, then publishes 20 30-minute rows, 6 strict 60-minute rows, 2 daily rows, corporate actions, and a valid manifest without network access.
 
 Run: `python -m pytest tests/phase1_data -q`
 
@@ -2344,10 +2900,10 @@ Run: `git diff --check`
 
 Expected: exit 0 with no whitespace errors.
 
-- [ ] **Step 5: Commit acceptance coverage and documentation**
+- [ ] **Step 7: Commit acceptance coverage and documentation**
 
 ```bash
-git add src/tv_quant/phase1_data/__init__.py tests/phase1_data/test_phase1_acceptance.py docs/phase1-data-contract.md
+git add src/tv_quant/phase1_data/__init__.py tests/phase1_data/test_public_contract.py tests/phase1_data/test_phase1_acceptance.py docs/phase1-data-contract.md
 git commit -m "Document and verify phase 1 data pipeline"
 ```
 
@@ -2355,20 +2911,36 @@ git commit -m "Document and verify phase 1 data pipeline"
 
 | Frozen Phase 1 requirement | Owning task | Concrete evidence |
 |---|---:|---|
-| Schema and raw/research fields | 1 | frozen dataclass field equality and immutability test |
-| XNYS, New York/UTC, DST | 2 | ordinary, closed day, early close, both DST boundaries, schedule hash |
-| Futu K_30M adapter and time semantics | 3 | both fixture meanings, unverified rejection, request argument and pagination tests |
+| Schema, raw/research fields, and time invariants | 1 | frozen fields; aware NY/UTC, duration, same-instant, session-date, and naive rejection tests |
+| XNYS, New York/UTC, DST | 1, 2 | ordinary, closed day, early close, both DST boundaries, schedule hash |
+| TEST versus production Futu time evidence | 3 | TEST offline pass/Futu reject; unverified and missing raw hash reject; separate manual gate |
+| Bare symbol/provider code mapping | 3, 9, 10 | five-symbol mapping, CSV mismatch rejection, and 20-row acceptance read |
 | RTH and ordinary 13-bar completeness | 4 | exact expected-start comparison plus pre/post filtering |
 | Early-close count and boundaries | 4 | 7-bar 09:30–13:00 pass and count/bounds failures |
 | OHLCV and split-factor quality | 5 | parameterized finite, positive, range, volume, and factor tests |
-| Split event verification and hash | 3, 6 | supplier ratio inversion, unverified block, canonical hash change |
+| Split event verification and dual hashes | 3, 6, 8 | supplier ratio inversion, raw-response hash, fetched-time-invariant content identity, reorder/change tests |
 | Raw immutability and research adjustment | 6 | 2-for-1, cumulative factor, volume, effective-date, dividend tests |
 | Strict 60-minute aggregation | 7 | independent raw/research OHLCV, six pairs, missing component and tail exclusion |
 | Same-source daily aggregation | 7 | normal/early-close daily OHLCV and mixed-source rejection |
-| Manifest, dataset SHA, calendar metadata | 8 | mandatory field and content-sensitive identity tests |
-| Atomic write and old-file preservation | 8 | staged validation, immutable destination, and injected replace failure |
-| Quality/action downstream blocking | 8, 9, 10 | publication gate, fixed CLI status codes, and no-output acceptance test |
+| Manifest, dataset SHA, calendar metadata | 8 | mandatory fields, repeated-raw identity, fetched-time invariance, and content-sensitive identity |
+| Manifest-truth atomic publication | 8 | exact files, all recomputed hashes/ID/destination, tampering faults, immutable destination, rename failure |
+| Quality/action/downstream error mapping | 8, 9, 10 | manifest gate, every frozen CLI exception code, and no-output acceptance test |
 | Legacy directory and CLI isolation | 9, 10 | parser rejection, output-root validation, and both help commands |
+| Public API and operator contract | 10 | intentional `__all__`/docs red, focused green, then network-free acceptance |
+
+## Independent Review Finding Closure
+
+| Finding | Closure in this revision | Verification anchor |
+|---|---|---|
+| PLAN-H-01 | Separates `TEST` and `PRODUCTION_CAPTURE`; freezes all evidence fields; Futu rejects TEST/unverified/missing-hash evidence; manual live confirmation is distinct from structural validation. | Task 3 offline rejection tests and manual integration gate; Task 10 documentation wording |
+| PLAN-H-02 | Stores bare internal `symbol` and separate provider `provider_code`; freezes reversible mapping and mismatch rejection. | Tasks 1, 3, 4, 7; Task 10 asserts 20 combined CSV rows |
+| PLAN-H-03 | Installs the edited requirements and prints the resolved version before calendar tests. | Task 2 Step 4 expects exactly `4.13.2` |
+| PLAN-H-04 | Creates a dedicated helper module and removes test-to-test imports. | Task 4 helper code and staged-file list; Tasks 5–7 imports |
+| PLAN-H-05 | Splits deterministic action-content hash, raw-response hash, and fetched audit time; dataset identity excludes fetched time. | Tasks 6 and 8 invariance/sensitivity tests |
+| PLAN-H-06 | Treats staged manifest as publication truth and verifies schema, statuses, exact files, file hashes, dataset hash/ID, and destination. | Task 8 five fault modes plus rename-failure preservation |
+| PLAN-H-07 | Freezes exit 6 for publication/atomic/existing destination and exit 4 for calendar/data/source/aggregation failures. | Task 9 parameterized exception-to-exit test |
+| PLAN-H-08 | Enforces aware NY/UTC types, matching instants, strict 30/60-minute duration, ordering, and session-date equality. | Task 1 model constructors and DST/naive/mismatch tests |
+| PLAN-H-09 | Uses the five-symbol allow-list throughout; Task 10 red is isolated to missing public exports/docs, followed by green and acceptance. | Tasks 1, 9, and 10 |
 
 ## Final Acceptance Commands
 
@@ -2395,9 +2967,15 @@ Expected results:
 
 ## Plan Self-Review Record
 
-- **Spec coverage:** All 25 requested Phase 1 capabilities and test groups A–H map to Tasks 1–10 and the acceptance matrix. Phase 2+ strategy and execution logic is absent.
-- **Completeness scan:** Every task names exact files, interfaces, test code, implementation code or a closed ordered implementation algorithm, commands, expected outcomes, and a local commit message.
-- **Type consistency:** `Bar30mRecord`, `CorporateAction`, `DataQualityResult`, `SessionValidationResult`, `ManifestRequest`, `DataManifest`, provider/calendar protocols, and all pure-function signatures match the Frozen Public Interfaces section.
-- **Safety:** The plan retains the current daily EMA pipeline, rejects provider mixing and unverified actions, publishes immutable version directories, and never stores credentials or contacts a broker.
-- **Implementation correction captured:** Futu's supplier `split_ratio` orientation is inverted at the adapter boundary so the internal field always means `new_shares / old_shares`.
-- **Dependency correction captured:** XNYS integration is pinned to `exchange-calendars==4.13.2`, and both library version and schedule hash are persisted in every manifest.
+1. **Scope:** Tasks cover only Phase 1 data-contract work; strategy, execution, broker, TradingView, and Phase 2+ concerns remain excluded.
+2. **Symbols:** `QQQ`, `SPY`, `IWM`, `RSP`, and `DIA` are the single allow-list used by models, adapters, requests, CLI, tests, and docs.
+3. **Time evidence:** TEST and PRODUCTION_CAPTURE have distinct permissions; structural validation is never described as proof of live vendor semantics.
+4. **Time types:** Session, normalized, 30-minute, and 60-minute records enforce aware New York/UTC fields, matching instants, positive exact durations, and correct session dates.
+5. **Provider identity:** Bare symbols and provider codes remain separate and mismatch tests block accidental interchange.
+6. **Dependency order:** The pinned calendar package is installed and its runtime version is printed before its tests run.
+7. **Test isolation:** Shared factories live only in `tests/phase1_data/helpers.py`; no test module imports another test module.
+8. **Corporate-action identity:** Content, raw-response, and fetch-audit concepts are separate; fetched time cannot change deterministic data identity.
+9. **Publication truth:** Atomic publish trusts only a parsed and recomputed staged manifest, rejects missing/extra/tampered content and wrong destinations, and preserves prior datasets on rename failure.
+10. **CLI closure:** Every expected provider, time, quality, calendar, contract, source, aggregation, action, and publication exception has a documented nonzero code; no domain error relies on exit 1.
+11. **Red/green integrity:** Each task has a focused red reason and green verification; Task 10's red is specifically public exports/docs, then public green, then offline end-to-end acceptance.
+12. **Safety and reviewability:** Legacy files remain untouched, secrets and live orders are prohibited, outputs are immutable, all tests plus `git diff --check` are required, and each implementation task has one reviewable local commit.

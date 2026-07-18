@@ -6,7 +6,7 @@
 
 规则变更必须创建新的策略版本并记录原因。首轮阈值是冻结的研究基准，必须在研发区完成预先登记的参数邻域稳定性测试，不得描述为最优值。本文档的设计范围大于当前实现范围，必须按第30章分阶段实施。
 
-当前第一阶段仅支持SPY和QQQ的历史数据下载、EMA回测、测试和报告；不接入TradingView Webhook、券商、自动下单或期权回测。
+当前仓库已有SPY和QQQ历史数据下载、EMA回测、测试和报告的基线能力；正式实施仍按第22章阶段推进，不接入TradingView Webhook、券商、自动下单或期权回测。
 
 ## 2. 系统目标与绩效原则
 
@@ -130,57 +130,55 @@
 
 相对波动率档位：≤0.80为100%，>0.80且≤1.10为75%，>1.10且≤1.50为50%，>1.50为0%。风险升高时下一根可交易K线立即减仓；风险降低时目标档位必须连续2根完整60分钟柱有效后才加仓。期间任意风险上升或目标下降都将加仓计数器清零。
 
-目标美元仓位为当前账户权益乘最终目标仓位比例。买入前：
+仓位数量计算在每根30分钟柱处理完更高优先级的止损、清仓和减仓后执行。`reference_price=当前30分钟柱raw_open`；`current_quantity`为处理高优先级订单后的当前数量；`available_cash`为处理高优先级订单后的可用现金；`current_position_value=current_quantity*reference_price`；`pre_order_equity=available_cash+current_quantity*reference_price`；`target_position_pct`为波动率、日线环境和60分钟状态取最小值后的最终目标仓位比例；`target_position_value=pre_order_equity*target_position_pct`；`target_quantity_fractional=target_position_value/reference_price`；`quantity_delta=target_quantity_fractional-current_quantity`。
 
-`desired_buy_value=max(0,target_position_value-current_position_value)`；
+买入数量先按`desired_buy_value=max(0,target_position_value-current_position_value)`计算，再受到`fill_price`、手续费和现金限制：`commission_rate=commission_bps/10000`，`maximum_affordable_quantity=available_cash/(fill_price*(1+commission_rate))`，`desired_quantity=desired_buy_value/fill_price`，`buy_quantity=min(desired_quantity,maximum_affordable_quantity)`。
 
-`maximum_affordable_quantity=available_cash/(fill_price*(1+commission_rate))`；
-
-`desired_quantity=desired_buy_value/fill_price`；
-
-`buy_quantity=min(desired_quantity,maximum_affordable_quantity)`。
-
-整数股审计模式对上述结果向下取整。卖出或减仓数量为`min(current_quantity,current_quantity-target_quantity)`。禁止负持仓、负现金和杠杆。无法达到目标仓位时记录`TARGET_NOT_FULLY_REACHED_CASH_CONSTRAINT`。小数股和整数股共享信号、事件顺序、成交价和成本公式，唯一差异是整数股向下取整。
+卖出数量为`min(current_quantity,max(0,-quantity_delta))`。整数股审计只在最终数量处向下取整。禁止负持仓、负现金和杠杆。无法达到目标仓位时记录`TARGET_NOT_FULLY_REACHED_CASH_CONSTRAINT`。小数股和整数股共享信号、事件顺序、成交价和成本公式，唯一差异是最终数量向下取整。
 
 ## 8. 日线和60分钟状态
 
-### 8.1 日线环境
+### 8.1 日线环境互斥优先级
 
-- 强势多头：D-1日线收盘价>EMA200，EMA50>EMA200，日线EMA200斜率>0.25，仓位上限100%。
-- 过渡状态：价格>EMA200且EMA50≤EMA200，或日线EMA200斜率位于[-0.25,0.25]，仓位上限50%。
-- 风险状态：价格<EMA200，或日线EMA200斜率<-0.25，仓位上限0%。
+日线状态只从已完成且满足暖机的数据计算，并按以下顺序互斥判断：
 
-日线EMA200斜率为`(EMA200当前值-EMA200二十个交易日前值)/当前日线ATR20`。
+1. `RISK`：D-1日线close<EMA200，或`slope_daily<-0.25`；仓位上限0%。
+2. 否则，`STRONG`：D-1日线close>EMA200，且EMA50>EMA200，且`slope_daily>0.25`；仓位上限100%。
+3. 其余已完成暖机状态为`TRANSITION`；仓位上限50%。
 
-### 8.2 60分钟趋势
+`slope_daily=(EMA200当前值-EMA200二十个交易日前值)/当前日线ATR20`。
 
-- 强势：收盘价>EMA20>EMA50，EMA20斜率>0.10，最近确认更高低点未被破坏，仓位上限100%。
-- 弱化：收盘价<EMA20且仍>EMA50，或EMA20斜率位于[-0.10,0.10]，或近期未形成新确认更高高点，仓位上限50%。
-- 失效：完整60分钟柱收盘跌破最近确认更高低点，或收盘价<EMA50且EMA20斜率<-0.10，仓位上限0%。
+### 8.2 60分钟趋势互斥优先级
 
-60分钟EMA20斜率为`(EMA20当前值-EMA20五根研究柱前值)/当前60分钟ATR20`。必须进行仅均线、仅结构、均线加结构三组消融测试。
+60分钟状态只从已完成且满足暖机的数据计算，并按以下顺序互斥判断：
+
+1. `INVALID`：close<最近确认更高低点，或close<EMA50且`slope_60m<-0.10`；仓位上限0%。
+2. 否则，`STRONG`：close>EMA20>EMA50，且`slope_60m>0.10`，且最近确认更高低点未破坏；仓位上限100%。
+3. 其余已完成暖机状态为`WEAK`；仓位上限50%。
+
+`slope_60m=(EMA20当前值-EMA20五根研究柱前值)/当前60分钟ATR20`。状态条件只使用上述互斥定义。必须进行仅均线、仅结构、均线加结构三组消融测试。
 
 ## 9. Pivot与受控回调状态机
 
 确认pivot使用`left_bars=2`、`right_bars=2`。pivot只有在右侧第2根完整60分钟柱收盘后正式可见。最近确认更高低点是最新确认pivot low高于前一个确认pivot low；最近确认更高高点同理。pivot参数可在研发区做预先登记的邻域测试，不得根据Locked OOS调整。
 
-只有60分钟趋势为强势且已有确认pivot high时，才允许启动受控回调监控。PULLBACK开始条件为：完整60分钟柱收盘低于EMA20、收盘仍高于EMA50、最近确认更高低点未被破坏、日线环境不是风险状态。该柱为`pullback_start_bar`，回调持续柱数从该柱计为1。
+只有上一根完整60分钟柱状态为`STRONG`且已有确认pivot high时，才允许启动受控回调监控。当前柱必须同时满足：close<EMA20、close>EMA50、最近确认更高低点未破坏、日线状态不是`RISK`。当前柱启动PULLBACK，并冻结`pullback_anchor_pivot_id`、`pullback_anchor_high`、`pullback_atr20`和`pullback_start_bar`。该次回调期间不得因后续pivot high改变锚点。
 
-回调深度为`confirmed_pivot_high - 从pullback_start_bar至当前已完成柱的最低research_low`。回调使用pullback_start_bar完成时已可见的60分钟ATR20并在该次回调期间冻结，不随之后ATR变化重算。
+回调深度为`pullback_anchor_high - 从pullback_start_bar至当前已完成柱的最低research_low`。回调持续柱数从`pullback_start_bar`计为1；`pullback_atr20`使用启动柱完成时已可见的60分钟ATR20并在本次回调期间冻结。
 
-合格回调必须持续2至12根完整60分钟柱、深度位于0.75至2.0倍冻结ATR20之间、EMA50和最近确认更高低点仍有效，且未触发波动持续扩大失格条件。波动持续扩大定义为ATR20连续3根完整60分钟柱上升，且当前ATR20高于此前20根ATR20中位数的1.10倍。
+合格回调必须持续2至12根完整60分钟柱、深度位于0.75至2.0倍`pullback_atr20`之间、EMA50和最近确认更高低点仍有效，且未触发波动持续扩大失格条件。波动持续扩大定义为ATR20连续3根完整60分钟柱上升，且当前ATR20高于此前20根ATR20中位数的1.10倍。
 
-回调持续超过12根、深度超过2.0倍冻结ATR20、结构失效、日线进入风险状态、波动持续扩大或完整清仓时，回调作废。作废后必须等待新的确认pivot high和新的回调过程。
+回调持续超过12根、深度超过2.0倍`pullback_atr20`、结构失效、日线进入`RISK`、波动持续扩大或完整清仓时，回调作废。作废后必须等待新的确认pivot high和新的回调过程。
 
-回调结构低点为回调开始至恢复信号柱之前已发生的最低research_low。恢复位为该低点出现后至恢复信号柱之前已发生的最高research_high。恢复信号柱不得参与恢复位计算。
+`pullback_structure_low`为回调期间最低research_low。多个柱拥有相同最低价时，使用时间最晚的柱作为`pullback_structure_low_bar`。`recovery_level`为该低点柱之后、恢复信号柱之前已完成柱的最高research_high，至少需要一根有效恢复区间柱。恢复信号必须满足close>recovery_level。恢复信号柱收盘时冻结`signal_atr20`，用于过度扩张、追价和待执行订单检查；恢复信号柱不得参与`recovery_level`计算。
 
 ## 10. 入场、恢复与尾盘新仓
 
 入场必须依次满足：日线环境允许做多、60分钟趋势未失效、存在确认短期高点、受控回调合格、回调形成结构低点、恢复柱收盘突破恢复位、收盘重新站上EMA20、EMA20斜率位于转平或向上区间，随后在下一根可交易K线成交。
 
-恢复信号柱收盘价减恢复位不得大于0.75倍60分钟ATR20。正常时段下一根开盘价相对恢复位的距离≤0.50倍60分钟ATR20时允许入场，超过时放弃并等待新的完整回调和恢复结构。
+恢复信号柱收盘价减恢复位不得大于0.75倍`signal_atr20`。正常时段下一根开盘价相对恢复位的距离≤0.50倍`signal_atr20`时允许入场，超过时放弃并等待新的完整回调和恢复结构。
 
-普通时段首次入场一次进入完整目标仓位。15:30尾盘入场是唯一例外，首次仓位上限50%。次日只有D-1日线仍为强势多头、波动率目标至少75%、次日前两根完整60分钟柱均为强势且未触发止损/弱化/失效时，才在下一根可交易30分钟柱开盘恢复完整目标；该恢复同时使用连续2根确认规则。尾盘辅助柱不生成新策略信号。
+普通时段首次入场一次进入完整目标仓位。15:30辅助柱开盘入场必须同时满足：D-1日线状态为`STRONG`；波动率目标仓位至少75%；`raw_open-recovery_level≤0.35*signal_atr20`；初始仓位上限50%。任一条件失败则取消尾盘新仓。尾盘入场次日只有D-1日线仍为`STRONG`、波动率目标至少75%、次日前两根完整60分钟柱均为`STRONG`且未触发止损、弱化或失效时，才在下一根可交易30分钟柱开盘恢复完整目标；该恢复同时使用连续2根确认规则。尾盘辅助柱不生成新策略信号。
 
 ## 11. 成交、止损与事件顺序
 
@@ -217,11 +215,13 @@
 
 交易生命周期从首次仓位0变为正数开始，到仓位重新为0结束。中间加减仓仍属于同一`trade_lifecycle_id`，每个fill有独立`fill_id`和`order_id`。
 
-`initial_1R=首次成交加权价格-当时有效止损价`。后续加仓可以改变当前平均成本，但不能重写`initial_1R`；初始止损不得向下放宽。MFE、MAE和0.75R进展检查均使用冻结的`initial_1R`。
+`initial_entry_price=首次成交加权价格`，`initial_1R=initial_entry_price-当时有效止损价`。后续加仓可以改变当前平均成本，但不能重写`initial_entry_price`或`initial_1R`；初始止损不得向下放宽。MFE、MAE和0.75R进展检查均使用冻结的`initial_1R`。
 
 入场交易日为day 0，下一交易所交易日为day 1，提前收市日计一个交易日。day 5收盘后检查第一层时间止损，day 15收盘后检查第二层时间止损，退出订单在下一根可交易柱执行。
 
-第一层时间止损的进展条件为MFE≥0.75R，或形成新的确认高点且结构低点上移。第二层时间止损只有当前价格高于EMA20、近期形成新高或更高低点且趋势不是弱化时才继续持仓。
+day 5的结构进展必须为：出现新的已确认pivot low，且该pivot low>pullback_structure_low。day 5检查同时保留MFE_R≥0.75的进展条件。
+
+day 15允许继续持仓必须同时满足：当前close>EMA20；当前60分钟状态为`STRONG`；入场后至少出现一个更高的已确认pivot high，或一个高于pullback_structure_low的已确认pivot low。否则在下一根可交易柱退出。
 
 ## 13. 绩效指标与异常状态
 
@@ -229,9 +229,11 @@
 
 Profit Factor为正生命周期净PnL总和除以负生命周期净PnL绝对值总和；无亏损交易时为`null`、状态`NO_GROSS_LOSS`；无完成PnL时为`null`、状态`NO_COMPLETED_PNL`。Sharpe使用每日账户权益收益率、无风险利率0和`sqrt(252)`；日收益标准差为0时为`null`、状态`ZERO_VARIANCE`。
 
-最大回撤基于每日收盘账户权益。CAGR使用实际日历天数；权益归零或为负时CAGR为`null`、状态`CAPITAL_DEPLETED`并直接淘汰。报告禁止用0替代无定义指标。
+`total_return=ending_equity/starting_equity-1`。`elapsed_calendar_days`为权益曲线首尾UTC日期的日历天数差。`CAGR=(ending_equity/starting_equity)^(365.2425/elapsed_calendar_days)-1`；权益归零或为负时CAGR为`null`、状态`CAPITAL_DEPLETED`并直接淘汰。权益曲线必须包含初始资金点。
 
-持仓时间同时报告交易日数和完整60分钟研究柱数。资金利用率为每根30分钟柱`abs(position_market_value)/equity`的时间加权平均。MFE/MAE使用生命周期内30分钟raw high/low、初始加权平均入场价和冻结的`initial_1R`。
+`drawdown_t=equity_t/running_max_equity_t-1`；`max_drawdown=min(drawdown_t)`。最大回撤基于每日收盘账户权益。报告禁止用0替代无定义指标。
+
+持仓时间同时报告交易日数和完整60分钟研究柱数。资金利用率为每根30分钟柱`abs(position_market_value)/equity`的时间加权平均。`MFE_R`为生命周期内最大`(raw_high-initial_entry_price)/initial_1R`；`MAE_R`为生命周期内最小`(raw_low-initial_entry_price)/initial_1R`并保留负数。
 
 ## 14. 成本与压力测试
 
@@ -239,13 +241,13 @@ Profit Factor为正生命周期净PnL总和除以负生命周期净PnL绝对值�
 
 1.5倍成本须满足CAGR≥Buy and Hold的85%、最大回撤≤25%、相对回撤改善≥15%、净收益为正。2.0倍成本须满足CAGR>0、Profit Factor≥1.0、最大回撤≤25%、总收益较基准下降≤35%，且无负权益、数据异常或成交异常。
 
-成本变化不得改变信号和交易次数，只能改变成交价格和PnL；交易次数变化视为实现错误。
+成本压力不变量只适用于fractional research模式：1.0、1.5、2.0倍成本必须保持相同信号时间、订单意图、入场退出时间和trade lifecycle数量。integer audit允许数量和现金限制差异，但策略信号不得变化。fractional模式下交易数量变化视为实现错误。
 
 ## 15. 样本切分、实验与验证
 
-总可用历史至少90个月，研发区至少24个月，Walk-forward至少6个完整测试窗口，Locked OOS至少18个月。串联Walk-forward至少有18个完成生命周期，至少4个测试窗口有实际交易；不足时状态为`HOLD_INSUFFICIENT_SAMPLE`，不得宣称通过或失败。
+设`M=数据集完整日历月总数`。`locked_oos_months=max(18,ceil(M*0.20))`；`walk_forward_months=max(18,ceil(M*0.20))`；`research_months=M-locked_oos_months-walk_forward_months`。边界对齐到月份首尾XNYS交易日。`research_months`必须至少24个月；不足时状态为`HOLD_INSUFFICIENT_SAMPLE`，不得宣称通过或失败。Walk-forward区域必须至少生成6个完整测试窗口，串联测试至少有18个完成生命周期且至少4个测试窗口有实际交易。
 
-研发区约占时间序列前60%，Walk-forward占中间20%，Locked OOS占最后20%。Walk-forward使用训练窗口24个月、测试窗口3个月、步长3个月，并使用扩展训练窗口复核是否依赖最近两年。
+Walk-forward使用训练窗口24个月、测试窗口3个月、步长3个月，并使用扩展训练窗口复核是否依赖最近两年。禁止使用比例近似切分。
 
 每轮最多150个新实验，每个策略家族最多3轮，累计最多450个新实验。连续两轮没有Walk-forward改善则停止方向。所有成功和失败实验必须登记，记录`total_trials`、`selection_rounds`、`rejected_count`、`parameter_space`和`ranking_changes`。报告完整筛选过程，不只报告前5名。第一版不宣称普通Sharpe已校正多重测试选择偏差。
 
@@ -295,7 +297,7 @@ TradingView不是大规模研究主引擎或最终成交事实来源，只用于
 
 ## 21. 候选状态与错误处理
 
-候选状态包括`IDEA`、`HYPOTHESIS_APPROVED`、`IMPLEMENTED`、`IN_SAMPLE_PASS`、`WALK_FORWARD_PASS`、`LOCKED_OOS_PASS`、`EXTERNAL_VALIDATION_PASS`、`DIA_STRESS_PASS`、`TRADINGVIEW_PARITY`、`FORWARD_TEST`、`PAPER_APPROVED`、`LIVE_CANDIDATE`、`REJECTED`、`HOLD`和`HOLD_BENCHMARK_DRAWDOWN_NOT_APPLICABLE`。失败候选不得删除，必须保存失败阶段、原因、参数、数据版本、代码版本、实验时间和新版本资格。
+候选状态包括`IDEA`、`HYPOTHESIS_APPROVED`、`IMPLEMENTED`、`IN_SAMPLE_PASS`、`WALK_FORWARD_PASS`、`LOCKED_OOS_PASS`、`EXTERNAL_VALIDATION_PASS`、`DIA_STRESS_PASS`、`TRADINGVIEW_PARITY`、`FORWARD_TEST`、`PAPER_APPROVED`、`LIVE_CANDIDATE`、`REJECTED`、`HOLD`、`HOLD_INSUFFICIENT_SAMPLE`和`HOLD_BENCHMARK_DRAWDOWN_NOT_APPLICABLE`。失败候选不得删除，必须保存失败阶段、原因、参数、数据版本、代码版本、实验时间和新版本资格。
 
 数据失败不得覆盖有效旧数据。所有写入先写临时文件，验证后原子替换。关键失败返回非零退出码，不得静默跳过测试、删除测试、隐藏实验或写入密钥。当前阶段禁止交易接口、真实账户解锁和真实订单。
 
@@ -305,7 +307,7 @@ TradingView不是大规模研究主引擎或最终成交事实来源，只用于
 2. EMA、ATR、D-1日线指标和暖机状态。
 3. pivot、趋势、波动率、受控回调和恢复状态纯函数。
 4. 确定性30分钟事件、普通成交、止损和末日强平引擎。
-5. 仓位状态机、初始1R、部分成交、现金约束和成本。
+5. 仓位状态机、初始1R、部分成交、现金限制和成本。
 6. 单ETF回测、生命周期、指标异常状态和报告。
 7. 实验登记、消融和参数邻域测试。
 8. Walk-forward和样本可行性检查。

@@ -4,7 +4,7 @@
 
 本文档是量化波段策略研究、审计、实现和人工审批的单一权威设计。它不是实施代码，也不授权连接交易接口、解锁交易、发送订单或进行实盘交易。
 
-规则变更必须创建新的策略版本并记录原因。首轮阈值是冻结的研究基准，必须在研发区完成预先登记的参数邻域稳定性测试，不得描述为最优值。本文档的设计范围大于当前实现范围，必须按实施边界分阶段实施。
+规则变更必须创建新的策略版本并记录原因。首轮阈值是冻结的研究基准，必须在研发区完成预先登记的参数邻域稳定性测试，不得描述为最优值。本文档的设计范围大于当前实现范围，必须按第22章的`Implementation Phase 1`至`Implementation Phase 12`分阶段实施。
 
 当前仓库已有SPY和QQQ历史数据下载、EMA回测、测试和报告的基线能力；正式实施仍按第22章阶段推进，不接入TradingView Webhook、券商、自动下单或期权回测。
 
@@ -44,7 +44,7 @@
 
 主数据源为Futu OpenD。第一阶段使用同一Futu数据源的30分钟RTH历史K线，不混用Futu独立日线、yfinance日线或其他来源拼接序列。第二数据源只用于候选晋级后的独立复核。
 
-统一接口预留`FutuProvider`、`SecondaryProvider`和`CSVProvider`。Futu失败时禁止静默切换。每个数据集必须生成Data Manifest，记录`dataset_id`、来源、数据版本、下载时间、时区、字段、起止日期、行数、SHA-256和质量状态。
+统一接口预留`FutuProvider`、`SecondaryProvider`和`CSVProvider`。Futu失败时禁止静默切换。每个数据集必须生成Data Manifest，记录`dataset_id`、来源、数据版本、下载时间、时区、字段、起止日期、行数、SHA-256、质量状态、`calendar_library`、`calendar_library_version`、`calendar_schedule_hash`和`early_close_60m_policy`。第一版的`early_close_60m_policy`固定为`EXCLUDE_FROM_60M_SEQUENCE`。
 
 所有内部时间使用UTC；交易日历和交易时段使用`America/New_York`及XNYS交易日历。原始30分钟记录必须保存：
 
@@ -58,9 +58,9 @@
 
 前12根组成6根完整60分钟研究柱：09:30–10:30、10:30–11:30、11:30–12:30、12:30–13:30、13:30–14:30、14:30–15:30。15:30–16:00柱是尾盘辅助柱，不参与60分钟指标或新信号。
 
-正常日或提前收市日出现缺失、重复、重叠、乱序或错误长度柱时，状态为`DATA_QUALITY_FAILED`，不得启动回测。错误数据不得用于日线OHLC、持仓估值、止损判断或下一交易日D-1指标。
+正常日或提前收市日出现缺失、重复、重叠、乱序或错误长度柱时，状态为`DATA_QUALITY_FAILED`，不得启动回测。每根30分钟柱的raw和research open、high、low、close都必须非空、有限且大于0，并分别满足`high>=max(open,close)`、`low<=min(open,close)`和`high>=low`。`raw_volume`、`research_volume`必须非空、有限且大于或等于0；零成交量允许，但必须记录`ZERO_VOLUME_WARNING`。负成交量、非有限值、缺失价格或价格区间错误均为`DATA_QUALITY_FAILED`。错误数据不得用于日线OHLC、持仓估值、止损判断或下一交易日D-1指标。
 
-提前收市日由XNYS识别，不根据数据数量猜测。`expected_bar_count=(session_close-session_open)/30分钟`；例如09:30至13:00必须有7根30分钟柱。实际柱数量、起止时间和间隔必须与XNYS完全一致。完整提前收市日允许生成日线供下一交易日使用，但当天不生成60分钟研究信号，只允许已有仓位风险处理和估值。
+提前收市日由Data Manifest冻结版本的XNYS日历识别，不根据数据数量猜测。`expected_bar_count=(session_close-session_open)/30分钟`；例如09:30至13:00必须有7根30分钟柱。实际柱数量、起止时间和间隔必须与XNYS完全一致。即使30分钟数据完整，提前收市日也不生成任何60分钟研究柱，不更新60分钟EMA、ATR、pivot、趋势状态、PULLBACK或recovery状态，不产生新仓、加仓、趋势减仓或时间退出信号。已有仓位继续使用当日30分钟raw柱检查开盘跳空止损和盘中止损，并更新现金、仓位市值和收盘估值；完整RTH 30分钟数据仍聚合成日线供下一交易日使用，且该日计为持仓交易日。下一正常交易日的60分钟`previous_close`使用上一根正式纳入60分钟序列的research close。
 
 ### 4.3 日线聚合
 
@@ -76,7 +76,7 @@
 
 ### 4.4 30分钟到60分钟聚合
 
-每两根连续、完整且同一`session_date`的30分钟RTH柱组成一根60分钟研究柱。时间戳使用第一根柱的`bar_start_utc`和`bar_start_local`。raw和research字段分别按以下规则聚合：
+除提前收市日外，每两根连续、完整且同一`session_date`的30分钟RTH柱组成一根60分钟研究柱。时间戳使用第一根柱的`bar_start_utc`和`bar_start_local`。raw和research字段分别按以下规则聚合：
 
 - open：第一根柱open。
 - high：两根柱high最大值。
@@ -84,11 +84,11 @@
 - close：第二根柱close。
 - volume：两根柱volume之和。
 
-禁止跨`session_date`聚合，禁止使用15:30–16:00辅助柱构造60分钟研究柱。组成柱任一根缺失或异常时，该交易日状态为`DATA_QUALITY_FAILED`。
+禁止跨`session_date`聚合，禁止使用15:30–16:00辅助柱构造60分钟研究柱，禁止将提前收市日的任何30分钟柱纳入60分钟序列。组成柱任一根缺失或异常时，该交易日状态为`DATA_QUALITY_FAILED`。
 
 ## 5. 价格字段、拆股与分红
 
-系统保留`raw_open`、`raw_high`、`raw_low`、`raw_close`、`raw_volume`以及对应的`research_open`、`research_high`、`research_low`、`research_close`、`research_volume`。
+系统保留`raw_open`、`raw_high`、`raw_low`、`raw_close`、`raw_volume`以及对应的`research_open`、`research_high`、`research_low`、`research_close`、`research_volume`。每根30分钟柱还必须保存有限正数`split_factor_t=cumulative_split_factor`，并将该字段及其生成规则写入Data Manifest。任一`split_factor_t`为空、非有限或小于等于0时状态为`DATA_QUALITY_FAILED`。
 
 拆股比例定义为`new_shares / old_shares`。必须记录拆股事件来源、日期、比例、获取时间和SHA-256；禁止猜测比例。未验证、缺字段或hash不一致时状态为`DATA_ACTIONS_UNVERIFIED`，不得进入正式回测。
 
@@ -96,13 +96,27 @@
 
 `cumulative_split_factor = 该柱日期之后所有已验证拆股比例的乘积`。
 
-`research open/high/low/close = raw open/high/low/close / cumulative_split_factor`；`research volume = raw volume * cumulative_split_factor`。
+`research_price_t=raw_price_t/split_factor_t`；`raw_price_t=research_price_t*split_factor_t`；`research volume=raw volume*split_factor_t`。
 
 拆股生效日及之后不应用该次拆股的历史因子。raw字段永远不得改写，分红不得进入research调整，拆股调整不得改变真实成交现金流。
 
+research价格空间负责EMA、ATR、波动率、pivot、趋势结构、`pullback_anchor_high`、`pullback_structure_low`、`recovery_level_research`、`initial_stop_research`、`effective_stop_research`、`initial_entry_price_research`、`initial_1r_research`、`mfe_r`、`mae_r`以及所有策略阈值和风险距离。raw价格空间负责订单成交、现金变化、手续费、实际仓位市值、实际PnL、账户权益和30分钟止损触发。除非字段明确带有raw前缀或处于成交、现金、PnL、权益及30分钟止损触发上下文，后续策略规则中的open、high、low、close和ATR均指research值。所有价格比较必须先转换到同一价格空间，禁止直接比较raw价格与research价格或距离。
+
+在待执行柱`t`，冻结以下换算：
+
+- `open_research_equivalent=raw_open_t/split_factor_t`。
+- `expected_entry_fill_raw=raw_open_t*(1+normal_slippage_bps/10000)`。
+- `expected_entry_fill_research=expected_entry_fill_raw/split_factor_t`。
+- `recovery_level_raw_t=recovery_level_research*split_factor_t`。
+- `effective_stop_raw_t=effective_stop_research*split_factor_t`。
+
+拆股事件在拆股生效日第一根RTH柱的开盘事件之前处理，优先于止损、清仓、减仓和入场。若`split_ratio=new_shares/old_shares`，则`position_quantity_after=position_quantity_before*split_ratio`、`raw_average_cost_after=raw_average_cost_before/split_ratio`，所有raw价格空间的有效止损、挂单价格和参考价格均按`price_after=price_before/split_ratio`调整。research价格空间的EMA、ATR、pivot、`recovery_level_research`、`initial_stop_research`、`effective_stop_research`、`initial_entry_price_research`和`initial_1r_research`保持不变；现金不变。拆股事件不产生订单、fill、手续费或新的`trade_lifecycle_id`，在没有市场价格变化的假设下处理前后账户权益必须相等。
+
+整数股审计中，自主交易订单仍必须为整数股；corporate action造成的数量变化允许精确保存小数数量，并记录`CORPORATE_ACTION_FRACTIONAL_QUANTITY`，不得自行假设cash-in-lieu成交，也不得由后续自主订单取整逻辑静默删除该数量。
+
 ## 6. EMA、ATR与指标暖机
 
-指标暖机未完成时状态为`INDICATOR_NOT_READY`；结构确认输入不足时状态为`STRUCTURE_NOT_READY`；两种状态均不得交易。
+指标暖机未完成时状态为`INDICATOR_NOT_READY`；结构确认输入不足时状态为`STRUCTURE_NOT_READY`；两种状态均不得交易。60分钟状态的互斥判断优先级固定为`INDICATOR_NOT_READY`、`STRUCTURE_NOT_READY`、`INVALID`、`STRONG`、`WEAK`，前一状态成立时不得继续判断后一状态。
 
 ### 6.1 EMA
 
@@ -114,13 +128,17 @@
 
 ### 6.2 ATR
 
-`TR = max(high-low, abs(high-previous_close), abs(low-previous_close))`。
+对每个独立时间框架的第一根正式纳入指标序列的有效柱，`TR_0=high_0-low_0`。对`t>0`：
 
-第一笔ATR值为最早`period`个TR的简单平均；后续使用Wilder递推：
+`TR_t=max(high_t-low_t,abs(high_t-previous_close),abs(low_t-previous_close))`。
+
+其中`previous_close`是该时间框架上一根正式纳入指标序列的完成柱close；提前收市日不进入60分钟序列，因此也不得成为下一根60分钟柱的`previous_close`。
+
+当`period=N`时，第一笔有效ATR固定在零基索引`N-1`，为`TR_0`至`TR_(N-1)`共N个值的简单平均；后续使用Wilder递推：
 
 `ATR_t = ((period-1)*ATR_(t-1)+TR_t)/period`。
 
-60分钟ATR20使用60分钟research OHLC；日线ATR20使用同一Futu 30分钟RTH聚合的daily research OHLC。指标未完成暖机时对应策略状态为`NOT_READY`，不得交易。
+60分钟ATR20使用60分钟research OHLC；日线ATR20使用同一Futu 30分钟RTH聚合的daily research OHLC。指标未完成暖机时对应策略状态为`INDICATOR_NOT_READY`，不得交易。
 
 ## 7. 交易方向与仓位模型
 
@@ -136,7 +154,16 @@
 
 买入数量先按`desired_buy_value=max(0,target_position_value-current_position_value)`计算，再受到`fill_price`、手续费和现金限制：`commission_rate=commission_bps/10000`，`maximum_affordable_quantity=available_cash/(fill_price*(1+commission_rate))`，`desired_quantity=desired_buy_value/fill_price`，`buy_quantity=min(desired_quantity,maximum_affordable_quantity)`。
 
-卖出数量为`min(current_quantity,max(0,-quantity_delta))`。整数股审计只在最终数量处向下取整。禁止负持仓、负现金和杠杆。无法达到目标仓位时记录`TARGET_NOT_FULLY_REACHED_CASH_CONSTRAINT`。小数股和整数股共享信号、事件顺序、成交价和成本公式，唯一差异是最终数量向下取整。
+fractional research模式使用上述`target_quantity_fractional`和`quantity_delta`。integer audit模式固定为：
+
+- `target_quantity_integer=floor(target_quantity_fractional)`。
+- `order_quantity_delta=target_quantity_integer-current_integer_quantity`。
+- `desired_buy_quantity=max(0,order_quantity_delta)`。
+- `affordable_quantity_integer=floor(available_cash/(fill_price*(1+commission_rate)))`。
+- `buy_quantity=min(desired_buy_quantity,affordable_quantity_integer)`。
+- `sell_quantity=min(current_integer_quantity,max(0,-order_quantity_delta))`。
+
+整数股模式必须先向下取整目标持仓数量，再计算与当前整数自主交易持仓的订单差额；禁止对已经计算出的卖出差额再次独立取整。corporate action产生的非整数数量按照第5章拆股例外规则独立保存，不得被自主订单取整逻辑静默删除。两种模式均禁止负持仓、负现金和杠杆；无法达到目标仓位时记录`TARGET_NOT_FULLY_REACHED_CASH_CONSTRAINT`。小数股和整数股共享信号、事件顺序、成交价和成本公式。
 
 ## 8. 日线和60分钟状态
 
@@ -152,17 +179,21 @@
 
 ### 8.2 60分钟趋势互斥优先级
 
-60分钟状态只从已完成且满足暖机的数据计算，并按以下顺序互斥判断：
+60分钟状态只从已完成数据计算，并按以下顺序互斥判断：
 
-1. `INVALID`：close<最近确认更高低点，或close<EMA50且`slope_60m<-0.10`；仓位上限0%。
-2. 否则，`STRONG`：close>EMA20>EMA50，且`slope_60m>0.10`，且最近确认更高低点未破坏；仓位上限100%。
-3. 其余已完成暖机状态为`WEAK`；仓位上限50%。
+1. `INDICATOR_NOT_READY`：任一必需指标未完成暖机；不得交易。
+2. 否则，`STRUCTURE_NOT_READY`：尚无判断趋势所需的正式确认pivot结构；不得交易。
+3. 否则，`INVALID`：close<最近确认更高低点，或close<EMA50且`slope_60m<-0.10`；仓位上限0%。
+4. 否则，`STRONG`：close>EMA20>EMA50，且`slope_60m>0.10`，且最近确认更高低点未破坏；仓位上限100%。
+5. 其余状态为`WEAK`；仓位上限50%。
 
 `slope_60m=(EMA20当前值-EMA20五根研究柱前值)/当前60分钟ATR20`。状态条件只使用上述互斥定义。必须进行仅均线、仅结构、均线加结构三组消融测试。
 
 ## 9. Pivot与受控回调状态机
 
-确认pivot使用`left_bars=2`、`right_bars=2`。pivot只有在右侧第2根完整60分钟柱收盘后正式可见。最近确认更高低点是最新确认pivot low高于前一个确认pivot low；最近确认更高高点同理。pivot参数可在研发区做预先登记的邻域测试，不得根据Locked OOS调整。
+确认pivot使用`left_bars=2`、`right_bars=2`。对中心研究柱`c`，pivot high成立当且仅当`high[c]>high[c-2]`、`high[c]>high[c-1]`、`high[c]>high[c+1]`且`high[c]>high[c+2]`；pivot low成立当且仅当`low[c]<low[c-2]`、`low[c]<low[c-1]`、`low[c]<low[c+1]`且`low[c]<low[c+2]`。全部比较严格使用大于或小于；任一相等极值、缺失值或非有限值都不构成对应pivot。同一中心柱同时满足两组条件时允许生成两个独立pivot事件。
+
+pivot只有在`c+2`完整60分钟柱收盘后正式可见，不得回填至中心柱`c`。`pivot_id`必须包含中心柱时间戳、pivot类型和参数版本。最近确认更高低点是最新确认pivot low高于前一个确认pivot low；最近确认更高高点同理。pivot参数可在研发区做预先登记的邻域测试，不得根据Locked OOS调整。
 
 只有上一根完整60分钟柱状态为`STRONG`且已有确认pivot high时，才允许启动受控回调监控。当前柱必须同时满足：close<EMA20、close>EMA50、最近确认更高低点未破坏、日线状态不是`RISK`。当前柱启动PULLBACK，并冻结`pullback_anchor_pivot_id`、`pullback_anchor_high`、`pullback_atr20`和`pullback_start_bar`。该次回调期间不得因后续pivot high改变锚点。
 
@@ -172,30 +203,31 @@
 
 回调持续超过12根、深度超过2.0倍`pullback_atr20`、结构失效、日线进入`RISK`、波动持续扩大或完整清仓时，回调作废。作废后必须等待新的确认pivot high和新的回调过程。
 
-`pullback_structure_low`为回调期间最低research_low。多个柱拥有相同最低价时，使用时间最晚的柱作为`pullback_structure_low_bar`。`recovery_level`为该低点柱之后、恢复信号柱之前已完成柱的最高research_high，至少需要一根有效恢复区间柱。恢复信号必须满足close>recovery_level。恢复信号柱收盘时冻结`signal_atr20`，用于过度扩张、追价和待执行订单检查；恢复信号柱不得参与`recovery_level`计算。
+`pullback_structure_low`为回调期间最低research_low。多个柱拥有相同最低价时，使用时间最晚的柱作为`pullback_structure_low_bar`。`recovery_level_research`为该低点柱之后、恢复信号柱之前已完成柱的最高research_high，至少需要一根有效恢复区间柱。恢复信号必须满足`research_close>recovery_level_research`。恢复信号柱收盘时冻结`signal_atr20_research`，用于过度扩张、追价和待执行订单检查；恢复信号柱不得参与`recovery_level_research`计算。
 
 ## 10. 入场、恢复与尾盘新仓
 
-入场上下文冻结`entry_anchor_pivot_high=pullback_anchor_high`和`entry_structure_low=pullback_structure_low`，不得被后续pivot更新改写。普通买入的预期成交价为`expected_entry_fill_price=raw_open*(1+normal_slippage_bps/10000)`；实际成交记录为`actual_entry_fill_price`，确定性研究模式下必须与该公式一致，且禁止价格改善。普通时段缺口超过`0.50 * signal_atr20`时取消订单并记录`entry_cancel_reason=ENTRY_CANCELLED_GAP_TOO_LARGE`；15:30辅助柱不满足`raw_open - recovery_level <= 0.35 * signal_atr20`时记录`entry_cancel_reason=ENTRY_CANCELLED_LATE_GAP_TOO_LARGE`。
+入场上下文冻结`entry_anchor_pivot_high=pullback_anchor_high`和`entry_structure_low=pullback_structure_low`，不得被后续pivot更新改写。在待执行柱`t`，先计算`open_research_equivalent=raw_open_t/split_factor_t`。普通买入的预期成交价分别保存为`expected_entry_fill_raw=raw_open_t*(1+normal_slippage_bps/10000)`和`expected_entry_fill_research=expected_entry_fill_raw/split_factor_t`；实际成交分别记录`actual_entry_fill_raw`和`actual_entry_fill_research=actual_entry_fill_raw/split_factor_t`。确定性研究模式下实际raw成交价必须与预期raw公式一致，且禁止价格改善。
 
 入场必须依次满足：日线环境允许做多、60分钟趋势未失效、存在确认短期高点、受控回调合格、回调形成结构低点、恢复柱收盘突破恢复位、收盘重新站上EMA20、EMA20斜率位于转平或向上区间，随后在下一根可交易K线成交。
 
-恢复信号柱收盘价减恢复位不得大于0.75倍`signal_atr20`。正常时段下一根开盘价相对恢复位的距离≤0.50倍`signal_atr20`时允许入场，超过时放弃并等待新的完整回调和恢复结构。
+恢复信号柱的`research_close-recovery_level_research`不得大于`0.75*signal_atr20_research`。普通入场有效区间为`recovery_level_research<=open_research_equivalent<=recovery_level_research+0.50*signal_atr20_research`，上下边界相等时允许入场。若`open_research_equivalent<recovery_level_research`，取消入场并记录`ENTRY_CANCELLED_RECOVERY_FAILED`；若超过上限，取消入场并记录`ENTRY_CANCELLED_GAP_TOO_LARGE`。两种取消均使当前回调和恢复结构作废，必须等待新的完整回调和恢复结构。
 
-普通时段首次入场一次进入完整目标仓位。15:30辅助柱开盘入场必须同时满足：D-1日线状态为`STRONG`；波动率目标仓位至少75%；`raw_open - recovery_level <= 0.35 * signal_atr20`；初始仓位上限50%。任一条件失败则取消尾盘新仓。尾盘入场次日只有D-1日线仍为`STRONG`、波动率目标至少75%、次日前两根完整60分钟柱均为`STRONG`且未触发止损、弱化或失效时，才在下一根可交易30分钟柱开盘恢复完整目标；该恢复同时使用连续2根确认规则。尾盘辅助柱不生成新策略信号。
+普通时段首次入场一次进入完整目标仓位。15:30辅助柱开盘入场必须同时满足：D-1日线状态为`STRONG`；波动率目标仓位至少75%；`recovery_level_research<=open_research_equivalent<=recovery_level_research+0.35*signal_atr20_research`；初始仓位上限50%。上下边界相等时允许入场。低于恢复位时取消尾盘入场并记录`ENTRY_CANCELLED_LATE_RECOVERY_FAILED`；超过上限时取消并记录`ENTRY_CANCELLED_LATE_GAP_TOO_LARGE`；两种取消均使当前回调和恢复结构作废。其他条件失败也取消尾盘新仓并记录对应原因。尾盘入场次日只有D-1日线仍为`STRONG`、波动率目标至少75%、次日前两根完整60分钟柱均为`STRONG`且未触发止损、弱化或失效时，才在下一根可交易30分钟柱开盘恢复完整目标；该恢复同时使用连续2根确认规则。尾盘辅助柱不生成新策略信号。
 
 ## 11. 成交、止损与事件顺序
 
 每根30分钟柱按唯一顺序处理：
 
-1. 开盘处理已有仓位跳空止损。
-2. 处理上一根完成柱生成的清仓订单。
-3. 处理减仓订单。
-4. 处理入场或加仓订单。
-5. 同时存在退出和入场时，退出优先，入场取消并记录冲突。
-6. 用本柱raw_low检查当前长仓止损；新仓在本柱开盘成交后仍可在本柱触发止损。
-7. 每个时间戳最多生成一个最终目标仓位订单。
-8. 柱收盘更新估值；完整60分钟柱结束时更新指标和状态并生成下一根可交易柱订单。
+1. 若为拆股生效日第一根RTH柱，在所有订单和风险事件之前按第5章处理拆股事件。
+2. 开盘处理已有仓位跳空止损。
+3. 处理上一根完成柱生成的清仓订单。
+4. 处理减仓订单。
+5. 处理入场或加仓订单。
+6. 同时存在退出和入场时，退出优先，入场取消并记录冲突。
+7. 用本柱raw_low检查当前长仓止损；新仓在本柱开盘成交后仍可在本柱触发止损。
+8. 每个时间戳最多生成一个最终目标仓位订单。
+9. 柱收盘更新估值；完整60分钟柱结束时更新指标和状态并生成下一根可交易柱订单。
 
 普通买入：`fill_price=raw_open*(1+normal_slippage_bps/10000)`。
 
@@ -205,29 +237,29 @@
 
 禁止价格改善。手续费按每个fill的成交名义金额独立计算：`commission=abs(fill_quantity*fill_price)*commission_bps/10000`。每笔成交必须保存`reference_price`、`fill_price`、`slippage_bps`、`commission`、`side`、`order_id`和`fill_id`。
 
-止损位置为回调结构低点减去0.25倍恢复信号柱收盘时已完成的60分钟ATR20。`entry_reference_price - initial_stop_price`不得超过2.5倍D-1日线ATR20；超过时直接放弃交易。2.5倍日线ATR和0.25倍60分钟ATR为首轮基准，可在研发区做预先登记的邻域测试。
+research价格空间的初始止损为`initial_stop_research=pullback_structure_low-0.25*signal_atr20_research`。入场前风险检查固定为`expected_entry_fill_research-initial_stop_research<=2.5*D-1 daily_atr20_research`；超过时直接放弃交易。2.5倍日线ATR和0.25倍60分钟ATR为首轮基准，可在研发区做预先登记的邻域测试。
 
-若30分钟柱`raw_open<=stop_price`，止损成交价为`raw_open*(1-stop_slippage_bps/10000)`；否则若`raw_low<=stop_price`，成交价为`stop_price*(1-stop_slippage_bps/10000)`；成交价不得低于0。止损必须保存`stop_price`、`raw_open`、`raw_low`、`fill_price`、`gap_through_stop`和`slippage_bps`。
+在30分钟柱`t`先计算`effective_stop_raw_t=effective_stop_research*split_factor_t`。若`raw_open_t<=effective_stop_raw_t`，止损成交价为`raw_open_t*(1-stop_slippage_bps/10000)`；否则若`raw_low_t<=effective_stop_raw_t`，成交价为`effective_stop_raw_t*(1-stop_slippage_bps/10000)`；成交价不得低于0。止损必须同时保存`effective_stop_research`、`effective_stop_raw_t`、`split_factor_t`、`raw_open_t`、`raw_low_t`、`fill_price`、`gap_through_stop`和`slippage_bps`。
 
-入场后出现新的已确认更高低点时，`candidate_stop=confirmed_higher_low-0.25*该pivot确认时可见的60分钟ATR20`，`effective_stop=max(previous_stop,candidate_stop)`。止损更新只在pivot正式确认后生效，不回填至pivot发生时间；止损不得下降或放宽。
+入场后出现新的已确认更高低点时，research价格空间的`candidate_stop_research=confirmed_higher_low_research-0.25*该pivot确认时可见的60分钟ATR20 research值`，`effective_stop_research=max(previous_effective_stop_research,candidate_stop_research)`。止损更新只在pivot正式确认后生效，不回填至pivot发生时间；research止损不得下降或放宽。每根待执行30分钟柱使用其`split_factor_t`重新计算raw等价值，禁止沿用不同拆股坐标下的raw止损值。
 
 所有冲突日志必须保存`candidate_id`、时间戳、existing_position、pending_orders、selected_event、cancelled_events和reason。
 
 ## 12. 正常退出与生命周期
 
-当有效权益区间不足以计算经过时间时，记录`INSUFFICIENT_ELAPSED_TIME`；此状态下不得声称CAGR或年化指标通过。
+当`elapsed_calendar_days<=0`时，按第13章记录`metric_status=INSUFFICIENT_ELAPSED_TIME`且CAGR为`null`；此状态下不得声称CAGR或年化指标通过。
 
 趋势弱化时目标仓位上限降至50%；结构失效时全部清仓。完整清仓当天禁止重新入场，旧回调和恢复结构作废，必须形成新的确认pivot high、受控回调和恢复突破。部分减仓不触发完整重置。
 
 交易生命周期从首次仓位0变为正数开始，到仓位重新为0结束。中间加减仓仍属于同一`trade_lifecycle_id`，每个fill有独立`fill_id`和`order_id`。
 
-`initial_entry_price=首次成交加权价格`，`initial_1R=initial_entry_price-当时有效止损价`。后续加仓可以改变当前平均成本，但不能重写`initial_entry_price`或`initial_1R`；初始止损不得向下放宽。`mfe_r`、`mae_r`和0.75R进展检查均使用冻结的`initial_1R`。
+首次成交后同时保存`initial_entry_price_raw=首次成交raw加权价格`、`initial_entry_price_research=initial_entry_price_raw/split_factor_t`和`initial_1r_research=initial_entry_price_research-initial_stop_research`。`initial_1r_research`必须有限且大于0，否则拒绝创建交易生命周期。后续加仓可以改变当前raw平均成本，但不能重写`initial_entry_price_raw`、`initial_entry_price_research`或`initial_1r_research`；research初始止损不得向下放宽。`mfe_r`、`mae_r`和0.75R进展检查均使用冻结的`initial_1r_research`；实际现金、PnL和权益继续使用raw成交价格。
 
 入场交易日为day 0，下一交易所交易日为day 1，提前收市日计一个交易日。day 5收盘后检查第一层时间止损，day 15收盘后检查第二层时间止损，退出订单在下一根可交易柱执行。
 
-day 5的结构进展必须为：出现新的已确认pivot low，且该pivot low>pullback_structure_low。day 5检查同时保留MFE_R≥0.75的进展条件。
+day 5的结构进展必须为：出现新的正式确认pivot low，且该pivot low>pullback_structure_low。day 5检查同时保留`mfe_r>=0.75`的进展条件。
 
-day 15允许继续持仓必须同时满足：当前close>EMA20；当前60分钟状态为`STRONG`；入场后至少出现一个更高的已确认pivot high，或一个高于pullback_structure_low的已确认pivot low。否则在下一根可交易柱退出。
+day 15允许继续持仓必须同时满足：当前research close>EMA20；当前60分钟状态为`STRONG`；入场后至少出现一个更高的正式确认pivot high，或一个高于pullback_structure_low的正式确认pivot low。否则在下一根可交易柱退出。
 
 ## 13. 绩效指标与异常状态
 
@@ -235,23 +267,23 @@ day 15允许继续持仓必须同时满足：当前close>EMA20；当前60分钟�
 
 Profit Factor为正生命周期净PnL总和除以负生命周期净PnL绝对值总和；无亏损交易时为`null`、状态`NO_GROSS_LOSS`；无完成PnL时为`null`、状态`NO_COMPLETED_PNL`。Sharpe使用每日账户权益收益率、无风险利率0和`sqrt(252)`；日收益标准差为0时为`null`、状态`ZERO_VARIANCE`。
 
-`total_return=ending_equity/starting_equity-1`。`elapsed_calendar_days`为权益曲线首尾UTC日期的日历天数差。`CAGR=(ending_equity/starting_equity)^(365.2425/elapsed_calendar_days)-1`；权益归零或为负时CAGR为`null`、状态`CAPITAL_DEPLETED`并直接淘汰。权益曲线必须包含初始资金点。
+`total_return=ending_equity/starting_equity-1`。`elapsed_calendar_days`为权益曲线首尾UTC日期的日历天数差。异常状态按以下优先级互斥判断：`ending_equity<=0`时CAGR为`null`、`metric_status=CAPITAL_DEPLETED`并直接淘汰；否则若`elapsed_calendar_days<=0`，CAGR为`null`、`metric_status=INSUFFICIENT_ELAPSED_TIME`；只有`ending_equity>0`且`elapsed_calendar_days>0`时，才计算`CAGR=(ending_equity/starting_equity)^(365.2425/elapsed_calendar_days)-1`。权益曲线必须包含初始资金点。
 
-`drawdown_t=equity_t/running_max_equity_t-1`；`max_drawdown=min(drawdown_t)`。最大回撤基于每日收盘账户权益。报告禁止用0替代无定义指标。
+最大回撤统一为正数幅度：`drawdown_pct_t=1-equity_t/running_max_equity_t`，`max_drawdown=max(drawdown_pct_t)`，正常情况下`0<=max_drawdown<=1`。最大回撤基于每日收盘账户权益。策略目标为`max_drawdown<=0.20`；`max_drawdown>0.25`直接`REJECTED`。`relative_drawdown_improvement=(benchmark_max_drawdown-strategy_max_drawdown)/benchmark_max_drawdown`，适用时硬门槛为`relative_drawdown_improvement>=0.25`。若`PRIMARY_PRICE_ONLY` Buy and Hold的`benchmark_max_drawdown=0`，则`relative_drawdown_improvement=null`、`relative_drawdown_gate=NOT_APPLICABLE`、`candidate_status=HOLD_BENCHMARK_DRAWDOWN_NOT_APPLICABLE`。禁止将负数drawdown直接与正数门槛比较，报告禁止用0替代无定义指标。
 
-持仓时间同时报告交易日数和完整60分钟研究柱数。资金利用率为每根30分钟柱`abs(position_market_value)/equity`的时间加权平均。`MFE_R`为生命周期内最大`(raw_high-initial_entry_price)/initial_1R`；`MAE_R`为生命周期内最小`(raw_low-initial_entry_price)/initial_1R`并保留负数。
+持仓时间同时报告交易日数和完整60分钟研究柱数。资金利用率为每根30分钟柱`abs(position_market_value)/equity`的时间加权平均。`mfe_r`为生命周期内最大`(research_high-initial_entry_price_research)/initial_1r_research`；`mae_r`为生命周期内最小`(research_low-initial_entry_price_research)/initial_1r_research`并保留负数。若需要金额或百分比指标，必须使用独立字段`mfe_amount`、`mae_amount`、`mfe_pct`和`mae_pct`，不得用含义不明的`MFE`或`MAE`字段代替。
 
 ## 14. 成本与压力测试
 
 基准成本为单边手续费1bps、普通成交滑点2bps、止损额外滑点3bps。必须运行1.0倍、1.5倍和2.0倍成本压力测试。
 
-1.5倍成本须满足CAGR≥Buy and Hold的85%、最大回撤≤25%、相对回撤改善≥15%、净收益为正。2.0倍成本须满足CAGR>0、Profit Factor≥1.0、最大回撤≤25%、总收益较基准下降≤35%，且无负权益、数据异常或成交异常。
+1.5倍成本须满足CAGR≥Buy and Hold的85%、`max_drawdown<=0.25`、`relative_drawdown_improvement>=0.15`、净收益为正。2.0倍成本须满足CAGR>0、Profit Factor≥1.0、`max_drawdown<=0.25`、总收益较基准下降≤35%，且无负权益、数据异常或成交异常。
 
 成本压力不变量只适用于fractional research模式：1.0、1.5、2.0倍成本必须保持相同信号时间、订单意图、入场退出时间和trade lifecycle数量。integer audit允许数量和现金限制差异，但策略信号不得变化。fractional模式下交易数量变化视为实现错误。
 
 ## 15. 样本切分、实验与验证
 
-设`M=数据集完整日历月总数`。`locked_oos_months=max(18,ceil(M*0.20))`；`walk_forward_months=max(18,ceil(M*0.20))`；`research_months=M-locked_oos_months-walk_forward_months`。边界对齐到月份首尾XNYS交易日。`research_months`必须至少24个月；不足时状态为`HOLD_INSUFFICIENT_SAMPLE`，不得宣称通过或失败。Walk-forward区域必须至少生成6个完整测试窗口，串联测试至少有18个完成生命周期且至少4个测试窗口有实际交易。
+设`M=数据集完整日历月总数`。必须首先满足`M>=90`；否则`candidate_status=HOLD_INSUFFICIENT_SAMPLE`，不得继续生成正式research、Walk-forward或Locked OOS切分，也不得宣称通过或失败。满足`M>=90`后才计算`locked_oos_months=max(18,ceil(M*0.20))`、`walk_forward_months=max(18,ceil(M*0.20))`和`research_months=M-locked_oos_months-walk_forward_months`。边界对齐到月份首尾XNYS交易日。`research_months`仍必须至少24个月；不足时状态为`HOLD_INSUFFICIENT_SAMPLE`。Walk-forward区域必须至少生成6个完整测试窗口，串联测试至少有18个完成生命周期且至少4个测试窗口有实际交易。
 
 Walk-forward使用训练窗口24个月、测试窗口3个月、步长3个月，并使用扩展训练窗口复核是否依赖最近两年。禁止使用比例近似切分。
 
@@ -263,7 +295,11 @@ Locked OOS存储于`C:\Users\cbcbe\TradingCodex\locked_oos_store\`，普通研�
 
 候选冻结时创建不可变candidate package，包含`candidate_id`、策略配置hash、代码提交、Data Manifest hash和实验历史hash。进入Locked OOS后任何代码、配置、参数或数据修改都创建新的`candidate_id`；Locked OOS失败的候选直接`REJECTED`。
 
-每次正式评估创建唯一`oos_attempt_id`，状态只能为`CREATED`、`RUNNING`、`COMPLETED`、`FAILED_BEFORE_RESULT`或`FAILED_AFTER_RESULT`。只有状态为`FAILED_BEFORE_RESULT`、没有任何结果持久化且数据/代码/配置hash完全一致时，才允许一次技术重试。`COMPLETED`或`FAILED_AFTER_RESULT`后禁止再次正式评估。所有尝试和重试必须写审计日志，记录候选、操作者、时间、数据hash、代码提交和配置hash。普通参数扫描和实验命令必须拒绝Locked OOS路径。
+每次正式评估创建唯一`oos_attempt_id`。只允许以下状态转换：`CREATED->RUNNING->COMPLETED`、`CREATED->FAILED_BEFORE_RESULT`、`RUNNING->FAILED_BEFORE_RESULT`和`RUNNING->FAILED_AFTER_RESULT`；禁止其他转换。`COMPLETED`、`FAILED_BEFORE_RESULT`和`FAILED_AFTER_RESULT`均为终止状态，attempt进入终止状态后不得修改或重新运行。
+
+只有原attempt为`FAILED_BEFORE_RESULT`、没有任何指标、结果行、报告或详细结果被持久化或展示、数据hash/代码commit/配置hash完全一致且原attempt的`retry_count=0`时，才允许一次技术重试。重试必须创建新的`oos_attempt_id`，不得复用原ID，并记录`retry_of=原oos_attempt_id`、`root_attempt_id=最初attempt ID`和`retry_count=1`。`retry_count=1`的attempt无论以何种状态结束均不得再次重试；`COMPLETED`或`FAILED_AFTER_RESULT`永远不得重试。结果持久化判断必须覆盖JSON、CSV、DuckDB事务、临时报告、正式报告和任何用户可见指标输出。
+
+所有尝试和重试必须写审计日志，记录候选、操作者、时间、数据hash、代码提交、配置hash、`retry_of`、`root_attempt_id`和`retry_count`。普通参数扫描和实验命令必须拒绝Locked OOS路径。
 
 ## 17. 机器结果与报告
 
@@ -273,7 +309,7 @@ Locked OOS存储于`C:\Users\cbcbe\TradingCodex\locked_oos_store\`，普通研�
 
 JSON、CSV和DuckDB必须使用完全相同的业务唯一键。每次程序运行另生成不可变`run_id`和`result_id`。交易明细使用`fill_id`、`order_id`和`trade_lifecycle_id`关联；OOS审计使用`oos_attempt_id`关联。
 
-机器字段至少包括：`schema_version`、`dataset_id`、`data_manifest_hash`、`candidate_id`、`experiment_id`、`strategy_family`、`config_hash`、`code_commit`、`stage`、`cost_scenario`、`benchmark_type`、`run_id`、`result_id`、`data_start`、`data_end`、`total_return`、`CAGR`、`max_drawdown`、`Sharpe`、`Profit_Factor`、`trade_count`、`win_rate`、`win_rate_status`、`relative_drawdown_improvement`、`relative_drawdown_gate`、`candidate_status`、`average_holding_days`、`average_holding_bars`、`capital_utilization`、`MFE`、`MAE`、`role_decisions`、`veto_status`、`veto_reason`、`contamination_status`、`approval_status`、`metric_status`和`generated_at_utc`。
+机器字段至少包括：`schema_version`、`dataset_id`、`data_manifest_hash`、`candidate_id`、`experiment_id`、`strategy_family`、`config_hash`、`code_commit`、`stage`、`cost_scenario`、`benchmark_type`、`run_id`、`result_id`、`data_start`、`data_end`、`total_return`、`CAGR`、`max_drawdown`、`Sharpe`、`Profit_Factor`、`trade_count`、`win_rate`、`win_rate_status`、`relative_drawdown_improvement`、`relative_drawdown_gate`、`candidate_status`、`average_holding_days`、`average_holding_bars`、`capital_utilization`、`mfe_r`、`mae_r`、`role_decisions`、`veto_status`、`veto_reason`、`contamination_status`、`approval_status`、`metric_status`和`generated_at_utc`。如需输出金额或百分比扩展指标，仅允许使用`mfe_amount`、`mae_amount`、`mfe_pct`和`mae_pct`。
 
 ## 18. 多角色研究委员会
 
@@ -293,7 +329,7 @@ JSON、CSV和DuckDB必须使用完全相同的业务唯一键。每次程序运�
 
 因果标签只允许使用`MECHANISM_HYPOTHESIS`、`OBSERVED_ATTRIBUTION`和`CAUSALLY_CONFIRMED`。观察相关性不得描述为已证明因果关系。
 
-`Implementation Phase 1`运行数据契约、指标暖机、消融、实验登记、参数邻域和Walk-forward，生成候选后进入`Approval Gate 1`并暂停，等待是否进入Locked OOS。后续Approval Gate分别审查Locked OOS、外部ETF、DIA压力测试和TradingView对账。每一关必须记录候选状态、证据、否决和审批结果。
+软件开发路线统一使用`Implementation Phase 1`至`Implementation Phase 12`，不得用Approval Gate编号表示开发阶段。完成进入Locked OOS前所需的Implementation Phases并生成候选后，进入`Approval Gate 1`并暂停；`Approval Gate 1`决定是否解锁Locked OOS。`Approval Gate 2`审查Locked OOS，`Approval Gate 3`审查SPY/IWM/RSP外部ETF验证，`Approval Gate 4`审查DIA压力测试和TradingView对账。每一关必须记录候选状态、证据、否决和审批结果；人工批准不得替代任何Implementation Phase的测试或验证。
 
 ## 20. TradingView、期权与组合边界
 
@@ -309,18 +345,18 @@ TradingView不是大规模研究主引擎或最终成交事实来源，只用于
 
 ## 22. 实施边界与分阶段路线
 
-1. 数据契约、XNYS日历、Futu 30分钟RTH、日线聚合、30分钟到60分钟聚合、拆股事件和Data Manifest。
-2. EMA、ATR、D-1日线指标和暖机状态。
-3. pivot、趋势、波动率、受控回调和恢复状态纯函数。
-4. 确定性30分钟事件、普通成交、止损和末日强平引擎。
-5. 仓位状态机、初始1R、部分成交、现金限制和成本。
-6. 单ETF回测、生命周期、指标异常状态和报告。
-7. 实验登记、消融和参数邻域测试。
-8. Walk-forward和样本可行性检查。
-9. Locked OOS封存、解锁、尝试状态机和审计。
-10. 外部ETF验证和多角色报告。
-11. DIA压力测试和TradingView parity。
-12. 前向测试。
+1. `Implementation Phase 1`：数据契约、XNYS日历、Futu 30分钟RTH、日线聚合、30分钟到60分钟聚合、拆股事件和Data Manifest。
+2. `Implementation Phase 2`：EMA、ATR、D-1日线指标和暖机状态。
+3. `Implementation Phase 3`：pivot、趋势、波动率、受控回调和恢复状态纯函数。
+4. `Implementation Phase 4`：确定性30分钟事件、普通成交、止损和末日强平引擎。
+5. `Implementation Phase 5`：仓位状态机、初始1R、部分成交、现金限制和成本。
+6. `Implementation Phase 6`：单ETF回测、生命周期、指标异常状态和报告。
+7. `Implementation Phase 7`：实验登记、消融和参数邻域测试。
+8. `Implementation Phase 8`：Walk-forward和样本可行性检查。
+9. `Implementation Phase 9`：Locked OOS封存、解锁、尝试状态机和审计。
+10. `Implementation Phase 10`：外部ETF验证和多角色报告。
+11. `Implementation Phase 11`：DIA压力测试和TradingView parity。
+12. `Implementation Phase 12`：前向测试。
 
 期权执行层和共享资金组合审计另立项目，不进入第一阶段核心实现。
 

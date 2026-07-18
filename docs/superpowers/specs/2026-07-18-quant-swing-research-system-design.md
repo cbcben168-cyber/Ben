@@ -4,7 +4,7 @@
 
 本文档是量化波段策略研究、审计、实现和人工审批的单一权威设计。它不是实施代码，也不授权连接交易接口、解锁交易、发送订单或进行实盘交易。
 
-规则变更必须创建新的策略版本并记录原因。首轮阈值是冻结的研究基准，必须在研发区完成预先登记的参数邻域稳定性测试，不得描述为最优值。本文档的设计范围大于当前实现范围，必须按第30章分阶段实施。
+规则变更必须创建新的策略版本并记录原因。首轮阈值是冻结的研究基准，必须在研发区完成预先登记的参数邻域稳定性测试，不得描述为最优值。本文档的设计范围大于当前实现范围，必须按实施边界分阶段实施。
 
 当前仓库已有SPY和QQQ历史数据下载、EMA回测、测试和报告的基线能力；正式实施仍按第22章阶段推进，不接入TradingView Webhook、券商、自动下单或期权回测。
 
@@ -102,6 +102,8 @@
 
 ## 6. EMA、ATR与指标暖机
 
+指标暖机未完成时状态为`INDICATOR_NOT_READY`；结构确认输入不足时状态为`STRUCTURE_NOT_READY`；两种状态均不得交易。
+
 ### 6.1 EMA
 
 `alpha = 2 / (period + 1)`。第一笔有效EMA值使用最早`period`个完成柱close的简单平均作为seed；后续递推为：
@@ -174,11 +176,13 @@
 
 ## 10. 入场、恢复与尾盘新仓
 
+入场上下文冻结`entry_anchor_pivot_high=pullback_anchor_high`和`entry_structure_low=pullback_structure_low`，不得被后续pivot更新改写。普通买入的预期成交价为`expected_entry_fill_price=raw_open*(1+normal_slippage_bps/10000)`；实际成交记录为`actual_entry_fill_price`，确定性研究模式下必须与该公式一致，且禁止价格改善。普通时段缺口超过`0.50 * signal_atr20`时取消订单并记录`entry_cancel_reason=ENTRY_CANCELLED_GAP_TOO_LARGE`；15:30辅助柱不满足`raw_open - recovery_level <= 0.35 * signal_atr20`时记录`entry_cancel_reason=ENTRY_CANCELLED_LATE_GAP_TOO_LARGE`。
+
 入场必须依次满足：日线环境允许做多、60分钟趋势未失效、存在确认短期高点、受控回调合格、回调形成结构低点、恢复柱收盘突破恢复位、收盘重新站上EMA20、EMA20斜率位于转平或向上区间，随后在下一根可交易K线成交。
 
 恢复信号柱收盘价减恢复位不得大于0.75倍`signal_atr20`。正常时段下一根开盘价相对恢复位的距离≤0.50倍`signal_atr20`时允许入场，超过时放弃并等待新的完整回调和恢复结构。
 
-普通时段首次入场一次进入完整目标仓位。15:30辅助柱开盘入场必须同时满足：D-1日线状态为`STRONG`；波动率目标仓位至少75%；`raw_open-recovery_level≤0.35*signal_atr20`；初始仓位上限50%。任一条件失败则取消尾盘新仓。尾盘入场次日只有D-1日线仍为`STRONG`、波动率目标至少75%、次日前两根完整60分钟柱均为`STRONG`且未触发止损、弱化或失效时，才在下一根可交易30分钟柱开盘恢复完整目标；该恢复同时使用连续2根确认规则。尾盘辅助柱不生成新策略信号。
+普通时段首次入场一次进入完整目标仓位。15:30辅助柱开盘入场必须同时满足：D-1日线状态为`STRONG`；波动率目标仓位至少75%；`raw_open - recovery_level <= 0.35 * signal_atr20`；初始仓位上限50%。任一条件失败则取消尾盘新仓。尾盘入场次日只有D-1日线仍为`STRONG`、波动率目标至少75%、次日前两根完整60分钟柱均为`STRONG`且未触发止损、弱化或失效时，才在下一根可交易30分钟柱开盘恢复完整目标；该恢复同时使用连续2根确认规则。尾盘辅助柱不生成新策略信号。
 
 ## 11. 成交、止损与事件顺序
 
@@ -201,7 +205,7 @@
 
 禁止价格改善。手续费按每个fill的成交名义金额独立计算：`commission=abs(fill_quantity*fill_price)*commission_bps/10000`。每笔成交必须保存`reference_price`、`fill_price`、`slippage_bps`、`commission`、`side`、`order_id`和`fill_id`。
 
-止损位置为回调结构低点减去0.25倍恢复信号柱收盘时已完成的60分钟ATR20。`entry_reference_price-initial_stop_price`不得超过2.5倍D-1日线ATR20；超过时直接放弃交易。2.5倍日线ATR和0.25倍60分钟ATR为首轮基准，可在研发区做预先登记的邻域测试。
+止损位置为回调结构低点减去0.25倍恢复信号柱收盘时已完成的60分钟ATR20。`entry_reference_price - initial_stop_price`不得超过2.5倍D-1日线ATR20；超过时直接放弃交易。2.5倍日线ATR和0.25倍60分钟ATR为首轮基准，可在研发区做预先登记的邻域测试。
 
 若30分钟柱`raw_open<=stop_price`，止损成交价为`raw_open*(1-stop_slippage_bps/10000)`；否则若`raw_low<=stop_price`，成交价为`stop_price*(1-stop_slippage_bps/10000)`；成交价不得低于0。止损必须保存`stop_price`、`raw_open`、`raw_low`、`fill_price`、`gap_through_stop`和`slippage_bps`。
 
@@ -211,11 +215,13 @@
 
 ## 12. 正常退出与生命周期
 
+当有效权益区间不足以计算经过时间时，记录`INSUFFICIENT_ELAPSED_TIME`；此状态下不得声称CAGR或年化指标通过。
+
 趋势弱化时目标仓位上限降至50%；结构失效时全部清仓。完整清仓当天禁止重新入场，旧回调和恢复结构作废，必须形成新的确认pivot high、受控回调和恢复突破。部分减仓不触发完整重置。
 
 交易生命周期从首次仓位0变为正数开始，到仓位重新为0结束。中间加减仓仍属于同一`trade_lifecycle_id`，每个fill有独立`fill_id`和`order_id`。
 
-`initial_entry_price=首次成交加权价格`，`initial_1R=initial_entry_price-当时有效止损价`。后续加仓可以改变当前平均成本，但不能重写`initial_entry_price`或`initial_1R`；初始止损不得向下放宽。MFE、MAE和0.75R进展检查均使用冻结的`initial_1R`。
+`initial_entry_price=首次成交加权价格`，`initial_1R=initial_entry_price-当时有效止损价`。后续加仓可以改变当前平均成本，但不能重写`initial_entry_price`或`initial_1R`；初始止损不得向下放宽。`mfe_r`、`mae_r`和0.75R进展检查均使用冻结的`initial_1R`。
 
 入场交易日为day 0，下一交易所交易日为day 1，提前收市日计一个交易日。day 5收盘后检查第一层时间止损，day 15收盘后检查第二层时间止损，退出订单在下一根可交易柱执行。
 
@@ -283,11 +289,11 @@ JSON、CSV和DuckDB必须使用完全相同的业务唯一键。每次程序运�
 
 ## 19. 解释、归因与审批关卡
 
-每轮生成中文摘要、完整审计报告和JSON/CSV/DuckDB机器结果。报告比较当前候选、上一版冠军和两种Buy and Hold口径，并列出总收益、CAGR、回撤、Sharpe、胜率、Profit Factor、交易数、持仓时间、资金利用率、MFE、MAE、成本情景、角色意见、否决状态、污染状态和最终结论。
+每轮生成中文摘要、完整审计报告和JSON/CSV/DuckDB机器结果。报告比较当前候选、上一版冠军和两种Buy and Hold口径，并列出总收益、CAGR、回撤、Sharpe、胜率、Profit Factor、交易数、持仓时间、资金利用率、`mfe_r`、`mae_r`、成本情景、角色意见、否决状态、污染状态和最终结论。
 
 因果标签只允许使用`MECHANISM_HYPOTHESIS`、`OBSERVED_ATTRIBUTION`和`CAUSALLY_CONFIRMED`。观察相关性不得描述为已证明因果关系。
 
-阶段1运行数据检查、消融、实验登记、参数邻域和Walk-forward，生成候选后暂停并等待是否进入Locked OOS。阶段2运行Locked OOS和委员会意见后暂停。阶段3运行SPY/IWM/RSP外部验证后暂停。阶段4运行DIA压力测试和TradingView对账后暂停。每一关必须记录候选状态、证据、否决和审批结果。
+`Implementation Phase 1`运行数据契约、指标暖机、消融、实验登记、参数邻域和Walk-forward，生成候选后进入`Approval Gate 1`并暂停，等待是否进入Locked OOS。后续Approval Gate分别审查Locked OOS、外部ETF、DIA压力测试和TradingView对账。每一关必须记录候选状态、证据、否决和审批结果。
 
 ## 20. TradingView、期权与组合边界
 

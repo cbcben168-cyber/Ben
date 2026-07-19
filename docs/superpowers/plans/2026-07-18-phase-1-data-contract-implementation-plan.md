@@ -20,6 +20,7 @@
 - Early-close sessions publish 30-minute and daily data but publish no 60-minute research bars; manifest policy is exactly `EXCLUDE_FROM_60M_SEQUENCE`.
 - `TimeKeyFixtureKind` is exactly `TEST | PRODUCTION_CAPTURE`. Checked-in files below `tests/fixtures/phase1/` are always `TEST`; CSV/offline tests may use them, but a Futu build requires separately captured `PRODUCTION_CAPTURE` evidence. Setting `verified=true` never upgrades `TEST` evidence.
 - `validate-time-key` validates evidence structure, SHA-256 syntax, and expected time conversion only; it never claims to prove Futu semantics. A valid `TEST` fixture exits 0 with `TEST_ONLY_NOT_AUTHORIZED_FOR_FUTU`; a valid `PRODUCTION_CAPTURE` exits 0 with `PRODUCTION_CAPTURE_VALID`. Real Futu semantic confirmation remains a separate manual integration step.
+- `TimeKeyEvidence` has two deliberately separate hashes: `content_sha256` is SHA-256 of compact, sorted UTF-8 JSON containing only the normalized semantic fields `fixture_version`, `fixture_kind`, `verified`, `semantics`, `source_timestamp`, `expected_bar_start_local`, `symbol`, `provider_code`, and `ktype`; `fixture_sha256` is SHA-256 of the complete raw fixture file. The latter is audit metadata only. Dataset identity uses `content_sha256` and `raw_response_sha256`, never the whole-file hash, capture time, versions, or operator narrative.
 - Internal `symbol` is the bare ETF symbol such as `QQQ`; supplier `provider_code` is separate, such as `US.QQQ`. They are never stored interchangeably.
 - Futu 30-minute requests use `KLType.K_30M`, `AuType.NONE`, and no extended-hours request. Futu failure is explicit and cannot trigger another provider.
 - Futu's documented `split_ratio` is vendor-oriented; the adapter converts it to the design contract `new_shares / old_shares` by `Decimal(1) / vendor_split_ratio`.
@@ -490,6 +491,7 @@ class TimeKeyEvidence:
     opend_version: str
     raw_response_sha256: str
     evidence: str
+    content_sha256: str
     fixture_sha256: str
 
     def __post_init__(self) -> None:
@@ -685,6 +687,7 @@ class ManifestRequest:
     corporate_action_status: DataStatus
     time_key_fixture_kind: TimeKeyFixtureKind
     time_key_semantics: TimeKeySemantics
+    time_key_content_sha256: str
     time_key_fixture_sha256: str
     time_key_raw_response_sha256: str
 
@@ -715,6 +718,7 @@ class DataManifest:
     corporate_action_status: DataStatus
     time_key_fixture_kind: TimeKeyFixtureKind
     time_key_semantics: TimeKeySemantics
+    time_key_content_sha256: str
     time_key_fixture_sha256: str
     time_key_raw_response_sha256: str
 
@@ -996,6 +1000,7 @@ class QuoteContext:
 
 @pytest.fixture
 def production_fixture(tmp_path):
+    # Synthetic structural evidence only: no OpenD connection or human attestation occurs in tests.
     payload = json.loads((FIXTURES / "futu_time_key_start.json").read_text(encoding="utf-8"))
     payload.update({
         "fixture_kind": "PRODUCTION_CAPTURE", "verified": True,
@@ -1017,6 +1022,24 @@ def test_start_and_end_fixtures_normalize_to_the_same_internal_start():
     assert start.bar_start_local == end.bar_start_local
     assert start.bar_start_utc.isoformat() == "2024-11-27T14:30:00+00:00"
     assert start.source_timestamp != end.source_timestamp
+
+
+def test_fixture_content_hash_is_stable_while_full_file_hash_is_audit_metadata(tmp_path):
+    payload = json.loads((FIXTURES / "futu_time_key_start.json").read_text(encoding="utf-8"))
+    first_path, second_path = tmp_path / "first.json", tmp_path / "second.json"
+    first_path.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+    payload.update({
+        "captured_at_utc": "2026-07-18T00:00:00+00:00",
+        "futu_api_version": "10.9.1",
+        "opend_version": "10.9.1",
+        "raw_response_sha256": "e" * 64,
+        "evidence": "same semantic contract; refreshed capture audit narrative",
+    })
+    second_path.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+    first, second = load_time_key_fixture(first_path), load_time_key_fixture(second_path)
+    assert first.content_sha256 == second.content_sha256
+    assert first.fixture_sha256 != second.fixture_sha256
+    assert first.raw_response_sha256 != second.raw_response_sha256
 
 
 def test_test_fixture_is_allowed_offline_but_rejected_by_futu():
@@ -1222,13 +1245,24 @@ def load_time_key_fixture(path: str | Path) -> TimeKeyEvidence:
     if missing := required.difference(payload):
         raise FixtureSchemaError(f"time_key fixture missing fields: {sorted(missing)}")
     try:
+        semantic_fields = (
+            "fixture_version", "fixture_kind", "verified", "semantics", "source_timestamp",
+            "expected_bar_start_local", "symbol", "provider_code", "ktype",
+        )
+        content_payload = {
+            field: normalize_research_symbol(payload[field]) if field == "symbol" else payload[field]
+            for field in semantic_fields
+        }
+        content_sha256 = hashlib.sha256(
+            json.dumps(content_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
         evidence = TimeKeyEvidence(
             payload["fixture_version"], TimeKeyFixtureKind(payload["fixture_kind"]), True,
             TimeKeySemantics(payload["semantics"]), payload["source_timestamp"],
             datetime.fromisoformat(payload["expected_bar_start_local"]), normalize_research_symbol(payload["symbol"]),
             payload["provider_code"], payload["ktype"], datetime.fromisoformat(payload["captured_at_utc"]),
             payload["futu_api_version"], payload["opend_version"],
-            payload["raw_response_sha256"], payload["evidence"], fixture_sha256,
+            payload["raw_response_sha256"], payload["evidence"], content_sha256, fixture_sha256,
         )
     except (KeyError, TypeError, ValueError, DataContractError) as error:
         raise FixtureSchemaError(f"invalid time_key fixture: {error}") from error
@@ -1300,6 +1334,7 @@ class FutuProvider:
             self.time_key_evidence.provider_code,
         )
         self.time_key_semantics = self.time_key_evidence.semantics
+        self.time_key_content_sha256 = evidence.content_sha256
         self.time_key_fixture_sha256 = evidence.fixture_sha256
 
     def fetch_30m(self, symbol: str, start: date, end: date) -> pd.DataFrame:
@@ -1392,18 +1427,7 @@ Run: `python -m pytest tests -q`
 
 Expected: PASS. These tests do not assert that a TEST fixture proves real Futu semantics.
 
-- [ ] **Step 5: Perform the separate manual production-capture integration gate**
-
-This is an operator gate, outside pytest and before the first official Futu dataset build:
-
-1. With the approved Futu OpenD environment, capture the canonical raw response bytes for one known full-session symbol using `K_30M`, `AuType.NONE`, and `extended_time=False`.
-2. Save `data/phase1/evidence/futu_time_key_<symbol>_<captured_at_utc>.json` with `fixture_kind=PRODUCTION_CAPTURE`, the real API/OpenD versions, symbol, provider code, ktype, capture time, raw-response SHA-256, source timestamp, expected New York bar start, semantics, and the operator comparison evidence.
-3. Manually compare the captured row to the XNYS open/close sequence and set `verified=true` only after the label meaning is confirmed.
-4. Run: `python -m tv_quant.phase1_data.cli validate-time-key --fixture <captured-json>`
-
-Expected: `PRODUCTION_CAPTURE_VALID ...`. This command verifies schema, hashes, and time conversion only; it never claims the provider's real semantics were proved automatically. A valid `TEST` fixture instead returns 0 with `TEST_ONLY_NOT_AUTHORIZED_FOR_FUTU`; only a Futu build rejects TEST kind, missing raw hash, or `verified=false` with a nonzero code.
-
-- [ ] **Step 6: Commit providers and TEST evidence fixtures**
+- [ ] **Step 5: Commit providers and TEST evidence fixtures**
 
 ```bash
 git add src/tv_quant/phase1_data/providers.py src/tv_quant/phase1_data/futu.py tests/phase1_data/test_futu.py tests/fixtures/phase1/futu_time_key_start.json tests/fixtures/phase1/futu_time_key_end.json tests/fixtures/phase1/futu_time_key_unverified.json
@@ -2061,9 +2085,17 @@ def test_missing_pair_cross_session_and_source_mixing_are_rejected(scheduled_bar
         aggregate_60m_research_bars(bars[:-1], schedule)
     with pytest.raises(SourceMixingError, match="single source"):
         aggregate_daily_bars(bars[:-1] + (replace(bars[-1], source="YFINANCE"),))
-    other = replace(bars[1], session_date=date(2024, 11, 26))
+    # This record is model-valid: it is a real 30-minute bar from another XNYS session.
+    other = scheduled_bars(date(2024, 11, 29))[0]
     with pytest.raises(AggregationError, match="session_date"):
         aggregate_60m_research_bars((bars[0], other) + bars[2:], schedule)
+
+
+def test_60m_global_identity_is_checked_before_early_close_short_circuit(scheduled_bars):
+    early = XNYSCalendar().session(date(2024, 11, 29))
+    bars = scheduled_bars(early.session_date)
+    with pytest.raises(SourceMixingError, match="single source"):
+        aggregate_60m_research_bars(bars[:-1] + (replace(bars[-1], source="YFINANCE"),), early)
 
 
 def test_daily_aggregation_rejects_cross_date_source_symbol_and_provider_mixing(scheduled_bars):
@@ -2132,13 +2164,14 @@ def aggregate_60m_research_bars(
     bars: Sequence[Bar30mRecord], schedule: SessionSchedule,
 ) -> tuple[Bar60mRecord, ...]:
     items = tuple(bars)
+    # Identity is a full-input precondition, including early-close inputs.
+    source, symbol, provider_code = _validate_single_dataset_identity(items)
     if schedule.is_early_close:
         return ()
     if len(items) != 13:
         raise AggregationError("normal session requires 13 validated bars")
     if any(item.session_date != schedule.session_date for item in items):
         raise AggregationError("cannot aggregate across session_date")
-    source, symbol, provider_code = _validate_single_dataset_identity(items)
     result: list[Bar60mRecord] = []
     for index in range(0, 12, 2):
         first, second = items[index:index + 2]
@@ -2232,8 +2265,9 @@ def request(*, files=DATA_FILES, fetched_at=datetime(2026, 7, 18, tzinfo=timezon
         corporate_action_status=DataStatus.VALID,
         time_key_fixture_kind=TimeKeyFixtureKind.PRODUCTION_CAPTURE,
         time_key_semantics=TimeKeySemantics.BAR_START,
-        time_key_fixture_sha256="5" * 64,
-        time_key_raw_response_sha256="6" * 64,
+        time_key_content_sha256="5" * 64,
+        time_key_fixture_sha256="6" * 64,
+        time_key_raw_response_sha256="7" * 64,
     )
 
 
@@ -2252,6 +2286,8 @@ def test_manifest_contains_every_mandatory_field_and_deterministic_identity():
     assert manifest.early_close_60m_policy.value == "EXCLUDE_FROM_60M_SEQUENCE"
     assert build_data_manifest(request()).dataset_id == manifest.dataset_id
     assert build_data_manifest(request(fetched_at=datetime(2027, 1, 1, tzinfo=timezone.utc))).dataset_id == manifest.dataset_id
+    assert build_data_manifest(replace(request(), time_key_fixture_sha256="8" * 64)).dataset_id == manifest.dataset_id
+    assert build_data_manifest(replace(request(), time_key_content_sha256="9" * 64)).dataset_id != manifest.dataset_id
     assert build_data_manifest(request(action_content_hash="8" * 64)).dataset_id != manifest.dataset_id
     assert build_data_manifest(replace(request(), corporate_action_source_sha256="9" * 64)).dataset_id != manifest.dataset_id
 
@@ -2373,7 +2409,7 @@ def calculate_dataset_id(manifest_payload: Mapping[str, object]) -> str:
         "calendar_schedule_hash": manifest_payload["calendar_schedule_hash"],
         "corporate_action_content_sha256": manifest_payload["corporate_action_content_sha256"],
         "corporate_action_source_sha256": manifest_payload["corporate_action_source_sha256"],
-        "time_key_fixture_sha256": manifest_payload["time_key_fixture_sha256"],
+        "time_key_content_sha256": manifest_payload["time_key_content_sha256"],
         "time_key_raw_response_sha256": manifest_payload["time_key_raw_response_sha256"],
         "early_close_60m_policy": str(manifest_payload["early_close_60m_policy"]),
     }
@@ -2627,7 +2663,24 @@ def test_cli_success_prints_immutable_dataset_path(monkeypatch, capsys, tmp_path
     assert str(destination) in capsys.readouterr().out
 ```
 
-The same test module must add offline, temporary-file tests for each concrete input path before the exception-mapping parameterization is considered complete: invalid ISO date; disallowed symbol; each rejected output root; missing bars/actions/time-fixture files; malformed and missing-field time fixtures; TEST evidence supplied to a Futu build; malformed, missing-field, and invalid-`action_type` action files; CSV missing required columns; CSV symbol/provider-code mismatch; and every action batch identity mismatch. Those tests assert the frozen exit class (2, 3, 4, or 5), never an uncaught `KeyError`, `OSError`, or generic `ValueError`.
+The following are required, network-free `main(argv)` tests. Each function writes precisely the listed `tmp_path` content, supplies the exact argv shape shown (with `<root>` replaced by its case directory), asserts the listed integer return code, then asserts that `capsys.readouterr().err` contains the listed stderr fragment. In the table, `VALID_TEST_FIXTURE_BYTES` is exactly `(Path("tests/fixtures/phase1/futu_time_key_start.json")).read_bytes()`, `VALID_ACTION_JSON_BYTES` is exactly `(Path("tests/fixtures/phase1/corporate_actions.json")).read_bytes()`, and `VALID_CSV_BYTES` is exactly `b"symbol,provider_code,source_timestamp,open,high,low,close,volume\\nQQQ,US.QQQ,2024-11-27 09:30:00,500,502,499,501,1000\\n"`; each named test writes the specified bytes with `tmp_path / <filename>`. No test may call a real `OpenQuoteContext`; `test_cli_futu_test_evidence_is_rejected` injects a fake context and verifies that construction rejects TEST evidence before any request.
+
+| Required test function | Exact `tmp_path` contents | argv after `build` | Expected code / stderr assertion |
+|---|---|---|---|
+| `test_cli_missing_bars_file_is_exit_2` | `actions.json=VALID_ACTION_JSON_BYTES`; `fixture.json=VALID_TEST_FIXTURE_BYTES`; no `bars.csv` | `--symbol QQQ --start 2024-11-27 --end 2024-11-29 --provider csv --bars <root>/bars.csv --actions <root>/actions.json --time-key-fixture <root>/fixture.json --output-root <root>/data/phase1` | `2`; contains `cannot read bars file` |
+| `test_cli_missing_actions_file_is_exit_2` | `bars.csv=VALID_CSV_BYTES`; `fixture.json=VALID_TEST_FIXTURE_BYTES`; no `actions.json` | same CSV argv with `<root>/actions.json` | `2`; contains `cannot read actions file` |
+| `test_cli_missing_time_fixture_is_exit_2` | `bars.csv=VALID_CSV_BYTES`; `actions.json=VALID_ACTION_JSON_BYTES`; no `fixture.json` | same CSV argv with `<root>/fixture.json` | `2`; contains `cannot read time_key fixture` |
+| `test_cli_malformed_time_fixture_is_exit_3` | `bars.csv=VALID_CSV_BYTES`; `actions.json=VALID_ACTION_JSON_BYTES`; `fixture.json=b"{"` | same CSV argv | `3`; contains `invalid time_key fixture JSON` |
+| `test_cli_missing_time_fixture_field_is_exit_3` | `bars.csv=VALID_CSV_BYTES`; `actions.json=VALID_ACTION_JSON_BYTES`; `fixture.json=b'{"fixture_version":"1"}'` | same CSV argv | `3`; contains `time_key fixture missing fields` |
+| `test_cli_futu_test_evidence_is_rejected` | `fixture.json=VALID_TEST_FIXTURE_BYTES`; no bars/actions needed | `--symbol QQQ --start 2024-11-27 --end 2024-11-29 --provider futu --time-key-fixture <root>/fixture.json --output-root <root>/data/phase1` | `3`; contains `PRODUCTION_CAPTURE` |
+| `test_cli_malformed_action_file_is_exit_5` | `bars.csv=VALID_CSV_BYTES`; `fixture.json=VALID_TEST_FIXTURE_BYTES`; `actions.json=b"{"` | same CSV argv | `5`; contains `invalid corporate-action JSON` |
+| `test_cli_missing_action_field_is_exit_5` | `bars.csv=VALID_CSV_BYTES`; `fixture.json=VALID_TEST_FIXTURE_BYTES`; `actions.json=b'{"actions":[]}'` | same CSV argv | `5`; contains `corporate-action file missing fields` |
+| `test_cli_invalid_action_type_is_exit_5` | `bars.csv=VALID_CSV_BYTES`; `fixture.json=VALID_TEST_FIXTURE_BYTES`; action JSON has all top-level fields and one action with `"action_type":"NOT_AN_ACTION"`, valid date/ratio/supplier-business fields | same CSV argv | `5`; contains `invalid corporate-action content` |
+| `test_cli_csv_missing_columns_is_exit_4` | `bars.csv=b"symbol,source_timestamp\\nQQQ,2024-11-27 09:30:00\\n"`; `actions.json=VALID_ACTION_JSON_BYTES`; `fixture.json=VALID_TEST_FIXTURE_BYTES` | same CSV argv | `4`; contains `CSV missing columns` |
+| `test_cli_csv_identity_mismatch_is_exit_4` | `bars.csv=b"symbol,provider_code,source_timestamp,open,high,low,close,volume\\nQQQ,US.SPY,2024-11-27 09:30:00,500,502,499,501,1000\\n"`; `actions.json=VALID_ACTION_JSON_BYTES`; `fixture.json=VALID_TEST_FIXTURE_BYTES` | same CSV argv | `4`; contains `CSV symbol/provider_code mismatch` |
+| `test_cli_action_batch_identity_mismatch_is_exit_4` | `bars.csv=VALID_CSV_BYTES`; `fixture.json=VALID_TEST_FIXTURE_BYTES`; otherwise-valid `actions.json` derived from `VALID_ACTION_JSON_BYTES` with exactly one top-level or action `symbol`, `provider_code`, or `source` replacement away from `CSV` / `QQQ` / `US.QQQ` | same CSV argv | `4`; contains `corporate-action batch identity mismatch` |
+
+The module separately keeps explicit parser tests for invalid ISO dates, disallowed symbols, and each rejected output root. All of these tests assert a frozen exit class (2, 3, 4, or 5), never an uncaught `KeyError`, `OSError`, or generic `ValueError`.
 
 - [ ] **Step 2: Run tests and verify the missing pipeline/CLI failure**
 
@@ -2834,6 +2887,7 @@ def build_phase1_dataset(
         corporate_action_status=DataStatus.VALID,
         time_key_fixture_kind=evidence.fixture_kind,
         time_key_semantics=evidence.semantics,
+        time_key_content_sha256=evidence.content_sha256,
         time_key_fixture_sha256=evidence.fixture_sha256,
         time_key_raw_response_sha256=evidence.raw_response_sha256,
     ))
@@ -2949,7 +3003,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "validate-time-key":
             evidence = load_time_key_fixture(args.fixture)
             status = "PRODUCTION_CAPTURE_VALID" if evidence.fixture_kind.value == "PRODUCTION_CAPTURE" else "TEST_ONLY_NOT_AUTHORIZED_FOR_FUTU"
-            print(f"{status} {evidence.semantics.value} {evidence.fixture_sha256}")
+            print(f"{status} {evidence.semantics.value} content={evidence.content_sha256} fixture={evidence.fixture_sha256}")
             return EXIT_OK
         result = _execute_build(args)
         print(result.destination)
@@ -2966,7 +3020,7 @@ def main(argv: list[str] | None = None) -> int:
     ) as error:
         print(error, file=sys.stderr)
         return EXIT_QUALITY
-    except CorporateActionsUnverifiedError as error:
+    except (CorporateActionsUnverifiedError, CorporateActionSchemaError) as error:
         print(error, file=sys.stderr)
         return EXIT_ACTIONS
     except (PublicationBlockedError, AtomicWriteError, FileExistsError) as error:
@@ -3060,13 +3114,13 @@ Create `docs/phase1-data-contract.md` with these exact operational sections:
 
 1. `Scope and exclusions`: list Phase 1 contents and every Phase 2+ exclusion from Global Constraints; state that QQQ, SPY, IWM, RSP, and DIA are the complete Phase 1 allow-list.
 2. `Data sources`: Futu unadjusted K_30M primary input, no silent fallback, Futu 30-minute history availability risk, and CSV only as an explicit test/import provider.
-3. `Time contract`: XNYS, America/New_York localization, UTC storage, TEST versus PRODUCTION_CAPTURE, one shared `TimeKeyEvidence` object from provider through pipeline and Manifest, ordinary/early-close counts, and DST examples. State that `validate-time-key` checks structure/hash/conversion but does not prove real vendor semantics; document `TEST_ONLY_NOT_AUTHORIZED_FOR_FUTU` and `PRODUCTION_CAPTURE_VALID` exactly.
+3. `Time contract`: XNYS, America/New_York localization, UTC storage, TEST versus PRODUCTION_CAPTURE, one shared `TimeKeyEvidence` object from provider through pipeline and Manifest, ordinary/early-close counts, and DST examples. Distinguish canonical semantic `content_sha256` from complete-file `fixture_sha256`; only the former (plus raw-response hash) contributes to deterministic identity. State that `validate-time-key` checks structure/hash/conversion but does not prove real vendor semantics; document `TEST_ONLY_NOT_AUTHORIZED_FOR_FUTU` and `PRODUCTION_CAPTURE_VALID` exactly.
 4. `Price contract`: immutable raw fields, split-only research fields, supplier ratio inversion, dividend exclusion, content hash, raw-response hash, and fetched-time audit metadata.
 5. `Runtime layout`: the exact staging/datasets/evidence tree and immutable dataset-id usage.
 6. `Commands`: `validate-time-key`, CSV build, and Futu build examples; explicitly list all five allowed `--symbol` values and include no credentials.
 7. `Exit codes`: 0 success, 2 `CliArgumentError`/input-file/argparse errors, 3 provider/time fixture, 4 quality/calendar/data contract/source/aggregation, 5 actions, 6 publication/atomic write/existing destination; unknown bugs remain exit 1 with traceback.
 8. `Legacy isolation`: existing daily download/backtest commands and `data/raw` remain separate and cannot be inputs to Phase 1.
-9. `Manifest fields`: enumerate every `DataManifest` field and distinguish file, dataset, calendar, action-content, action-source, time-fixture, and raw-response hashes.
+9. `Manifest fields`: enumerate every `DataManifest` field and distinguish file, dataset, calendar, action-content, action-source, time-key content, whole time-fixture, and raw-response hashes; mark whole-fixture hash as audit-only.
 10. `Residual risks`: Futu time semantics evidence, supplier history limits/revisions, corporate-action revisions, calendar-version changes, and 30-minute bars not proving tick-level paths.
 
 - [ ] **Step 4: Run the public-contract test green before adding acceptance coverage**
@@ -3186,13 +3240,22 @@ git add src/tv_quant/phase1_data/__init__.py tests/phase1_data/test_public_api_d
 git commit -m "Document and verify phase 1 data pipeline"
 ```
 
+## Post-Implementation Operator Gate
+
+This gate is intentionally outside Tasks 1–10, all unit/acceptance tests, and all implementation commits. It is the only place in this plan that permits a real Futu OpenD connection or a manually attested `PRODUCTION_CAPTURE`; it must not be performed while implementing or validating the offline plan.
+
+1. After all Tasks 1–10 have passed offline and before the first official Futu dataset build, use the separately approved Futu OpenD environment to capture canonical raw response bytes for one known full-session symbol with `K_30M`, `AuType.NONE`, and `extended_time=False`.
+2. Save `data/phase1/evidence/futu_time_key_<symbol>_<captured_at_utc>.json` with `fixture_kind=PRODUCTION_CAPTURE`, real API/OpenD versions, symbol, provider code, ktype, capture time, raw-response SHA-256, source timestamp, expected New York bar start, semantics, and operator comparison evidence. Its full-file SHA-256 is audit metadata; its canonical semantic `content_sha256` and raw-response SHA-256 are the stable manifest identity inputs.
+3. Manually compare the captured row with the XNYS open/close sequence. Set `verified=true` only after the label meaning is confirmed; retain the raw response and operator record according to the operating procedure.
+4. Run `python -m tv_quant.phase1_data.cli validate-time-key --fixture <captured-json>` and require `PRODUCTION_CAPTURE_VALID ...`. The command validates schema, hashes, and conversion only; it does not prove vendor semantics automatically. A valid TEST fixture returns `TEST_ONLY_NOT_AUTHORIZED_FOR_FUTU` and can never authorize a Futu build.
+
 ## Requirement-to-Test Acceptance Matrix
 
 | Frozen Phase 1 requirement | Owning task | Concrete evidence |
 |---|---:|---|
 | Schema, raw/research fields, and time invariants | 1 | frozen fields; naive/non-NY/non-UTC rejection, duration/end-order, same-instant, session-date, and symbol-normalization tests |
 | XNYS, New York/UTC, DST | 1, 2 | ordinary, closed day, early close, both DST boundaries, schedule hash |
-| TEST versus production Futu time evidence | 3, 9, 10 | TEST structural success status/Futu reject; production success status; malformed/missing fixture errors; one shared evidence object |
+| TEST versus production Futu time evidence | 3, 9, 10 | TEST structural success status/Futu reject; production success status; semantic-content versus whole-fixture hash invariance; malformed/missing fixture errors; one shared evidence object |
 | Bare symbol/provider code mapping | 1, 3, 9, 10 | five-symbol normalization, strict canonical provider code, whole-batch CSV/action identity rejection, and 20-row acceptance read |
 | RTH and ordinary 13-bar completeness | 4 | exact expected-start comparison plus pre/post filtering |
 | Early-close count and boundaries | 4 | 7-bar 09:30–13:00 pass and count/bounds failures |
@@ -3219,6 +3282,11 @@ git commit -m "Document and verify phase 1 data pipeline"
 | FDR-P1-H-06 | Normalizes bare symbols once, requires canonical uppercase provider codes, and validates bar/action batch identity without row dropping. | Tasks 1, 3, and 9 normalization, lowercase, multi-symbol, and action identity tests |
 | FDR-P1-H-07 | Validates source/symbol/provider code once across the full daily input before grouping and reuses that validator for 60-minute aggregation. | Task 7 same-day and cross-date mixing tests |
 | FDR-P1-H-08 | Uses explicit CLI domain exceptions, preserves unknown bugs, and tests all input/fixture/domain/publication exit classes offline. | Task 9 fixed-exit parameterization, temp-file error tests, native argparse test, and unknown-RuntimeError test |
+| Final HIGH 1 | Separates canonical TimeKey semantic-content hashing from whole-fixture audit hashing; dataset identity excludes whole fixture representation and capture metadata. | Global Constraints; Task 3 loader test; Task 8 manifest invariance/sensitivity test |
+| Final HIGH 2 | Uses a model-valid bar from another real session and requires aggregation, rather than model construction, to raise `AggregationError`. | Task 7 cross-session test |
+| Final HIGH 3 | Moves real OpenD capture and human `PRODUCTION_CAPTURE` attestation to the post-implementation operator gate. | Post-Implementation Operator Gate |
+| Final Note 1 | Performs full-input identity validation before the early-close return in 60-minute aggregation. | Task 7 early-close source-mixing test and implementation order |
+| Final Note 2 | Names every CLI file-error test and fixes its `tmp_path` bytes, argv, exit code, and stderr assertion. | Task 9 CLI file-error test table |
 | Implementation Plan Note A | Compares final path components rather than a string suffix and rejects lookalike roots. | Task 9 positive/negative output-root tests |
 | Implementation Plan Note B | Removes the request fixture path; pipeline accepts exactly one `TimeKeyEvidence` object and requires it to be the provider object. | Task 3 evidence creation; Task 9 object-identity test; Manifest fields |
 | Implementation Plan Note C | Defines successful structural-validation output for TEST and PRODUCTION_CAPTURE without granting TEST production authority. | Tasks 3 and 9 command tests; Task 10 documentation |
@@ -3271,6 +3339,6 @@ Expected results:
 11. **Red/green integrity:** Each task has a focused red reason and green verification; Task 10's red is specifically public exports/docs, then public green, then offline end-to-end acceptance.
 12. **Safety and reviewability:** Legacy files remain untouched, secrets and live orders are prohibited, outputs are immutable, all tests plus `git diff --check` are required, and each implementation task has one reviewable local commit.
 13. **Output root:** Phase 1 accepts only final path components `data/phase1`; suffix lookalikes cannot bypass legacy isolation.
-14. **Evidence binding:** Provider, pipeline, and Manifest use the identical `TimeKeyEvidence` object and its fixture hash; no request carries a second fixture path.
-15. **Aggregation identity:** Daily and 60-minute aggregation perform one full-input source/symbol/provider-code validation before grouping.
+14. **Evidence binding:** Provider, pipeline, and Manifest use the identical `TimeKeyEvidence` object; canonical semantic content and whole-fixture audit hashes remain separate, and no request carries a second fixture path.
+15. **Aggregation identity:** Daily and 60-minute aggregation perform one full-input source/symbol/provider-code validation before grouping; 60-minute validation runs before the early-close return.
 16. **Acceptance realism:** The dedicated Task 10 fixture has two actions inside the 2024-11-27 through 2024-11-29 range and proves split-only research adjustment.

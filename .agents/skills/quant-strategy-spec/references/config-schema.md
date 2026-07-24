@@ -19,17 +19,17 @@ into generated Python code.
 | `timeframe` | yes | `str` | Daily bars use `1d`. |
 | `start_date` | yes | `date` | ISO `YYYY-MM-DD`; must precede `end_date`. |
 | `end_date` | yes | `date` | ISO `YYYY-MM-DD`; must follow `start_date`. |
-| `initial_capital` | yes | `float` | Must be positive. |
+| `initial_capital` | yes | `float` | Must be a finite numeric value greater than zero; booleans and non-numeric values are rejected. |
 | `entry_rules` | yes | `tuple[Mapping[str, Any], ...]` | Non-empty declarative entry-rule list. |
 | `exit_rules` | yes | `tuple[Mapping[str, Any], ...]` | Non-empty declarative exit-rule list. |
 | `position_sizing` | yes | `Mapping[str, Any]` | Current fixed engine uses `cash_limited_long_only`. |
-| `commission_model` | yes | `float` in `commission_bps` | YAML model must be non-negative `basis_points`. |
-| `slippage_model` | yes | `float` in `slippage_bps` | YAML model must be non-negative `basis_points`. |
+| `commission_model` | yes | `float` in `commission_bps` | YAML model must be `basis_points` with a finite numeric value that is non-negative; booleans and non-numeric values are rejected. |
+| `slippage_model` | yes | `float` in `slippage_bps` | YAML model must be `basis_points` with a finite numeric value that is non-negative; booleans and non-numeric values are rejected. |
 | `fill_timing` | no | `str` | Defaults to `next_bar`; signals fill on the next bar. |
 | `data_source` | no | `str` | Defaults to `validated_local_cache_first`. |
-| `in_sample_period` | no | `tuple[date, date] \| None` | Reserved period boundary; current Task 2 mapping preserves null as `None`. |
-| `out_of_sample_period` | no | `tuple[date, date] \| None` | Reserved period boundary; current Task 2 mapping preserves null as `None`. |
-| `optimization_allowed` | no | `bool` | Defaults to `false`; optimization is outside the current fixed engine. |
+| `in_sample_period` | no | `None` only in Phase 1 | Reserved field. It must be explicitly null or omitted; non-null values are rejected until period parsing is implemented. |
+| `out_of_sample_period` | no | `None` only in Phase 1 | Reserved field. It must be explicitly null or omitted; non-null values are rejected until period parsing is implemented. |
+| `optimization_allowed` | no | `bool` | Defaults to `false`; only a strict Python/YAML boolean is accepted; optimization is outside the current fixed engine. |
 | `report_language` | no | `str` | Defaults to `zh-CN`. |
 | `raw` | derived | `Mapping[str, Any]` | Validated merged YAML mapping retained for audit and capability checks. |
 
@@ -82,8 +82,10 @@ report_language: zh-CN
 
 `load_strategy_spec` rejects non-mapping YAML. `validate_strategy_mapping`
 raises `ValueError` for missing required fields, invalid ISO dates, a reversed
-date range, non-positive capital, empty rule lists, non-mapping position size,
-or commission/slippage models that are not non-negative basis points.
+date range, non-positive or non-finite capital, empty rule lists, non-mapping
+position size, non-boolean `optimization_allowed`, non-null reserved sample
+periods, or commission/slippage models whose values are non-numeric, non-finite,
+or not non-negative basis points.
 
 The current fixed engine consumes standardized daily OHLCV for SPY or QQQ,
 calculates EMA50/EMA200 crossover signals, fills by default on the next bar,

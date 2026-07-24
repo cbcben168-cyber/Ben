@@ -6,6 +6,7 @@
 | RSI or MACD | STRATEGY_CAPABILITY_BLOCKER | Stop | Not called |
 | 30m/60m or multi-symbol | STRATEGY_CAPABILITY_BLOCKER | Stop | Not called |
 | yfinance without smoke flag | DATA_CAPABILITY_BLOCKER | Stop | Not called |
+| yfinance with smoke flag | SUPPORTED | Smoke-test data only; never formal validated data | Allowed |
 | Missing local cache | DATA_CAPABILITY_BLOCKER | Stop after cache check | Not called |
 | IBKR, LEAN, TradingView execution | STRATEGY_CAPABILITY_BLOCKER | Stop | Not called |
 | Options or option-chain request | DATA_CAPABILITY_BLOCKER | Stop | Not called |

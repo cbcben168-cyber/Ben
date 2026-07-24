@@ -27,6 +27,7 @@ ALLOWED_FIELDS = frozenset(
     (*REQUIRED_FIELDS, *DEFAULTS, "in_sample_period", "out_of_sample_period")
 )
 SUPPORTED_POSITION_SIZING = {"type": "cash_limited_long_only"}
+OPTION_DATA_ASSET_CLASSES = frozenset({"options", "option-chain"})
 
 
 def _parse_date(value: Any, field: str) -> date:
@@ -153,7 +154,10 @@ def check_capabilities(
     allow_smoke_test_data: bool = False,
 ) -> CapabilityResult:
     reasons: list[str] = []
-    if spec.asset_class != "equity":
+    option_data_request = spec.asset_class in OPTION_DATA_ASSET_CLASSES
+    if option_data_request:
+        reasons.append("options and option-chain data are not supported in Phase 1")
+    elif spec.asset_class != "equity":
         reasons.append(
             "asset_class is not supported; Phase 1 supports asset_class 'equity' only"
         )
@@ -196,7 +200,11 @@ def check_capabilities(
         reasons.append("position sizing is not supported")
     if reasons:
         status = CapabilityStatus.STRATEGY_CAPABILITY_BLOCKER
-        if spec.data_source == "yfinance" and not allow_smoke_test_data and len(reasons) == 1:
+        if option_data_request or (
+            spec.data_source == "yfinance"
+            and not allow_smoke_test_data
+            and len(reasons) == 1
+        ):
             status = CapabilityStatus.DATA_CAPABILITY_BLOCKER
         return CapabilityResult(
             status,
@@ -204,9 +212,12 @@ def check_capabilities(
             ("daily OHLCV",),
             ("fixed EMA50/EMA200",),
         )
+    required_data = ("validated standardized daily OHLCV",)
+    if spec.data_source == "yfinance":
+        required_data = ("SMOKE_TEST_DATA_ONLY", "daily OHLCV")
     return CapabilityResult(
         CapabilityStatus.SUPPORTED,
         (),
-        ("validated standardized daily OHLCV",),
+        required_data,
         ("tv_quant.strategy.run_backtest",),
     )

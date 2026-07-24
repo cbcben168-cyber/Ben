@@ -38,7 +38,21 @@ def test_yfinance_requires_explicit_smoke_test_mode():
     payload["data_source"] = "yfinance"
     spec = validate_strategy_mapping(payload)
     assert check_capabilities(spec).status is CapabilityStatus.DATA_CAPABILITY_BLOCKER
-    assert check_capabilities(spec, allow_smoke_test_data=True).status is CapabilityStatus.SUPPORTED
+    result = check_capabilities(spec, allow_smoke_test_data=True)
+    assert result.status is CapabilityStatus.SUPPORTED
+    assert "SMOKE_TEST_DATA_ONLY" in result.required_data
+    assert "validated" not in " ".join(result.required_data).lower()
+
+
+@pytest.mark.parametrize("asset_class", ["options", "option-chain"])
+def test_option_data_requests_are_data_capability_blockers(asset_class):
+    payload = valid_payload()
+    payload["asset_class"] = asset_class
+
+    result = check_capabilities(validate_strategy_mapping(payload))
+
+    assert result.status is CapabilityStatus.DATA_CAPABILITY_BLOCKER
+    assert "option" in " ".join(result.reasons).lower()
 
 
 def test_rsi_blocker_prevents_future_pipeline_side_effects(monkeypatch):

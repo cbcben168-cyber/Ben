@@ -23,6 +23,10 @@ REQUIRED_FIELDS = (
     "start_date", "end_date", "initial_capital", "entry_rules",
     "exit_rules", "position_sizing", "commission_model", "slippage_model",
 )
+ALLOWED_FIELDS = frozenset(
+    (*REQUIRED_FIELDS, *DEFAULTS, "in_sample_period", "out_of_sample_period")
+)
+SUPPORTED_POSITION_SIZING = {"type": "cash_limited_long_only"}
 
 
 def _parse_date(value: Any, field: str) -> date:
@@ -75,6 +79,13 @@ def validate_strategy_mapping(payload: Mapping[str, Any]) -> StrategySpec:
     if not isinstance(payload, Mapping):
         raise ValueError("strategy config must be a YAML mapping")
 
+    unknown_fields = set(payload) - ALLOWED_FIELDS
+    if unknown_fields:
+        raise ValueError(
+            "unknown top-level configuration field(s): "
+            + ", ".join(sorted(map(str, unknown_fields)))
+        )
+
     data = dict(DEFAULTS)
     data.update(payload)
     for field in REQUIRED_FIELDS:
@@ -94,8 +105,10 @@ def validate_strategy_mapping(payload: Mapping[str, Any]) -> StrategySpec:
         raise ValueError("entry_rules must be a non-empty list")
     if not isinstance(data["exit_rules"], list) or not data["exit_rules"]:
         raise ValueError("exit_rules must be a non-empty list")
-    if not isinstance(data["position_sizing"], Mapping):
-        raise ValueError("position_sizing must be a mapping")
+    if data["position_sizing"] != SUPPORTED_POSITION_SIZING:
+        raise ValueError(
+            "position_sizing must be exactly {'type': 'cash_limited_long_only'}"
+        )
 
     commission_bps = _basis_points(data["commission_model"], "commission_model")
     slippage_bps = _basis_points(data["slippage_model"], "slippage_model")
@@ -165,7 +178,7 @@ def check_capabilities(spec: StrategySpec) -> CapabilityResult:
         reasons.append("only fixed EMA50/EMA200 crossover is supported")
     if spec.exit_rules != supported_exit:
         reasons.append("only fixed EMA crossunder exit is supported")
-    if spec.position_sizing.get("type") != "cash_limited_long_only":
+    if spec.position_sizing != SUPPORTED_POSITION_SIZING:
         reasons.append("position sizing is not supported")
     if reasons or data_reasons:
         return CapabilityResult(

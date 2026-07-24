@@ -48,6 +48,22 @@ def test_invalid_strategy_config_is_rejected(mutator, message):
         validate_strategy_mapping(payload)
 
 
+def test_unknown_top_level_configuration_field_is_rejected():
+    payload = valid_payload()
+    payload["risk_limit"] = 0.02
+
+    with pytest.raises(ValueError, match="unknown top-level configuration field"):
+        validate_strategy_mapping(payload)
+
+
+def test_position_sizing_with_extra_configuration_is_rejected():
+    payload = valid_payload()
+    payload["position_sizing"]["max_allocation"] = 0.5
+
+    with pytest.raises(ValueError, match="position_sizing must be exactly"):
+        validate_strategy_mapping(payload)
+
+
 @pytest.mark.parametrize(
     ("field", "value", "blocker"),
     [

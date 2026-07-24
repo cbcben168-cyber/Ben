@@ -22,7 +22,7 @@ into generated Python code.
 | `initial_capital` | yes | `float` | Must be a finite numeric value greater than zero; booleans and non-numeric values are rejected. |
 | `entry_rules` | yes | `tuple[Mapping[str, Any], ...]` | Non-empty declarative entry-rule list. |
 | `exit_rules` | yes | `tuple[Mapping[str, Any], ...]` | Non-empty declarative exit-rule list. |
-| `position_sizing` | yes | `Mapping[str, Any]` | Current fixed engine uses `cash_limited_long_only`. |
+| `position_sizing` | yes | `Mapping[str, Literal["cash_limited_long_only"]]` | Must be exactly `{type: cash_limited_long_only}`; no sizing options are accepted in Phase 1. |
 | `commission_model` | yes | `float` in `commission_bps` | YAML model must be `basis_points` with a finite numeric value that is non-negative; booleans and non-numeric values are rejected. |
 | `slippage_model` | yes | `float` in `slippage_bps` | YAML model must be `basis_points` with a finite numeric value that is non-negative; booleans and non-numeric values are rejected. |
 | `fill_timing` | no | `str` | Defaults to `next_bar`; signals fill on the next bar. |
@@ -81,11 +81,14 @@ report_language: zh-CN
 ## Errors and engine mapping
 
 `load_strategy_spec` rejects non-mapping YAML. `validate_strategy_mapping`
-raises `ValueError` for missing required fields, invalid ISO dates, a reversed
-date range, non-positive or non-finite capital, empty rule lists, non-mapping
-position size, non-boolean `optimization_allowed`, non-null reserved sample
-periods, or commission/slippage models whose values are non-numeric, non-finite,
-or not non-negative basis points.
+raises `ValueError` for unknown top-level fields, missing required fields,
+invalid ISO dates, a reversed date range, non-positive or non-finite capital,
+empty rule lists, position sizing other than the exact fixed mapping,
+non-boolean `optimization_allowed`, non-null reserved sample periods, or
+commission/slippage models whose values are non-numeric, non-finite, or not
+non-negative basis points. Only the 19 YAML fields in this table are accepted;
+`raw` contains the validated, default-merged mapping and never retains
+unsupported top-level configuration.
 
 The current fixed engine consumes standardized daily OHLCV for SPY or QQQ,
 calculates EMA50/EMA200 crossover signals, fills by default on the next bar,

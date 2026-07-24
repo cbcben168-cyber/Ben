@@ -14,12 +14,15 @@ from .backtest_audit import AuditContext, audit_backtest
 from .data_quality import DataQualityError, load_standardized_csv
 from .metrics import buy_and_hold_return, calculate_metrics
 from .pipeline_models import (
+    AuditIssue,
     AuditReport,
+    AuditStatus,
     CapabilityResult,
     StrategySpec,
 )
 from .reporting import write_reports
 from .run_manifest import (
+    bind_artifact_hashes,
     build_manifest,
     canonical_hash,
     sha256_file,
@@ -104,15 +107,10 @@ def _build_audit_context(
     metrics: Mapping[str, object],
     benchmark: float,
     manifest: Mapping[str, object],
-    paths: Mapping[str, Path],
-    manifest_path: Path,
+    artifact_paths: Mapping[str, Path],
+    *,
+    require_artifact_files: bool,
 ) -> AuditContext:
-    audit_path = paths["summary"].parent / "audit.json"
-    artifact_paths = {
-        **paths,
-        "manifest": manifest_path,
-        "audit": audit_path,
-    }
     return AuditContext(
         spec=spec,
         capability=capability,
@@ -123,22 +121,34 @@ def _build_audit_context(
         benchmark_return=benchmark,
         manifest=manifest,
         artifact_paths=artifact_paths,
+        require_artifact_files=require_artifact_files,
     )
 
 
-def _audit_payload(audit: AuditReport) -> dict[str, object]:
-    return {
+def _audit_payload(
+    audit: AuditReport,
+    manifest_path: Path | None = None,
+) -> dict[str, object]:
+    payload = {
         "status": audit.status.value,
         "checks": dict(audit.checks),
         "issues": [asdict(issue) for issue in audit.issues],
         "warnings": list(audit.warnings),
     }
+    if manifest_path is not None:
+        payload["manifest_hash"] = sha256_file(manifest_path)
+    payload["audit_payload_hash"] = canonical_hash(payload)
+    return payload
 
 
-def _write_audit(path: Path, audit: AuditReport) -> None:
+def _write_audit(
+    path: Path,
+    audit: AuditReport,
+    manifest_path: Path | None = None,
+) -> None:
     path.write_text(
         json.dumps(
-            _audit_payload(audit),
+            _audit_payload(audit, manifest_path),
             ensure_ascii=False,
             sort_keys=True,
             indent=2,
@@ -148,14 +158,12 @@ def _write_audit(path: Path, audit: AuditReport) -> None:
     )
 
 
-def _write_audit_and_update_summary(
-    summary_path: Path,
-    audit_path: Path,
+def _summary_with_audit(
+    summary: Mapping[str, object],
     audit: AuditReport,
-) -> None:
-    _write_audit(audit_path, audit)
-    summary = json.loads(summary_path.read_text(encoding="utf-8"))
-    summary.update(
+) -> dict[str, object]:
+    result = dict(summary)
+    result.update(
         {
             "audit_status": audit.status.value,
             "audit_checks": dict(audit.checks),
@@ -163,10 +171,7 @@ def _write_audit_and_update_summary(
             "audit_warnings": list(audit.warnings),
         }
     )
-    summary_path.write_text(
-        json.dumps(summary, ensure_ascii=False, indent=2, default=str) + "\n",
-        encoding="utf-8",
-    )
+    return result
 
 
 def _filter_complete_data(
@@ -178,8 +183,14 @@ def _filter_complete_data(
     start = pd.Timestamp(spec.start_date, tz="UTC")
     end = pd.Timestamp(spec.end_date, tz="UTC")
     if data["timestamp_utc"].min() > start or data["timestamp_utc"].max() < end:
-        raise DataQualityError("local cache does not cover configured date range")
+        raise _InsufficientCoverage(
+            "local cache does not cover configured date range"
+        )
     return data.loc[data["timestamp_utc"].between(start, end)].copy()
+
+
+class _InsufficientCoverage(DataQualityError):
+    pass
 
 
 def _select_data(
@@ -189,18 +200,35 @@ def _select_data(
 ):
     data_path = options.data_root / f"{spec.symbol}_daily.csv"
 
-    def load_if_complete():
-        try:
-            data, warnings = load_standardized_csv(data_path)
-            data = _filter_complete_data(spec, data)
-        except (DataQualityError, OSError, pd.errors.ParserError) as error:
-            return None, [str(error)]
-        return data, warnings
+    def load_validated():
+        data, warnings = load_standardized_csv(data_path)
+        return _filter_complete_data(spec, data), warnings
+
+    source = (
+        "SMOKE_TEST_DATA_ONLY"
+        if options.allow_smoke_test_data and spec.data_source == "yfinance"
+        else "Futu_LOCAL_CACHE"
+    )
 
     if data_path.is_file():
-        data, warnings = load_if_complete()
-        if data is not None:
-            return data, data_path, "Futu_LOCAL_CACHE", warnings
+        try:
+            data, warnings = load_validated()
+        except _InsufficientCoverage:
+            pass
+        except (
+            DataQualityError,
+            OSError,
+            pd.errors.ParserError,
+            UnicodeError,
+        ) as error:
+            return PipelineResult(
+                "DATA_CAPABILITY_BLOCKER",
+                None,
+                None,
+                (str(error),),
+            )
+        else:
+            return data, data_path, source, warnings
     if options.skip_data_refresh or refresh_data is None:
         return PipelineResult(
             "DATA_CAPABILITY_BLOCKER",
@@ -209,18 +237,20 @@ def _select_data(
             ("validated local cache unavailable",),
         )
     refresh_data(spec, data_path)
-    data, warnings = load_if_complete()
-    if data is None:
+    try:
+        data, warnings = load_validated()
+    except (
+        DataQualityError,
+        OSError,
+        pd.errors.ParserError,
+        UnicodeError,
+    ) as error:
         return PipelineResult(
             "DATA_CAPABILITY_BLOCKER",
             None,
             None,
-            tuple(warnings),
+            (str(error),),
         )
-    is_smoke_data = (
-        options.allow_smoke_test_data and spec.data_source == "yfinance"
-    )
-    source = "SMOKE_TEST_DATA_ONLY" if is_smoke_data else "Futu_LOCAL_CACHE"
     return data, data_path, source, warnings
 
 
@@ -229,6 +259,34 @@ def _load_json(path: Path) -> dict[str, object]:
     if not isinstance(payload, dict):
         raise ValueError(f"{path.name} must contain a JSON object")
     return payload
+
+
+def _audit_preflight_failure(
+    run_directory: Path,
+    audit_path: Path,
+    manifest_path: Path,
+    status: AuditStatus,
+    code: str,
+    message: str,
+) -> PipelineResult:
+    audit = AuditReport(
+        status=status,
+        checks={"audit_preflight": False},
+        issues=(AuditIssue(code, "ERROR", message),),
+        warnings=(),
+    )
+    if run_directory.is_dir():
+        _write_audit(
+            audit_path,
+            audit,
+            manifest_path if manifest_path.is_file() else None,
+        )
+    return PipelineResult(
+        status.value,
+        run_directory,
+        audit,
+        (message,),
+    )
 
 
 def _audit_only(
@@ -246,45 +304,159 @@ def _audit_only(
         "manifest": run_directory / "run_manifest.json",
         "audit": run_directory / "audit.json",
     }
+    manifest_path = required_paths["manifest"]
+    audit_path = required_paths["audit"]
     missing = tuple(
         f"missing audit artifact: {path.name}"
         for path in required_paths.values()
         if not path.is_file()
     )
     if missing:
-        return PipelineResult("FAIL", run_directory, None, missing)
+        return _audit_preflight_failure(
+            run_directory,
+            audit_path,
+            manifest_path,
+            AuditStatus.FAIL,
+            "MISSING_AUDIT_ARTIFACT",
+            "; ".join(missing),
+        )
 
-    spec = load_strategy_spec(config_path)
+    try:
+        spec = load_strategy_spec(config_path)
+    except (OSError, TypeError, ValueError) as error:
+        return _audit_preflight_failure(
+            run_directory,
+            audit_path,
+            manifest_path,
+            AuditStatus.STRATEGY_CAPABILITY_BLOCKER,
+            "STRATEGY_CONFIG_INVALID",
+            str(error),
+        )
     capability = check_capabilities(
         spec,
         allow_smoke_test_data=options.allow_smoke_test_data,
     )
     if capability.status.value != "SUPPORTED":
-        return PipelineResult(
-            capability.status.value,
+        return _audit_preflight_failure(
             run_directory,
-            None,
-            capability.reasons,
+            audit_path,
+            manifest_path,
+            AuditStatus(capability.status.value),
+            "CAPABILITY_BLOCKER",
+            "; ".join(capability.reasons),
         )
 
-    summary = _load_json(required_paths["summary"])
-    manifest = _load_json(required_paths["manifest"])
-    _load_json(required_paths["audit"])
+    try:
+        previous_audit = _load_json(audit_path)
+    except (json.JSONDecodeError, OSError, TypeError, ValueError) as error:
+        return _audit_preflight_failure(
+            run_directory,
+            audit_path,
+            manifest_path,
+            AuditStatus.FAIL,
+            "AUDIT_EVIDENCE_INVALID",
+            str(error),
+        )
+    expected_audit_hash = previous_audit.pop("audit_payload_hash", None)
+    if (
+        not isinstance(expected_audit_hash, str)
+        or canonical_hash(previous_audit) != expected_audit_hash
+    ):
+        return _audit_preflight_failure(
+            run_directory,
+            audit_path,
+            manifest_path,
+            AuditStatus.FAIL,
+            "AUDIT_HASH_MISMATCH",
+            "audit.json payload hash does not match",
+        )
+    try:
+        manifest_hash_matches = (
+            previous_audit.get("manifest_hash") == sha256_file(manifest_path)
+        )
+    except OSError:
+        manifest_hash_matches = False
+    if not manifest_hash_matches:
+        return _audit_preflight_failure(
+            run_directory,
+            audit_path,
+            manifest_path,
+            AuditStatus.FAIL,
+            "MANIFEST_HASH_MISMATCH",
+            "run_manifest.json hash differs from audit evidence",
+        )
 
+    try:
+        manifest = _load_json(manifest_path)
+    except (json.JSONDecodeError, OSError, TypeError, ValueError) as error:
+        return _audit_preflight_failure(
+            run_directory,
+            audit_path,
+            manifest_path,
+            AuditStatus.FAIL,
+            "MANIFEST_INVALID",
+            str(error),
+        )
     if canonical_hash(spec.raw) != manifest.get("strategy_config_hash"):
-        return PipelineResult(
-            "STRATEGY_CAPABILITY_BLOCKER",
+        return _audit_preflight_failure(
             run_directory,
-            None,
-            ("strategy config hash differs from run manifest",),
+            audit_path,
+            manifest_path,
+            AuditStatus.STRATEGY_CAPABILITY_BLOCKER,
+            "STRATEGY_CONFIG_HASH_MISMATCH",
+            "strategy config hash differs from run manifest",
         )
+
+    artifact_hashes = manifest.get("artifact_hashes")
+    manifest_artifact_paths = manifest.get("artifact_paths")
+    if not isinstance(artifact_hashes, Mapping) or not isinstance(
+        manifest_artifact_paths,
+        Mapping,
+    ):
+        return _audit_preflight_failure(
+            run_directory,
+            audit_path,
+            manifest_path,
+            AuditStatus.FAIL,
+            "MISSING_ARTIFACT_HASH",
+            "manifest must bind summary, equity, and trades hashes",
+        )
+    for name in ("summary", "equity", "trades"):
+        recorded_path = manifest_artifact_paths.get(name)
+        expected_hash = artifact_hashes.get(name)
+        try:
+            matches = (
+                recorded_path is not None
+                and Path(str(recorded_path)).resolve()
+                == required_paths[name].resolve()
+                and isinstance(expected_hash, str)
+                and sha256_file(required_paths[name]) == expected_hash
+            )
+        except (OSError, TypeError, ValueError):
+            matches = False
+        if not matches:
+            return _audit_preflight_failure(
+                run_directory,
+                audit_path,
+                manifest_path,
+                AuditStatus.FAIL,
+                "ARTIFACT_HASH_MISMATCH",
+                f"{name} artifact path or hash does not match manifest evidence",
+            )
 
     try:
         data_path = Path(str(manifest["data_path"]))
         if not data_path.is_file():
             raise OSError("manifest data_path does not exist")
         if sha256_file(data_path) != manifest.get("data_hash"):
-            raise OSError("manifest data hash does not match")
+            return _audit_preflight_failure(
+                run_directory,
+                audit_path,
+                manifest_path,
+                AuditStatus.DATA_CAPABILITY_BLOCKER,
+                "DATA_HASH_MISMATCH",
+                "manifest data hash does not match",
+            )
         data, data_warnings = load_standardized_csv(data_path)
         data = _filter_complete_data(spec, data)
     except (
@@ -295,15 +467,36 @@ def _audit_only(
         ValueError,
         pd.errors.ParserError,
     ) as error:
-        return PipelineResult(
-            "DATA_CAPABILITY_BLOCKER",
+        return _audit_preflight_failure(
             run_directory,
-            None,
-            (str(error),),
+            audit_path,
+            manifest_path,
+            AuditStatus.DATA_CAPABILITY_BLOCKER,
+            "DATA_PREFLIGHT_BLOCKER",
+            str(error),
         )
 
-    equity = pd.read_csv(required_paths["equity"])
-    trades = pd.read_csv(required_paths["trades"])
+    try:
+        summary = _load_json(required_paths["summary"])
+        equity = pd.read_csv(required_paths["equity"])
+        trades = pd.read_csv(required_paths["trades"])
+        benchmark_return = float(summary["buy_and_hold_return"])
+    except (
+        json.JSONDecodeError,
+        KeyError,
+        OSError,
+        TypeError,
+        ValueError,
+        pd.errors.ParserError,
+    ) as error:
+        return _audit_preflight_failure(
+            run_directory,
+            audit_path,
+            manifest_path,
+            AuditStatus.FAIL,
+            "ARTIFACT_PARSE_FAILURE",
+            str(error),
+        )
     metric_names = (
         "total_return",
         "cagr",
@@ -320,12 +513,12 @@ def _audit_only(
         equity=equity,
         trades=trades,
         strategy_metrics=metrics,
-        benchmark_return=float(summary["buy_and_hold_return"]),
+        benchmark_return=benchmark_return,
         manifest=manifest,
         artifact_paths=required_paths,
     )
     audit = audit_backtest(context)
-    _write_audit(required_paths["audit"], audit)
+    _write_audit(audit_path, audit, manifest_path)
     return PipelineResult(
         audit.status.value,
         run_directory,
@@ -384,21 +577,6 @@ def run_pipeline(
         data_warnings + backtest.warnings,
         source_label,
     )
-    paths = write_reports(
-        options.report_root,
-        summary,
-        backtest.equity,
-        backtest.trades,
-    )
-    run_directory = paths["summary"].parent
-    manifest_path = run_directory / "run_manifest.json"
-    audit_path = run_directory / "audit.json"
-    audit_path.write_text('{"status": "PENDING"}\n', encoding="utf-8")
-    artifact_paths = {
-        **paths,
-        "manifest": manifest_path,
-        "audit": audit_path,
-    }
     code_commit = current_git_revision()
     smoke_test_marker = (
         "SMOKE_TEST_DATA_ONLY"
@@ -409,11 +587,10 @@ def run_pipeline(
         spec,
         data_path,
         source_label,
-        artifact_paths,
+        {},
         code_commit,
         smoke_test_marker,
     )
-    write_manifest(manifest_path, manifest)
     context = _build_audit_context(
         spec,
         capability,
@@ -422,15 +599,36 @@ def run_pipeline(
         metrics,
         benchmark,
         manifest,
-        paths,
-        manifest_path,
+        {},
+        require_artifact_files=False,
     )
     audit = audit_backtest(context)
-    _write_audit_and_update_summary(
-        paths["summary"],
-        audit_path,
-        audit,
+    if audit.status is AuditStatus.FAIL:
+        return PipelineResult(
+            audit.status.value,
+            None,
+            audit,
+            tuple(data_warnings),
+        )
+
+    summary = _summary_with_audit(summary, audit)
+    paths = write_reports(
+        options.report_root,
+        summary,
+        backtest.equity,
+        backtest.trades,
     )
+    run_directory = paths["summary"].parent
+    manifest_path = run_directory / "run_manifest.json"
+    audit_path = run_directory / "audit.json"
+    artifact_paths = {
+        **paths,
+        "manifest": manifest_path,
+        "audit": audit_path,
+    }
+    manifest = bind_artifact_hashes(manifest, artifact_paths)
+    write_manifest(manifest_path, manifest)
+    _write_audit(audit_path, audit, manifest_path)
     return PipelineResult(
         audit.status.value,
         run_directory,

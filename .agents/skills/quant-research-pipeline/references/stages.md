@@ -11,9 +11,10 @@
    `next_bar`、手续费和滑点，不运行优化。
 5. Run Buy and Hold benchmark：调用 `calculate_metrics` 和
    `buy_and_hold_return`，使用同一标的、日期、初始资金和成本。
-6. Run audit：生成 manifest 和所需证据后调用 `audit_backtest`；审计失败不得返回成功。
-7. Write Chinese report：通过 `write_reports` 保存确定性结果并写入最终审计状态；
-   不在文字中重新计算最终绩效。
+6. Run audit：基于内存中的确定性结果和输入 manifest 证据调用 `audit_backtest`；
+   审计失败立即停止，不得调用最终报告写入阶段。
+7. Write Chinese report：仅在审计未失败后通过 `write_reports` 保存确定性结果，
+   再绑定输出、manifest 与 audit 的 SHA256 证据；不在文字中重新计算最终绩效。
 
 数据源规则：
 

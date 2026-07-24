@@ -32,6 +32,7 @@ class AuditContext:
     benchmark_return: float
     manifest: Mapping[str, Any]
     artifact_paths: Mapping[str, Path]
+    require_artifact_files: bool = True
 
 
 def sha256_file(path: Path) -> str:
@@ -199,6 +200,8 @@ def _check_manifest(context: AuditContext) -> tuple[bool, list[AuditIssue], list
 
 
 def _check_artifacts(context: AuditContext) -> tuple[bool, list[AuditIssue], list[str]]:
+    if not context.require_artifact_files:
+        return True, [], []
     required = {"summary", "equity", "trades", "manifest", "audit"}
     missing = sorted(
         name for name in required

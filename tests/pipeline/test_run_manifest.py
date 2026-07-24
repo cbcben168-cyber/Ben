@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from tv_quant.run_manifest import (
+    bind_artifact_hashes,
     build_manifest,
     canonical_hash,
     sha256_file,
@@ -57,6 +58,28 @@ def test_build_manifest_records_reproducibility_evidence(tmp_path):
     assert manifest["optimization_allowed"] is False
     assert manifest["artifact_paths"]["summary"] == str(artifact_paths["summary"])
     assert datetime.fromisoformat(manifest["generated_at_utc"]).tzinfo is not None
+
+
+def test_bind_artifact_hashes_records_generated_output_evidence(tmp_path):
+    artifact_paths = {
+        "summary": tmp_path / "summary.json",
+        "equity": tmp_path / "equity.csv",
+        "trades": tmp_path / "trades.csv",
+        "manifest": tmp_path / "run_manifest.json",
+        "audit": tmp_path / "audit.json",
+    }
+    for name in ("summary", "equity", "trades"):
+        artifact_paths[name].write_text(f"{name}\n", encoding="utf-8")
+
+    manifest = bind_artifact_hashes({"provider": "test"}, artifact_paths)
+
+    assert manifest["artifact_paths"] == {
+        name: str(path) for name, path in artifact_paths.items()
+    }
+    assert manifest["artifact_hashes"] == {
+        name: sha256_file(artifact_paths[name])
+        for name in ("summary", "equity", "trades")
+    }
 
 
 def test_write_manifest_is_sorted_utf8_json_with_trailing_newline(tmp_path):

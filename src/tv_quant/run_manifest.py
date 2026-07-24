@@ -52,6 +52,22 @@ def build_manifest(
     }
 
 
+def bind_artifact_hashes(
+    manifest: Mapping[str, Any],
+    artifact_paths: Mapping[str, Path],
+) -> dict[str, object]:
+    output_names = ("summary", "equity", "trades")
+    bound = dict(manifest)
+    bound["artifact_paths"] = {
+        name: str(path) for name, path in artifact_paths.items()
+    }
+    bound["artifact_hashes"] = {
+        name: sha256_file(Path(artifact_paths[name]))
+        for name in output_names
+    }
+    return bound
+
+
 def write_manifest(path: Path, manifest: Mapping[str, Any]) -> None:
     path.write_text(
         json.dumps(

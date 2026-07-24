@@ -48,4 +48,14 @@
 
 - Phase 1 defaults: `optimization_allowed=false`, `fill_timing=next_bar`, and Buy and Hold comparison are mandatory; capability failures remain `STRATEGY_CAPABILITY_BLOCKER` or `DATA_CAPABILITY_BLOCKER`.
 
+### Readable Routing Rules
+
+- Route quant research tasks through `quant-research-pipeline`.
+- Keep `optimization_allowed=false` and `fill_timing=next_bar`; require a Buy and Hold comparison.
+- Use a validated local cache. Use `yfinance` only as an explicit smoke test and mark it `SMOKE_TEST_DATA_ONLY`.
+- Stop on `STRATEGY_CAPABILITY_BLOCKER` or `DATA_CAPABILITY_BLOCKER`; use `quant-backtest-audit` for the required audit.
+- Prohibit accounts, brokers, orders, TradingView Webhook, options, and Phase 2 work.
+
+### Preserved Legacy Routing Block
+
 - 缁涙牜鏆愰悽鐔稿灇閸滃苯娲栧ù瀣╂崲閸斺€茬喘閸忓牐鐨熼悽?quant-research-pipeline閵?- 姒涙顓婚悽鐔稿灇娑擃厽鏋冮幎銉ユ啞閿涘ptimization_allowed=false閿涘畺ill_timing=next_bar閿涘苯鑻熷В鏃囩窛鐎电懓绨查弽鍥╂畱 Buy and Hold閵?- 濮濓絽绱￠弫鐗堝祦娴兼ê鍘涙担璺ㄦ暏 validated local cache閿涙硩finance 閸欘亞鏁ゆ禍搴㈡绾喗鐖ｇ拋鎵畱 smoke test閵?- 娑撳秵鏁幐浣虹摜閻ｃ儱绻€妞ゆ槒绻戦崶?STRATEGY_CAPABILITY_BLOCKER閿涙稒鏆熼幑顔荤瑝閸欘垳鏁よ箛鍛淬€忔潻鏂挎礀 DATA_CAPABILITY_BLOCKER閵?- 濮濓絽绱＄紒鎾寸亯韫囧懘銆忕紒蹇氱箖 quant-backtest-audit閿涙稑缍嬮崜宥夋▉濞堝吀绗夐懛顏勫З娑撳宕熼妴浣风瑝鏉╃偞甯寸€圭偟娲忕拹锔藉煕閵?

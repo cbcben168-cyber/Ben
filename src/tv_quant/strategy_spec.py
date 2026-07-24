@@ -147,47 +147,60 @@ def load_strategy_spec(path: Path) -> StrategySpec:
     return validate_strategy_mapping(payload)
 
 
-def check_capabilities(spec: StrategySpec) -> CapabilityResult:
-    """Check whether a spec stays within the fixed Phase 1 engine boundary."""
-    supported_entry = ({"type": "ema_crossover", "fast_period": 50, "slow_period": 200},)
-    supported_exit = ({"type": "ema_crossunder"},)
+def check_capabilities(
+    spec: StrategySpec,
+    *,
+    allow_smoke_test_data: bool = False,
+) -> CapabilityResult:
     reasons: list[str] = []
-    data_reasons: list[str] = []
     if spec.asset_class != "equity":
-        reasons.append(f"Phase 1 supports asset_class 'equity' only (received {spec.asset_class!r})")
+        reasons.append(
+            "asset_class is not supported; Phase 1 supports asset_class 'equity' only"
+        )
     if spec.symbol not in {"SPY", "QQQ"}:
-        reasons.append(f"Phase 1 supports symbols SPY and QQQ only (received {spec.symbol!r})")
+        reasons.append("symbol is not supported; Phase 1 supports symbols SPY and QQQ only")
     if spec.timeframe != "1d":
-        reasons.append(f"Phase 1 supports timeframe '1d' only (received {spec.timeframe!r})")
+        reasons.append("timeframe is not supported; Phase 1 supports timeframe '1d' only")
     if spec.benchmark != "buy_and_hold":
         reasons.append(
-            f"Phase 1 supports benchmark 'buy_and_hold' only (received {spec.benchmark!r})"
+            "benchmark must be buy_and_hold; Phase 1 supports benchmark 'buy_and_hold' only"
         )
     if spec.fill_timing != "next_bar":
-        reasons.append(f"Phase 1 supports fill_timing 'next_bar' only (received {spec.fill_timing!r})")
-    if spec.optimization_allowed is not False:
-        reasons.append("Phase 1 requires optimization_allowed to be false")
-    if spec.report_language != "zh-CN":
-        reasons.append(f"Phase 1 supports report_language 'zh-CN' only (received {spec.report_language!r})")
-    if spec.data_source != "validated_local_cache_first":
-        data_reasons.append(
-            "Phase 1 requires data_source 'validated_local_cache_first' "
-            f"(received {spec.data_source!r})"
+        reasons.append(
+            "fill_timing must be next_bar; Phase 1 supports fill_timing 'next_bar' only"
         )
-    if spec.entry_rules != supported_entry:
+    if spec.optimization_allowed:
+        reasons.append(
+            "optimization_allowed must be false in Phase 1; "
+            "Phase 1 requires optimization_allowed to be false"
+        )
+    if spec.report_language != "zh-CN":
+        reasons.append(
+            "report_language must be zh-CN; "
+            "Phase 1 supports report_language 'zh-CN' only"
+        )
+    if spec.data_source == "yfinance" and not allow_smoke_test_data:
+        reasons.append("yfinance requires explicit smoke-test mode")
+    if spec.data_source not in {"validated_local_cache_first", "yfinance"}:
+        reasons.append(
+            "data_source is not supported; Phase 1 requires data_source "
+            "'validated_local_cache_first'"
+        )
+    if spec.entry_rules != (
+        {"type": "ema_crossover", "fast_period": 50, "slow_period": 200},
+    ):
         reasons.append("only fixed EMA50/EMA200 crossover is supported")
-    if spec.exit_rules != supported_exit:
+    if spec.exit_rules != ({"type": "ema_crossunder"},):
         reasons.append("only fixed EMA crossunder exit is supported")
-    if spec.position_sizing != SUPPORTED_POSITION_SIZING:
+    if spec.position_sizing.get("type") != "cash_limited_long_only":
         reasons.append("position sizing is not supported")
-    if reasons or data_reasons:
+    if reasons:
+        status = CapabilityStatus.STRATEGY_CAPABILITY_BLOCKER
+        if spec.data_source == "yfinance" and not allow_smoke_test_data and len(reasons) == 1:
+            status = CapabilityStatus.DATA_CAPABILITY_BLOCKER
         return CapabilityResult(
-            (
-                CapabilityStatus.DATA_CAPABILITY_BLOCKER
-                if data_reasons and not reasons
-                else CapabilityStatus.STRATEGY_CAPABILITY_BLOCKER
-            ),
-            tuple(reasons + data_reasons),
+            status,
+            tuple(reasons),
             ("daily OHLCV",),
             ("fixed EMA50/EMA200",),
         )

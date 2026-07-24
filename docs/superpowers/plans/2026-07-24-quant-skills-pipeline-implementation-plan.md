@@ -561,43 +561,6 @@ def load_strategy_spec(path: Path) -> StrategySpec:
     return validate_strategy_mapping(payload)
 
 
-def check_capabilities(spec: StrategySpec, *, allow_smoke_test_data=False):
-    reasons = []
-    if spec.asset_class != "equity":
-        reasons.append("asset_class is not supported")
-    if spec.symbol not in {"SPY", "QQQ"}:
-        reasons.append("symbol is not supported")
-    if spec.timeframe != "1d":
-        reasons.append("timeframe is not supported")
-    if spec.benchmark != "buy_and_hold":
-        reasons.append("benchmark must be buy_and_hold")
-    if spec.fill_timing != "next_bar":
-        reasons.append("fill_timing must be next_bar")
-    if spec.optimization_allowed:
-        reasons.append("optimization_allowed must be false in Phase 1")
-    if spec.data_source == "yfinance" and not allow_smoke_test_data:
-        reasons.append("yfinance requires explicit smoke-test mode")
-    if spec.data_source not in {"validated_local_cache_first", "yfinance"}:
-        reasons.append("data_source is not supported")
-    if spec.entry_rules != (
-        {"type": "ema_crossover", "fast_period": 50, "slow_period": 200},
-    ):
-        reasons.append("only fixed EMA50/EMA200 crossover is supported")
-    if spec.exit_rules != ({"type": "ema_crossunder"},):
-        reasons.append("only fixed EMA crossunder exit is supported")
-    if spec.position_sizing.get("type") != "cash_limited_long_only":
-        reasons.append("position sizing is not supported")
-    if reasons:
-        status = CapabilityStatus.STRATEGY_CAPABILITY_BLOCKER
-        if spec.data_source == "yfinance" and not allow_smoke_test_data and len(reasons) == 1:
-            status = CapabilityStatus.DATA_CAPABILITY_BLOCKER
-        return CapabilityResult(status, tuple(reasons), ("daily OHLCV",), ("fixed EMA50/EMA200",))
-    return CapabilityResult(
-        CapabilityStatus.SUPPORTED,
-        (),
-        ("validated standardized daily OHLCV",),
-        ("tv_quant.strategy.run_backtest",),
-    )
 ~~~
 
 Unknown nested rule shapes remain in raw configuration and are rejected by check_capabilities; no rule is silently transformed.
@@ -691,6 +654,57 @@ Expected: FAIL until the explicit status and reason behavior exists.
 - [ ] **Step 2: Implement explicit matrix behavior**
 
 Run checks in this order: asset class and symbol; timeframe; benchmark and fill timing; optimization flag; data source; rule shape; position sizing. Return stable English reasons. Do not add RSI, MACD, 30m data, multi-symbol input, IBKR, LEAN, TradingView execution, options, generated Python rules, or order paths.
+
+Replace the capability stub with this deterministic implementation in `src/tv_quant/strategy_spec.py`:
+
+~~~python
+def check_capabilities(
+    spec: StrategySpec,
+    *,
+    allow_smoke_test_data: bool = False,
+) -> CapabilityResult:
+    reasons: list[str] = []
+    if spec.asset_class != "equity":
+        reasons.append("asset_class is not supported")
+    if spec.symbol not in {"SPY", "QQQ"}:
+        reasons.append("symbol is not supported")
+    if spec.timeframe != "1d":
+        reasons.append("timeframe is not supported")
+    if spec.benchmark != "buy_and_hold":
+        reasons.append("benchmark must be buy_and_hold")
+    if spec.fill_timing != "next_bar":
+        reasons.append("fill_timing must be next_bar")
+    if spec.optimization_allowed:
+        reasons.append("optimization_allowed must be false in Phase 1")
+    if spec.data_source == "yfinance" and not allow_smoke_test_data:
+        reasons.append("yfinance requires explicit smoke-test mode")
+    if spec.data_source not in {"validated_local_cache_first", "yfinance"}:
+        reasons.append("data_source is not supported")
+    if spec.entry_rules != (
+        {"type": "ema_crossover", "fast_period": 50, "slow_period": 200},
+    ):
+        reasons.append("only fixed EMA50/EMA200 crossover is supported")
+    if spec.exit_rules != ({"type": "ema_crossunder"},):
+        reasons.append("only fixed EMA crossunder exit is supported")
+    if spec.position_sizing.get("type") != "cash_limited_long_only":
+        reasons.append("position sizing is not supported")
+    if reasons:
+        status = CapabilityStatus.STRATEGY_CAPABILITY_BLOCKER
+        if spec.data_source == "yfinance" and not allow_smoke_test_data and len(reasons) == 1:
+            status = CapabilityStatus.DATA_CAPABILITY_BLOCKER
+        return CapabilityResult(
+            status,
+            tuple(reasons),
+            ("daily OHLCV",),
+            ("fixed EMA50/EMA200",),
+        )
+    return CapabilityResult(
+        CapabilityStatus.SUPPORTED,
+        (),
+        ("validated standardized daily OHLCV",),
+        ("tv_quant.strategy.run_backtest",),
+    )
+~~~
 
 - [ ] **Step 3: Document the matrix**
 
@@ -1007,6 +1021,59 @@ Implement audit_backtest in this order:
 
 Use these issue codes exactly: SAME_BAR_SIGNAL_FILL, COST_MISMATCH, DATA_QUALITY_FAILURE, NO_TRADES, SINGLE_TRADE_DOMINANCE, ANNUAL_RETURN_CONCENTRATION, MISSING_MANIFEST_FIELD, MISSING_ARTIFACT, HASH_MISMATCH, BENCHMARK_MISMATCH, OPTIMIZATION_ENABLED. Error issues yield FAIL; warnings without errors yield CONDITIONAL_PASS; no issues yield PASS. Capability blockers take precedence.
 
+Implement the public entry point with this control flow in `src/tv_quant/backtest_audit.py`; define each private checker in the same file using the numbered rules above:
+
+~~~python
+from .data_quality import DataQualityError, validate_ohlcv
+from .pipeline_models import AuditIssue, AuditReport, AuditStatus, CapabilityStatus
+
+
+def audit_backtest(context: AuditContext) -> AuditReport:
+    if context.capability.status is not CapabilityStatus.SUPPORTED:
+        return AuditReport(
+            status=AuditStatus(context.capability.status.value),
+            checks={},
+            issues=tuple(
+                AuditIssue("CAPABILITY_BLOCKER", "ERROR", reason)
+                for reason in context.capability.reasons
+            ),
+            warnings=(),
+        )
+
+    checks: dict[str, bool] = {}
+    issues: list[AuditIssue] = []
+    warnings: list[str] = []
+    try:
+        warnings.extend(validate_ohlcv(context.data))
+        checks["data_quality"] = True
+    except DataQualityError as error:
+        checks["data_quality"] = False
+        issues.append(AuditIssue("DATA_QUALITY_FAILURE", "ERROR", str(error)))
+
+    for name, checker in (
+        ("next_bar_fill", _check_next_bar_fill),
+        ("costs", _check_costs),
+        ("benchmark", _check_benchmark),
+        ("optimization", _check_optimization),
+        ("manifest", _check_manifest),
+        ("artifacts", _check_artifacts),
+        ("sample_and_concentration", _check_sample_and_concentration),
+        ("reproducibility", _check_reproducibility),
+    ):
+        passed, new_issues, new_warnings = checker(context)
+        checks[name] = passed
+        issues.extend(new_issues)
+        warnings.extend(new_warnings)
+
+    error_codes = {"ERROR"}
+    status = AuditStatus.FAIL if any(issue.severity in error_codes for issue in issues) else (
+        AuditStatus.CONDITIONAL_PASS if issues or warnings else AuditStatus.PASS
+    )
+    return AuditReport(status, checks, tuple(issues), tuple(warnings))
+~~~
+
+Each checker returns `tuple[bool, list[AuditIssue], list[str]]`. `_check_artifacts` must receive an artifact mapping containing `summary`, `equity`, `trades`, and `manifest`; do not include the not-yet-written `audit.json` path until after `audit_backtest` returns. `_check_costs` must compare the configured basis-point rates against the actual `commission` and `slippage_bps` columns with `math.isclose(..., rel_tol=1e-9, abs_tol=1e-9)`. `_check_reproducibility` must call `sha256_file(Path(manifest["data_path"]))` and compare it with `manifest["data_hash"]`.
+
 - [ ] **Step 3: Write audit references**
 
 checks.md must list each check, required evidence, and issue code. statuses.md must define:
@@ -1186,11 +1253,112 @@ Implement _select_data(spec, options, refresh_data) in this order:
 
 DataQualityError stops before run_backtest. Do not call update_futu_csv from this module; Task 7 owns the refresh callback.
 
+Use this cache-selection shape so the existing loader remains the validation boundary:
+
+~~~python
+def _select_data(spec, options, refresh_data):
+    data_path = options.data_root / f"{spec.symbol}_daily.csv"
+
+    def load_if_complete():
+        try:
+            data, warnings = load_standardized_csv(data_path)
+        except DataQualityError as error:
+            return None, [str(error)]
+        if set(data["ticker"].unique()) != {spec.symbol}:
+            return None, ["ticker does not match strategy symbol"]
+        start = pd.Timestamp(spec.start_date, tz="UTC")
+        end = pd.Timestamp(spec.end_date, tz="UTC")
+        if data["timestamp_utc"].min() > start or data["timestamp_utc"].max() < end:
+            return None, ["local cache does not cover configured date range"]
+        mask = data["timestamp_utc"].between(start, end)
+        return data.loc[mask].copy(), warnings
+
+    if data_path.is_file():
+        data, warnings = load_if_complete()
+        if data is not None:
+            return data, data_path, "Futu_LOCAL_CACHE", warnings
+    if options.skip_data_refresh or refresh_data is None:
+        return PipelineResult("DATA_CAPABILITY_BLOCKER", None, None, ("validated local cache unavailable",))
+    refresh_data(spec, data_path)
+    data, warnings = load_if_complete()
+    if data is None:
+        return PipelineResult("DATA_CAPABILITY_BLOCKER", None, None, tuple(warnings))
+    source = "SMOKE_TEST_DATA_ONLY" if options.allow_smoke_test_data else "Futu_LOCAL_CACHE"
+    return data, data_path, source, warnings
+~~~
+
 - [ ] **Step 3: Implement the fixed stages**
 
-Before run_pipeline, create the minimal run_manifest.py interface required by this Task: canonical_hash(value), sha256_file(path), build_manifest(spec, data_path, source_label, artifact_paths, code_commit, smoke_test_marker), and write_manifest(path, manifest). Use the deterministic implementation specified in Task 8 Step 2, and add its hash tests to tests/pipeline/test_run_manifest.py before running the pipeline tests.
+Before `run_pipeline`, create `src/tv_quant/run_manifest.py` with this complete deterministic interface and add its hash tests to `tests/pipeline/test_run_manifest.py`:
 
-Define current_git_revision() in research_pipeline.py at the same time using the subprocess implementation specified in Task 8 Step 3, so Task 6 has no dependency on a later undefined function.
+~~~python
+import hashlib
+import json
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Mapping
+
+
+def canonical_hash(value: Mapping[str, Any]) -> str:
+    payload = json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def build_manifest(spec, data_path, source_label, artifact_paths, code_commit, smoke_test_marker):
+    return {
+        "strategy_config_hash": canonical_hash(spec.raw),
+        "data_hash": sha256_file(data_path),
+        "code_commit": code_commit,
+        "strategy_name": spec.strategy_name,
+        "provider": source_label,
+        "symbol": spec.symbol,
+        "timeframe": spec.timeframe,
+        "start_date": spec.start_date.isoformat(),
+        "end_date": spec.end_date.isoformat(),
+        "fill_timing": spec.fill_timing,
+        "commission_bps": spec.commission_bps,
+        "slippage_bps": spec.slippage_bps,
+        "optimization_allowed": spec.optimization_allowed,
+        "benchmark": spec.benchmark,
+        "data_path": str(data_path),
+        "artifact_paths": {name: str(path) for name, path in artifact_paths.items()},
+        "smoke_test_marker": smoke_test_marker,
+        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def write_manifest(path: Path, manifest: Mapping[str, Any]) -> None:
+    path.write_text(
+        json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=2, default=str) + "\n",
+        encoding="utf-8",
+    )
+~~~
+
+Define `current_git_revision()` in `research_pipeline.py` at the same time, before its first call:
+
+~~~python
+import subprocess
+
+
+def current_git_revision() -> str:
+    result = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip()
+~~~
 
 Implement run_pipeline in this exact order:
 
@@ -1601,7 +1769,22 @@ def build_manifest(
     }
 ~~~
 
-Add write_manifest using UTF-8 JSON with sorted keys and two-space indentation.
+Add this `write_manifest` implementation using UTF-8 JSON with sorted keys and two-space indentation; it must preserve the Task 6 hash and manifest functions unchanged:
+
+~~~python
+def write_manifest(path: Path, manifest: Mapping[str, Any]) -> None:
+    path.write_text(
+        json.dumps(
+            manifest,
+            ensure_ascii=False,
+            sort_keys=True,
+            indent=2,
+            default=str,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+~~~
 
 - [ ] **Step 3: Bind manifest and audit to existing reports**
 

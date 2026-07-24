@@ -9,7 +9,7 @@
 | Optimization | Strategy specification and manifest both set `optimization_allowed: false` | `OPTIMIZATION_ENABLED` |
 | Manifest | Non-empty config hash, data hash, code commit, fill timing, cost rates, and UTC generation time | `MISSING_MANIFEST_FIELD` |
 | Artifacts | Required summary, equity, trades, manifest, and audit evidence paths all exist as files | `MISSING_ARTIFACT` |
-| OOS boundary | Both configured train/OOS periods are ordered and non-overlapping; manifest locks the same OOS dates; timestamped data, equity, and trade evidence stays within that boundary | `OOS_BOUNDARY_FAILURE` |
+| OOS boundary | Both configured train/OOS periods are ordered and non-overlapping; manifest locks the same OOS dates; data, equity, and trades each provide non-empty valid timestamp evidence with at least one observation in the locked OOS interval and none outside the train/OOS range | `OOS_BOUNDARY_FAILURE` |
 | OOS availability | A configured OOS boundary is required for an OOS pass claim | `OOS_BOUNDARY_UNVERIFIED` |
 | Sample | Fill records | `NO_TRADES` |
 | Closed-trade concentration | Paired buy/sell cash flows | `SINGLE_TRADE_DOMINANCE` |

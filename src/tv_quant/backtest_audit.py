@@ -252,20 +252,33 @@ def _check_oos_boundary(context: AuditContext) -> tuple[bool, list[AuditIssue], 
             "manifest must preserve the configured locked OOS boundary",
         )], []
 
-    for name, frame, columns in (
-        ("data", context.data, ("timestamp_utc",)),
-        ("equity", context.equity, ("timestamp_utc",)),
-        ("trades", context.trades, ("timestamp_utc", "signal_timestamp_utc")),
+    for name, frame in (
+        ("data", context.data),
+        ("equity", context.equity),
+        ("trades", context.trades),
     ):
-        present_columns = [column for column in columns if column in frame]
-        for column in present_columns:
-            timestamps = pd.to_datetime(frame[column], utc=True, errors="coerce")
-            dates = timestamps.dt.date
-            if timestamps.isna().any() or not dates.between(train_start, oos_end).all():
-                return False, [AuditIssue(
-                    "OOS_BOUNDARY_FAILURE", "ERROR",
-                    f"{name} {column} evidence extends outside the locked train/OOS boundary",
-                )], []
+        if "timestamp_utc" not in frame:
+            return False, [AuditIssue(
+                "OOS_BOUNDARY_FAILURE", "ERROR",
+                f"{name} is missing timestamp_utc evidence for the locked OOS interval",
+            )], []
+        timestamps = pd.to_datetime(frame["timestamp_utc"], utc=True, errors="coerce")
+        if timestamps.empty or timestamps.isna().any():
+            return False, [AuditIssue(
+                "OOS_BOUNDARY_FAILURE", "ERROR",
+                f"{name} timestamp evidence is empty or invalid for the locked OOS interval",
+            )], []
+        dates = timestamps.dt.date
+        if not dates.between(train_start, oos_end).all():
+            return False, [AuditIssue(
+                "OOS_BOUNDARY_FAILURE", "ERROR",
+                f"{name} timestamp evidence extends outside the locked train/OOS boundary",
+            )], []
+        if not dates.between(oos_start, oos_end).any():
+            return False, [AuditIssue(
+                "OOS_BOUNDARY_FAILURE", "ERROR",
+                f"{name} has no timestamped observation in the locked OOS interval",
+            )], []
     return True, [], []
 
 

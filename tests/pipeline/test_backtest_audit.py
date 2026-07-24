@@ -48,12 +48,20 @@ def valid_context(tmp_path: Path):
         "equity": [100000.0, 100100.0, 100100.0, 100200.0],
         "daily_return": [0.0, 0.001, 0.0, 0.001],
     })
-    trades = pd.DataFrame([{
-        "timestamp_utc": data.loc[1, "timestamp_utc"], "side": "BUY", "shares": 1,
-        "signal_timestamp_utc": data.loc[0, "timestamp_utc"], "market_open": 101.0,
-        "execution_price": 101.0505, "slippage_bps": 5.0, "gross_notional": 101.0505,
-        "commission": 0.05052525, "net_cash_flow": -101.10102525,
-    }])
+    trades = pd.DataFrame([
+        {
+            "timestamp_utc": data.loc[1, "timestamp_utc"], "side": "BUY", "shares": 1,
+            "signal_timestamp_utc": data.loc[0, "timestamp_utc"], "market_open": 101.0,
+            "execution_price": 101.0505, "slippage_bps": 5.0, "gross_notional": 101.0505,
+            "commission": 0.05052525, "net_cash_flow": -101.10102525,
+        },
+        {
+            "timestamp_utc": data.loc[3, "timestamp_utc"], "side": "BUY", "shares": 1,
+            "signal_timestamp_utc": data.loc[2, "timestamp_utc"], "market_open": 103.0,
+            "execution_price": 103.0515, "slippage_bps": 5.0, "gross_notional": 103.0515,
+            "commission": 0.05152575, "net_cash_flow": -103.10302575,
+        },
+    ])
     manifest = {
         "strategy_config_hash": "config-hash", "data_hash": "data-hash", "code_commit": "abc",
         "provider": "Futu_LOCAL_CACHE", "symbol": "SPY", "timeframe": "1d",
@@ -106,7 +114,12 @@ def test_cost_mismatch_is_fail(tmp_path):
 
 
 def test_empty_trades_are_conditional(tmp_path):
-    report = audit_backtest(replace(valid_context(tmp_path), trades=empty_trades()))
+    context = valid_context(tmp_path)
+    report = audit_backtest(replace(
+        context,
+        trades=empty_trades(),
+        spec=replace(context.spec, in_sample_period=None, out_of_sample_period=None),
+    ))
     assert report.status is AuditStatus.CONDITIONAL_PASS
     assert any(issue.code == "NO_TRADES" for issue in report.issues)
 
@@ -165,10 +178,46 @@ def test_timestamped_artifacts_outside_locked_oos_boundary_fail(tmp_path):
     assert any(issue.code == "OOS_BOUNDARY_FAILURE" for issue in report.issues)
 
 
+def test_artifacts_without_locked_oos_observations_fail(tmp_path):
+    context = valid_context(tmp_path)
+    incomplete_contexts = {
+        "data": replace(context, data=context.data.iloc[:2].copy()),
+        "equity": replace(context, equity=context.equity.iloc[:2].copy()),
+        "trades": replace(context, trades=context.trades.iloc[:1].copy()),
+    }
+
+    for artifact, incomplete_context in incomplete_contexts.items():
+        report = audit_backtest(incomplete_context)
+        assert report.status is AuditStatus.FAIL
+        assert any(
+            issue.code == "OOS_BOUNDARY_FAILURE"
+            and f"{artifact} has no timestamped observation" in issue.message
+            for issue in report.issues
+        )
+
+
+def test_missing_equity_timestamp_evidence_is_fail(tmp_path):
+    context = valid_context(tmp_path)
+    report = audit_backtest(replace(
+        context,
+        equity=context.equity.drop(columns="timestamp_utc"),
+    ))
+    assert report.status is AuditStatus.FAIL
+    assert any(
+        issue.code == "OOS_BOUNDARY_FAILURE"
+        and "equity is missing timestamp_utc evidence" in issue.message
+        for issue in report.issues
+    )
+
+
 def test_single_year_positive_growth_is_conditional(tmp_path):
     context = valid_context(tmp_path)
     equity = context.equity.iloc[:2].copy()
-    report = audit_backtest(replace(context, equity=equity))
+    report = audit_backtest(replace(
+        context,
+        equity=equity,
+        spec=replace(context.spec, in_sample_period=None, out_of_sample_period=None),
+    ))
     assert report.status is AuditStatus.CONDITIONAL_PASS
     assert any(issue.code == "ANNUAL_RETURN_CONCENTRATION" for issue in report.issues)
 

@@ -6,6 +6,10 @@ from .research_pipeline import PipelineOptions, run_pipeline
 from .strategy_spec import load_strategy_spec
 
 
+class _RefreshDelegationFailure(Exception):
+    pass
+
+
 def exit_code_for_status(status: str) -> int:
     return {
         "PASS": 0,
@@ -16,7 +20,7 @@ def exit_code_for_status(status: str) -> int:
     }.get(status, 5)
 
 
-def _refresh_data(spec, data_root: Path) -> None:
+def _refresh_data(spec, target_path: Path) -> None:
     source = "yfinance" if spec.data_source == "yfinance" else "futu"
     argv = [
         "download",
@@ -24,7 +28,7 @@ def _refresh_data(spec, data_root: Path) -> None:
         "--source", source,
         "--start", spec.start_date.isoformat(),
         "--end", spec.end_date.isoformat(),
-        "--out-dir", str(data_root),
+        "--out-dir", str(target_path.parent),
     ]
     if source == "yfinance":
         argv.append("--overwrite")
@@ -49,7 +53,6 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        spec = load_strategy_spec(args.strategy_config)
         options = PipelineOptions(
             data_root=args.data_root,
             report_root=args.report_root,
@@ -59,8 +62,20 @@ def main(argv: list[str] | None = None) -> int:
             skip_data_refresh=args.skip_data_refresh,
             allow_smoke_test_data=args.smoke_test_data,
         )
-        refresh = None if args.skip_data_refresh else _refresh_data
+        refresh = None
+        if not args.audit_only and not args.skip_data_refresh:
+            spec = load_strategy_spec(args.strategy_config)
+
+            def refresh(_pipeline_spec, target_path):
+                try:
+                    _refresh_data(spec, target_path)
+                except RuntimeError as error:
+                    raise _RefreshDelegationFailure(str(error)) from error
+
         result = run_pipeline(args.strategy_config, options, refresh_data=refresh)
+    except _RefreshDelegationFailure as error:
+        print(f"data_refresh_error={error}")
+        return exit_code_for_status("DATA_CAPABILITY_BLOCKER")
     except (OSError, ValueError) as error:
         print(f"configuration_error={error}")
         return 2

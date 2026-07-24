@@ -5,6 +5,8 @@ description: Run or re-audit the fixed local Phase 1 SPY/QQQ research workflow f
 
 # quant-research-pipeline
 
+执行本 Skill 前先阅读项目根目录的 [AGENTS.md](../../../AGENTS.md) 中的 Quant Research Pipeline Entry；路由规则负责选择本 Skill，详细阶段与证据要求仍以本目录 references 为准。
+
 调用 `tv_quant.research_pipeline.run_pipeline`，严格按 Stage 0 至 Stage 7
 执行。遇到策略能力阻断、数据质量失败、数据能力阻断或审计失败时立即停止，
 不得把失败包装成成功。

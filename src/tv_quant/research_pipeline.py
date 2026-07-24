@@ -9,6 +9,7 @@ import subprocess
 from typing import Callable, Mapping
 
 import pandas as pd
+import yaml
 
 from .backtest_audit import AuditContext, audit_backtest
 from .data_quality import DataQualityError, load_standardized_csv
@@ -323,7 +324,7 @@ def _audit_only(
 
     try:
         spec = load_strategy_spec(config_path)
-    except (OSError, TypeError, ValueError) as error:
+    except (OSError, TypeError, ValueError, yaml.YAMLError) as error:
         return _audit_preflight_failure(
             run_directory,
             audit_path,

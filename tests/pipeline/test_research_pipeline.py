@@ -304,6 +304,71 @@ def test_audit_only_requires_run_directory(tmp_path):
         )
 
 
+def test_audit_only_malformed_config_rewrites_stale_pass_without_side_effects(
+    monkeypatch,
+    tmp_path,
+):
+    write_valid_spy_csv(tmp_path / "SPY_daily.csv")
+    config_path = covered_ema_config(tmp_path)
+    initial = run_pipeline(
+        config_path,
+        PipelineOptions(data_root=tmp_path, report_root=tmp_path / "reports"),
+    )
+    assert initial.run_directory is not None
+
+    audit_path = initial.run_directory / "audit.json"
+    stale_audit = json.loads(audit_path.read_text(encoding="utf-8"))
+    stale_audit["status"] = "PASS"
+    stale_audit["audit_payload_hash"] = canonical_hash(
+        {key: value for key, value in stale_audit.items() if key != "audit_payload_hash"}
+    )
+    audit_path.write_text(json.dumps(stale_audit), encoding="utf-8")
+    artifact_bytes = {
+        name: (initial.run_directory / filename).read_bytes()
+        for name, filename in (
+            ("summary", "summary.json"),
+            ("equity", "equity.csv"),
+            ("trades", "trades.csv"),
+            ("manifest", "run_manifest.json"),
+        )
+    }
+
+    def side_effect_forbidden(*args, **kwargs):
+        pytest.fail("malformed audit-only config must block before side effects")
+
+    for name in (
+        "run_backtest",
+        "calculate_metrics",
+        "buy_and_hold_return",
+        "write_reports",
+    ):
+        monkeypatch.setattr(f"tv_quant.research_pipeline.{name}", side_effect_forbidden)
+    config_path.write_text("strategy: [\n", encoding="utf-8")
+
+    result = run_pipeline(
+        config_path,
+        PipelineOptions(run_directory=initial.run_directory, audit_only=True),
+        refresh_data=side_effect_forbidden,
+    )
+
+    assert result.status == "STRATEGY_CAPABILITY_BLOCKER"
+    rewritten_audit = json.loads(audit_path.read_text(encoding="utf-8"))
+    assert rewritten_audit["status"] == "STRATEGY_CAPABILITY_BLOCKER"
+    assert any(
+        issue["code"] == "STRATEGY_CONFIG_INVALID"
+        for issue in rewritten_audit["issues"]
+    )
+    assert {
+        name: (initial.run_directory / filename).read_bytes()
+        for name, filename in (
+            ("summary", "summary.json"),
+            ("equity", "equity.csv"),
+            ("trades", "trades.csv"),
+            ("manifest", "run_manifest.json"),
+        )
+    } == artifact_bytes
+
+
 def test_audit_only_rejects_changed_source_data(tmp_path):
     data_path = tmp_path / "SPY_daily.csv"
     write_valid_spy_csv(data_path)

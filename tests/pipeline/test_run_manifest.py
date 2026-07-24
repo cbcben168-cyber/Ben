@@ -52,12 +52,40 @@ def test_build_manifest_records_reproducibility_evidence(tmp_path):
     assert manifest["data_hash"] == sha256_file(data_path)
     assert manifest["code_commit"] == "abc123"
     assert manifest["provider"] == "Futu_LOCAL_CACHE"
+    assert manifest["benchmark"] == spec.benchmark
+    assert manifest["smoke_test_marker"] is None
     assert manifest["fill_timing"] == "next_bar"
     assert manifest["commission_bps"] == 5.0
     assert manifest["slippage_bps"] == 5.0
     assert manifest["optimization_allowed"] is False
     assert manifest["artifact_paths"]["summary"] == str(artifact_paths["summary"])
     assert datetime.fromisoformat(manifest["generated_at_utc"]).tzinfo is not None
+
+
+def test_build_manifest_binds_report_paths_and_smoke_provenance(tmp_path):
+    spec = validate_strategy_mapping(valid_payload())
+    data_path = tmp_path / "SPY_daily.csv"
+    data_path.write_text("deterministic-data\n", encoding="utf-8")
+    artifact_paths = {
+        "summary": tmp_path / "summary.json",
+        "equity": tmp_path / "equity.csv",
+        "trades": tmp_path / "trades.csv",
+    }
+
+    manifest = build_manifest(
+        spec,
+        data_path,
+        "SMOKE_TEST_DATA_ONLY",
+        artifact_paths,
+        "abc123",
+        "SMOKE_TEST_DATA_ONLY",
+    )
+
+    assert manifest["artifact_paths"] == {
+        name: str(path) for name, path in artifact_paths.items()
+    }
+    assert manifest["provider"] == "SMOKE_TEST_DATA_ONLY"
+    assert manifest["smoke_test_marker"] == "SMOKE_TEST_DATA_ONLY"
 
 
 def test_bind_artifact_hashes_records_generated_output_evidence(tmp_path):

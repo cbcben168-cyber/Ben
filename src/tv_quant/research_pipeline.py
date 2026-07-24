@@ -162,6 +162,7 @@ def _write_audit(
 def _summary_with_audit(
     summary: Mapping[str, object],
     audit: AuditReport,
+    manifest: Mapping[str, object],
 ) -> dict[str, object]:
     result = dict(summary)
     result.update(
@@ -170,6 +171,10 @@ def _summary_with_audit(
             "audit_checks": dict(audit.checks),
             "audit_issues": [asdict(issue) for issue in audit.issues],
             "audit_warnings": list(audit.warnings),
+            "provider": manifest["provider"],
+            "smoke_test_marker": manifest["smoke_test_marker"],
+            "strategy_config_hash": manifest["strategy_config_hash"],
+            "data_hash": manifest["data_hash"],
         }
     )
     return result
@@ -612,7 +617,7 @@ def run_pipeline(
             tuple(data_warnings),
         )
 
-    summary = _summary_with_audit(summary, audit)
+    summary = _summary_with_audit(summary, audit, manifest)
     paths = write_reports(
         options.report_root,
         summary,

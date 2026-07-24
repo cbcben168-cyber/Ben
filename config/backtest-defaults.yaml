@@ -1,0 +1,11 @@
+benchmark: buy_and_hold
+fill_timing: next_bar
+optimization_allowed: false
+report_language: zh-CN
+data_source: validated_local_cache_first
+commission_model:
+  type: basis_points
+  value: 5
+slippage_model:
+  type: basis_points
+  value: 5

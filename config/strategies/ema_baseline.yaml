@@ -1,0 +1,28 @@
+strategy_name: ema_baseline
+asset_class: equity
+symbol: SPY
+benchmark: buy_and_hold
+timeframe: 1d
+start_date: "2020-01-01"
+end_date: "2024-12-31"
+initial_capital: 100000
+entry_rules:
+  - type: ema_crossover
+    fast_period: 50
+    slow_period: 200
+exit_rules:
+  - type: ema_crossunder
+position_sizing:
+  type: cash_limited_long_only
+commission_model:
+  type: basis_points
+  value: 5
+slippage_model:
+  type: basis_points
+  value: 5
+fill_timing: next_bar
+data_source: validated_local_cache_first
+in_sample_period: null
+out_of_sample_period: null
+optimization_allowed: false
+report_language: zh-CN

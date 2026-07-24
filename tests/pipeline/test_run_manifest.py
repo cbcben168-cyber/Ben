@@ -1,0 +1,69 @@
+from datetime import datetime
+
+from tv_quant.run_manifest import (
+    build_manifest,
+    canonical_hash,
+    sha256_file,
+    write_manifest,
+)
+from tv_quant.strategy_spec import validate_strategy_mapping
+
+from tests.pipeline.helpers import valid_payload
+
+
+def test_canonical_hash_is_stable_for_mapping_order():
+    left = {"b": 2, "a": {"d": 4, "c": 3}}
+    right = {"a": {"c": 3, "d": 4}, "b": 2}
+
+    assert canonical_hash(left) == canonical_hash(right)
+
+
+def test_sha256_file_changes_with_file_content(tmp_path):
+    path = tmp_path / "data.csv"
+    path.write_text("one\n", encoding="utf-8")
+    first = sha256_file(path)
+
+    path.write_text("two\n", encoding="utf-8")
+
+    assert sha256_file(path) != first
+
+
+def test_build_manifest_records_reproducibility_evidence(tmp_path):
+    spec = validate_strategy_mapping(valid_payload())
+    data_path = tmp_path / "SPY_daily.csv"
+    data_path.write_text("deterministic-data\n", encoding="utf-8")
+    artifact_paths = {
+        "summary": tmp_path / "summary.json",
+        "equity": tmp_path / "equity.csv",
+        "trades": tmp_path / "trades.csv",
+    }
+
+    manifest = build_manifest(
+        spec,
+        data_path,
+        "Futu_LOCAL_CACHE",
+        artifact_paths,
+        "abc123",
+        None,
+    )
+
+    assert manifest["strategy_config_hash"] == canonical_hash(spec.raw)
+    assert manifest["data_hash"] == sha256_file(data_path)
+    assert manifest["code_commit"] == "abc123"
+    assert manifest["provider"] == "Futu_LOCAL_CACHE"
+    assert manifest["fill_timing"] == "next_bar"
+    assert manifest["commission_bps"] == 5.0
+    assert manifest["slippage_bps"] == 5.0
+    assert manifest["optimization_allowed"] is False
+    assert manifest["artifact_paths"]["summary"] == str(artifact_paths["summary"])
+    assert datetime.fromisoformat(manifest["generated_at_utc"]).tzinfo is not None
+
+
+def test_write_manifest_is_sorted_utf8_json_with_trailing_newline(tmp_path):
+    path = tmp_path / "run_manifest.json"
+
+    write_manifest(path, {"z": "中文", "a": 1})
+
+    assert path.read_text(encoding="utf-8") == (
+        '{\n  "a": 1,\n  "z": "中文"\n}\n'
+    )

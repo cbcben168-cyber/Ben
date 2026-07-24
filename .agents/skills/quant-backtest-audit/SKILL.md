@@ -7,9 +7,10 @@ description: Audit deterministic backtest evidence for timing, costs, data quali
 
 # quant-backtest-audit
 
-Inspect deterministic backtest artifacts, trade fills, equity, configuration, and
-manifest evidence. Produce only audit status; never place orders, recalculate
-performance with an LLM, optimize parameters, or imply live-trading permission.
+Inspect deterministic backtest artifacts, trade fills, equity, configuration,
+manifest evidence, and locked OOS boundaries. Produce only audit status; never
+place orders, recalculate performance with an LLM, optimize parameters, or
+imply live-trading permission.
 
 Read `references/checks.md` for required evidence and issue codes, then use
 `references/statuses.md` to interpret the resulting status.

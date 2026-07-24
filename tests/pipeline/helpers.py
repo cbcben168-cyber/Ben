@@ -22,9 +22,9 @@ def valid_payload():
     }
 
 
-def write_ema_config(root: Path) -> Path:
+def write_ema_config(root: Path, *, end_date: str = "2020-10-15") -> Path:
     payload = valid_payload()
-    payload["end_date"] = "2020-10-15"
+    payload["end_date"] = end_date
     path = root / "ema.yaml"
     path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
     return path

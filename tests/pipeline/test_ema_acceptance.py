@@ -11,13 +11,7 @@ from tests.pipeline.helpers import (
 
 def test_ema_pipeline_writes_report_and_audit(tmp_path):
     write_crossover_csv(tmp_path / "SPY_daily.csv")
-    config = write_ema_config(tmp_path)
-    config.write_text(
-        config.read_text(encoding="utf-8").replace(
-            "end_date: '2020-10-15'", "end_date: '2020-10-09'"
-        ),
-        encoding="utf-8",
-    )
+    config = write_ema_config(tmp_path, end_date="2020-10-09")
     result = run_pipeline(
         config,
         PipelineOptions(

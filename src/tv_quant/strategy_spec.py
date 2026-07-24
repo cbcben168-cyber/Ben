@@ -1,6 +1,8 @@
 """Load and validate the versioned strategy configuration contract."""
 
 from datetime import date
+from math import isfinite
+from numbers import Real
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -32,15 +34,40 @@ def _parse_date(value: Any, field: str) -> date:
         raise ValueError(f"{field} must be an ISO date") from error
 
 
+def _finite_number(value: Any, field: str, *, positive: bool) -> float:
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise ValueError(f"{field} must be a finite number")
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError) as error:
+        raise ValueError(f"{field} must be a finite number") from error
+    if not isfinite(number):
+        raise ValueError(f"{field} must be a finite number")
+    if positive and number <= 0:
+        raise ValueError(f"{field} must be positive")
+    if not positive and number < 0:
+        raise ValueError(f"{field} must use non-negative basis points")
+    return number
+
+
+def _validate_unparsed_period(data: Mapping[str, Any], field: str) -> None:
+    if data.get(field) is not None:
+        raise ValueError(f"{field} is not supported until period parsing is available")
+
+
+def _validate_optimization_allowed(value: Any) -> bool:
+    if not isinstance(value, bool):
+        raise ValueError("optimization_allowed must be a boolean")
+    return value
+
+
 def _basis_points(mapping: Any, field: str) -> float:
     if not isinstance(mapping, Mapping) or mapping.get("type") != "basis_points":
         raise ValueError(f"{field} must use non-negative basis points")
     try:
-        value = float(mapping["value"])
-    except (KeyError, TypeError, ValueError) as error:
+        value = _finite_number(mapping["value"], field, positive=False)
+    except KeyError as error:
         raise ValueError(f"{field} must use non-negative basis points") from error
-    if value < 0:
-        raise ValueError(f"{field} must use non-negative basis points")
     return value
 
 
@@ -59,12 +86,9 @@ def validate_strategy_mapping(payload: Mapping[str, Any]) -> StrategySpec:
     if start_date >= end_date:
         raise ValueError("start_date must precede end_date")
 
-    try:
-        initial_capital = float(data["initial_capital"])
-    except (TypeError, ValueError) as error:
-        raise ValueError("initial_capital must be positive") from error
-    if initial_capital <= 0:
-        raise ValueError("initial_capital must be positive")
+    initial_capital = _finite_number(
+        data["initial_capital"], "initial_capital", positive=True
+    )
 
     if not isinstance(data["entry_rules"], list) or not data["entry_rules"]:
         raise ValueError("entry_rules must be a non-empty list")
@@ -75,6 +99,9 @@ def validate_strategy_mapping(payload: Mapping[str, Any]) -> StrategySpec:
 
     commission_bps = _basis_points(data["commission_model"], "commission_model")
     slippage_bps = _basis_points(data["slippage_model"], "slippage_model")
+    _validate_unparsed_period(data, "in_sample_period")
+    _validate_unparsed_period(data, "out_of_sample_period")
+    optimization_allowed = _validate_optimization_allowed(data["optimization_allowed"])
 
     return StrategySpec(
         strategy_name=str(data["strategy_name"]),
@@ -94,7 +121,7 @@ def validate_strategy_mapping(payload: Mapping[str, Any]) -> StrategySpec:
         data_source=str(data["data_source"]),
         in_sample_period=None,
         out_of_sample_period=None,
-        optimization_allowed=bool(data["optimization_allowed"]),
+        optimization_allowed=optimization_allowed,
         report_language=str(data["report_language"]),
         raw=data,
     )
@@ -108,20 +135,46 @@ def load_strategy_spec(path: Path) -> StrategySpec:
 
 
 def check_capabilities(spec: StrategySpec) -> CapabilityResult:
-    """Check whether the Task 1 fixed EMA engine can consume this spec."""
+    """Check whether a spec stays within the fixed Phase 1 engine boundary."""
     supported_entry = ({"type": "ema_crossover", "fast_period": 50, "slow_period": 200},)
     supported_exit = ({"type": "ema_crossunder"},)
     reasons: list[str] = []
+    data_reasons: list[str] = []
+    if spec.asset_class != "equity":
+        reasons.append(f"Phase 1 supports asset_class 'equity' only (received {spec.asset_class!r})")
+    if spec.symbol not in {"SPY", "QQQ"}:
+        reasons.append(f"Phase 1 supports symbols SPY and QQQ only (received {spec.symbol!r})")
+    if spec.timeframe != "1d":
+        reasons.append(f"Phase 1 supports timeframe '1d' only (received {spec.timeframe!r})")
+    if spec.benchmark != "buy_and_hold":
+        reasons.append(
+            f"Phase 1 supports benchmark 'buy_and_hold' only (received {spec.benchmark!r})"
+        )
+    if spec.fill_timing != "next_bar":
+        reasons.append(f"Phase 1 supports fill_timing 'next_bar' only (received {spec.fill_timing!r})")
+    if spec.optimization_allowed is not False:
+        reasons.append("Phase 1 requires optimization_allowed to be false")
+    if spec.report_language != "zh-CN":
+        reasons.append(f"Phase 1 supports report_language 'zh-CN' only (received {spec.report_language!r})")
+    if spec.data_source != "validated_local_cache_first":
+        data_reasons.append(
+            "Phase 1 requires data_source 'validated_local_cache_first' "
+            f"(received {spec.data_source!r})"
+        )
     if spec.entry_rules != supported_entry:
         reasons.append("only fixed EMA50/EMA200 crossover is supported")
     if spec.exit_rules != supported_exit:
         reasons.append("only fixed EMA crossunder exit is supported")
     if spec.position_sizing.get("type") != "cash_limited_long_only":
         reasons.append("position sizing is not supported")
-    if reasons:
+    if reasons or data_reasons:
         return CapabilityResult(
-            CapabilityStatus.STRATEGY_CAPABILITY_BLOCKER,
-            tuple(reasons),
+            (
+                CapabilityStatus.DATA_CAPABILITY_BLOCKER
+                if data_reasons and not reasons
+                else CapabilityStatus.STRATEGY_CAPABILITY_BLOCKER
+            ),
+            tuple(reasons + data_reasons),
             ("daily OHLCV",),
             ("fixed EMA50/EMA200",),
         )

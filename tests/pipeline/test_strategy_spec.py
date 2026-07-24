@@ -46,3 +46,66 @@ def test_invalid_strategy_config_is_rejected(mutator, message):
     mutator(payload)
     with pytest.raises(ValueError, match=message):
         validate_strategy_mapping(payload)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "blocker"),
+    [
+        ("asset_class", "crypto", "asset_class 'equity' only"),
+        ("symbol", "IWM", "symbols SPY and QQQ only"),
+        ("timeframe", "1h", "timeframe '1d' only"),
+        ("benchmark", "custom", "benchmark 'buy_and_hold' only"),
+        ("fill_timing", "same_close", "fill_timing 'next_bar' only"),
+        ("data_source", "remote_api", "data_source 'validated_local_cache_first'"),
+        ("optimization_allowed", True, "optimization_allowed to be false"),
+        ("report_language", "en-US", "report_language 'zh-CN' only"),
+    ],
+)
+def test_phase_one_boundary_violations_are_capability_blockers(field, value, blocker):
+    payload = valid_payload()
+    payload[field] = value
+
+    result = check_capabilities(validate_strategy_mapping(payload))
+
+    assert result.status.value != "SUPPORTED"
+    assert any(blocker in reason for reason in result.reasons)
+
+
+@pytest.mark.parametrize("field", ["in_sample_period", "out_of_sample_period"])
+def test_unparsed_non_null_periods_are_rejected(field):
+    payload = valid_payload()
+    payload[field] = ["2020-01-01", "2020-12-31"]
+
+    with pytest.raises(ValueError, match=f"{field} is not supported"):
+        validate_strategy_mapping(payload)
+
+
+@pytest.mark.parametrize("value", ["false", 0, 1, None])
+def test_optimization_allowed_must_be_a_boolean(value):
+    payload = valid_payload()
+    payload["optimization_allowed"] = value
+
+    with pytest.raises(ValueError, match="optimization_allowed must be a boolean"):
+        validate_strategy_mapping(payload)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("initial_capital", float("nan"), "initial_capital must be a finite number"),
+        ("initial_capital", float("inf"), "initial_capital must be a finite number"),
+        ("initial_capital", "100000", "initial_capital must be a finite number"),
+        ("commission_model", {"type": "basis_points", "value": float("nan")}, "commission_model must be a finite number"),
+        ("commission_model", {"type": "basis_points", "value": float("inf")}, "commission_model must be a finite number"),
+        ("commission_model", {"type": "basis_points", "value": "5"}, "commission_model must be a finite number"),
+        ("slippage_model", {"type": "basis_points", "value": float("nan")}, "slippage_model must be a finite number"),
+        ("slippage_model", {"type": "basis_points", "value": float("inf")}, "slippage_model must be a finite number"),
+        ("slippage_model", {"type": "basis_points", "value": "5"}, "slippage_model must be a finite number"),
+    ],
+)
+def test_numeric_configuration_must_be_finite_numbers(field, value, message):
+    payload = valid_payload()
+    payload[field] = value
+
+    with pytest.raises(ValueError, match=message):
+        validate_strategy_mapping(payload)

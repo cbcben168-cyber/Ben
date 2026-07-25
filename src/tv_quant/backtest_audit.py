@@ -365,7 +365,7 @@ def _check_reproducibility(context: AuditContext) -> tuple[bool, list[AuditIssue
         )], []
     strategy_config_path = manifest.get("strategy_config_path")
     try:
-        config_hash = sha256_file(Path(strategy_config_path))
+        config_hash = sha256_file(Path(strategy_config_path).resolve())
     except (OSError, TypeError, ValueError):
         return False, [AuditIssue(
             "HASH_MISMATCH",
@@ -381,7 +381,7 @@ def _check_reproducibility(context: AuditContext) -> tuple[bool, list[AuditIssue
     data_path = manifest.get("data_path")
     if data_path is not None:
         try:
-            actual_hash = sha256_file(Path(data_path))
+            actual_hash = sha256_file(Path(data_path).resolve())
         except (OSError, TypeError, ValueError):
             return False, [AuditIssue(
                 "HASH_MISMATCH", "ERROR", "manifest data_path cannot be hashed"

@@ -69,6 +69,16 @@ def data_provenance_path(data_path: Path) -> Path:
     return data_path.with_name(f"{data_path.name}.provenance.json")
 
 
+def data_provenance_pending_path(data_path: Path) -> Path:
+    return data_path.with_name(f"{data_path.name}.provenance.pending")
+
+
+def mark_data_provenance_pending(data_path: Path) -> None:
+    pending_path = data_provenance_pending_path(data_path)
+    pending_path.parent.mkdir(parents=True, exist_ok=True)
+    pending_path.write_text("pending\n", encoding="utf-8")
+
+
 def write_data_provenance(data_path: Path, source: str) -> None:
     try:
         provider = _PROVIDER_BY_SOURCE[source]
@@ -83,6 +93,19 @@ def write_data_provenance(data_path: Path, source: str) -> None:
         json.dumps(payload, sort_keys=True, indent=2) + "\n",
         encoding="utf-8",
     )
+
+
+def clear_data_provenance_pending(data_path: Path, source: str) -> None:
+    if not data_path.is_file():
+        raise _DataProvenanceError(
+            "cannot complete data provenance publication without data"
+        )
+    provenance = _read_data_provenance(data_path)
+    if provenance is None or provenance["source"] != source:
+        raise _DataProvenanceError(
+            "cannot complete data provenance publication without valid metadata"
+        )
+    data_provenance_pending_path(data_path).unlink(missing_ok=True)
 
 
 def _read_data_provenance(data_path: Path) -> Mapping[str, object] | None:
@@ -112,6 +135,10 @@ def _source_label(
     options: PipelineOptions,
     data_path: Path,
 ) -> str:
+    if data_provenance_pending_path(data_path).is_file():
+        raise _DataProvenanceError(
+            "data provenance publication is pending"
+        )
     provenance = _read_data_provenance(data_path)
     if provenance is None:
         return (
@@ -362,6 +389,13 @@ def _select_data(
         data, warnings = load_standardized_csv(data_path)
         return _filter_complete_data(spec, data), warnings
 
+    if data_provenance_pending_path(data_path).is_file():
+        return PipelineResult(
+            "DATA_CAPABILITY_BLOCKER",
+            None,
+            None,
+            ("data provenance publication is pending",),
+        )
     if data_path.is_file():
         try:
             source = _source_label(spec, options, data_path)

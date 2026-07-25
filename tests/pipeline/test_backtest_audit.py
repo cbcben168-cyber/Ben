@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from tv_quant import backtest_audit
 from tv_quant.backtest_audit import AuditContext, audit_backtest
 from tv_quant.pipeline_models import AuditStatus, CapabilityResult, CapabilityStatus
 from tv_quant.run_manifest import canonical_hash, sha256_file
@@ -174,6 +175,42 @@ def test_tampered_strategy_config_artifact_hash_is_fail(tmp_path):
 
     assert report.status is AuditStatus.FAIL
     assert any(issue.code == "HASH_MISMATCH" for issue in report.issues)
+
+
+def test_reproducibility_resolves_manifest_paths_before_hashing(
+    monkeypatch,
+    tmp_path,
+):
+    context = valid_context(tmp_path)
+    data_path = tmp_path / "SPY_daily.csv"
+    data_path.write_text("deterministic-data\n", encoding="utf-8")
+    alias_parent = tmp_path / "path-alias"
+    alias_parent.mkdir()
+    config_path = context.artifact_paths["strategy_config"]
+    context.manifest["strategy_config_path"] = str(
+        alias_parent / ".." / config_path.name
+    )
+    context.manifest["data_path"] = str(alias_parent / ".." / data_path.name)
+    context.manifest["data_hash"] = sha256_file(data_path)
+    hashed_paths = []
+    real_sha256_file = sha256_file
+
+    def recording_sha256_file(path):
+        hashed_paths.append(path)
+        return real_sha256_file(path)
+
+    monkeypatch.setattr(
+        backtest_audit,
+        "sha256_file",
+        recording_sha256_file,
+    )
+
+    passed, issues, warnings = backtest_audit._check_reproducibility(context)
+
+    assert passed is True
+    assert issues == []
+    assert warnings == []
+    assert hashed_paths == [config_path.resolve(), data_path.resolve()]
 
 
 def test_capability_blocker_is_returned(tmp_path):

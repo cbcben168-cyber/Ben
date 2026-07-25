@@ -4,6 +4,8 @@ from pathlib import Path
 from . import cli as legacy_cli
 from .research_pipeline import (
     PipelineOptions,
+    clear_data_provenance_pending,
+    mark_data_provenance_pending,
     run_pipeline,
     write_data_provenance,
 )
@@ -36,11 +38,24 @@ def _refresh_data(spec, target_path: Path) -> None:
     ]
     if source == "yfinance":
         argv.append("--overwrite")
+        try:
+            mark_data_provenance_pending(target_path)
+        except OSError as error:
+            raise RuntimeError(
+                f"data provenance publication failed: {error}"
+            ) from error
     result = legacy_cli.main(argv)
     if result != 0:
         raise RuntimeError(f"data refresh failed with exit code {result}")
     if target_path.is_file():
-        write_data_provenance(target_path, source)
+        try:
+            write_data_provenance(target_path, source)
+            if source == "yfinance":
+                clear_data_provenance_pending(target_path, source)
+        except (OSError, ValueError) as error:
+            raise RuntimeError(
+                f"data provenance publication failed: {error}"
+            ) from error
 
 
 def build_parser() -> argparse.ArgumentParser:

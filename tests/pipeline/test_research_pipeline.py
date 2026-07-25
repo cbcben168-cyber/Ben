@@ -8,6 +8,7 @@ from tv_quant import pipeline_cli
 from tv_quant.pipeline_models import AuditIssue, AuditReport, AuditStatus
 from tv_quant.research_pipeline import (
     PipelineOptions,
+    data_provenance_pending_path,
     data_provenance_path,
     run_pipeline,
 )
@@ -127,6 +128,7 @@ def test_yfinance_refresh_provenance_blocks_later_formal_cache_use(
         offline_yfinance_refresh,
     )
     pipeline_cli._refresh_data(smoke_spec, data_path)
+    assert not data_provenance_pending_path(data_path).exists()
     formal_config = covered_ema_config(tmp_path)
 
     blocked = run_pipeline(
@@ -156,6 +158,54 @@ def test_yfinance_refresh_provenance_blocks_later_formal_cache_use(
     )
     assert manifest["provider"] == "SMOKE_TEST_DATA_ONLY"
     assert manifest["smoke_test_marker"] == "SMOKE_TEST_DATA_ONLY"
+
+
+def test_failed_yfinance_provenance_publication_leaves_pending_and_blocks_formal(
+    monkeypatch,
+    tmp_path,
+):
+    data_path = tmp_path / "SPY_daily.csv"
+    smoke_spec = load_strategy_spec(yfinance_smoke_config(tmp_path))
+    refresh_calls = []
+
+    def offline_yfinance_refresh(argv):
+        refresh_calls.append(argv)
+        write_valid_spy_csv(data_path)
+        return 0
+
+    def fail_provenance_write(*args):
+        raise OSError("simulated write failure")
+
+    monkeypatch.setattr(
+        pipeline_cli.legacy_cli,
+        "main",
+        offline_yfinance_refresh,
+    )
+    monkeypatch.setattr(
+        pipeline_cli,
+        "write_data_provenance",
+        fail_provenance_write,
+    )
+
+    with pytest.raises(RuntimeError, match="provenance publication failed"):
+        pipeline_cli._refresh_data(smoke_spec, data_path)
+
+    pending_path = data_provenance_pending_path(data_path)
+    assert pending_path.is_file()
+    assert not data_provenance_path(data_path).exists()
+
+    formal = run_pipeline(
+        covered_ema_config(tmp_path),
+        PipelineOptions(data_root=tmp_path),
+        refresh_data=lambda *args: pytest.fail(
+            "pending yfinance refresh must not fall back to Futu"
+        ),
+    )
+
+    assert len(refresh_calls) == 1
+    assert formal.status == "DATA_CAPABILITY_BLOCKER"
+    assert "pending" in formal.warnings[0]
+    assert pending_path.is_file()
 
 
 def test_invalid_data_provenance_sidecar_is_a_data_blocker(tmp_path):

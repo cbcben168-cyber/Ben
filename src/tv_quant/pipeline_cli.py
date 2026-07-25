@@ -2,7 +2,11 @@ import argparse
 from pathlib import Path
 
 from . import cli as legacy_cli
-from .research_pipeline import PipelineOptions, run_pipeline
+from .research_pipeline import (
+    PipelineOptions,
+    run_pipeline,
+    write_data_provenance,
+)
 from .strategy_spec import load_strategy_spec
 
 
@@ -35,6 +39,8 @@ def _refresh_data(spec, target_path: Path) -> None:
     result = legacy_cli.main(argv)
     if result != 0:
         raise RuntimeError(f"data refresh failed with exit code {result}")
+    if target_path.is_file():
+        write_data_provenance(target_path, source)
 
 
 def build_parser() -> argparse.ArgumentParser:

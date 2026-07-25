@@ -39,6 +39,12 @@ def _parse_date(value: Any, field: str) -> date:
         raise ValueError(f"{field} must be an ISO date") from error
 
 
+def _string(value: Any, field: str) -> str:
+    if not isinstance(value, str):
+        raise ValueError(f"{field} must be a string")
+    return value
+
+
 def _finite_number(value: Any, field: str, *, positive: bool) -> float:
     if isinstance(value, bool) or not isinstance(value, Real):
         raise ValueError(f"{field} must be a finite number")
@@ -116,13 +122,26 @@ def validate_strategy_mapping(payload: Mapping[str, Any]) -> StrategySpec:
     _validate_unparsed_period(data, "in_sample_period")
     _validate_unparsed_period(data, "out_of_sample_period")
     optimization_allowed = _validate_optimization_allowed(data["optimization_allowed"])
+    string_values = {
+        field: _string(data[field], field)
+        for field in (
+            "strategy_name",
+            "asset_class",
+            "symbol",
+            "benchmark",
+            "timeframe",
+            "fill_timing",
+            "data_source",
+            "report_language",
+        )
+    }
 
     return StrategySpec(
-        strategy_name=str(data["strategy_name"]),
-        asset_class=str(data["asset_class"]),
-        symbol=str(data["symbol"]).upper(),
-        benchmark=str(data["benchmark"]),
-        timeframe=str(data["timeframe"]),
+        strategy_name=string_values["strategy_name"],
+        asset_class=string_values["asset_class"],
+        symbol=string_values["symbol"].upper(),
+        benchmark=string_values["benchmark"],
+        timeframe=string_values["timeframe"],
         start_date=start_date,
         end_date=end_date,
         initial_capital=initial_capital,
@@ -131,12 +150,12 @@ def validate_strategy_mapping(payload: Mapping[str, Any]) -> StrategySpec:
         position_sizing=dict(data["position_sizing"]),
         commission_bps=commission_bps,
         slippage_bps=slippage_bps,
-        fill_timing=str(data["fill_timing"]),
-        data_source=str(data["data_source"]),
+        fill_timing=string_values["fill_timing"],
+        data_source=string_values["data_source"],
         in_sample_period=None,
         out_of_sample_period=None,
         optimization_allowed=optimization_allowed,
-        report_language=str(data["report_language"]),
+        report_language=string_values["report_language"],
         raw=data,
     )
 

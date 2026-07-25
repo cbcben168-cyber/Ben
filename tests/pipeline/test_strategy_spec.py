@@ -125,3 +125,24 @@ def test_numeric_configuration_must_be_finite_numbers(field, value, message):
 
     with pytest.raises(ValueError, match=message):
         validate_strategy_mapping(payload)
+
+
+@pytest.mark.parametrize(
+    "field",
+    (
+        "strategy_name",
+        "asset_class",
+        "symbol",
+        "benchmark",
+        "timeframe",
+        "fill_timing",
+        "data_source",
+        "report_language",
+    ),
+)
+def test_schema_string_fields_reject_non_string_values(field):
+    payload = valid_payload()
+    payload[field] = 123
+
+    with pytest.raises(ValueError, match=f"{field} must be a string"):
+        validate_strategy_mapping(payload)

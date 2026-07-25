@@ -54,6 +54,79 @@ class PipelineResult:
 
 
 RefreshData = Callable[[StrategySpec, Path], None]
+_PROVENANCE_SCHEMA_VERSION = 1
+_PROVIDER_BY_SOURCE = {
+    "futu": "Futu_LOCAL_CACHE",
+    "yfinance": "SMOKE_TEST_DATA_ONLY",
+}
+
+
+class _DataProvenanceError(ValueError):
+    pass
+
+
+def data_provenance_path(data_path: Path) -> Path:
+    return data_path.with_name(f"{data_path.name}.provenance.json")
+
+
+def write_data_provenance(data_path: Path, source: str) -> None:
+    try:
+        provider = _PROVIDER_BY_SOURCE[source]
+    except KeyError as error:
+        raise ValueError(f"unsupported data provenance source: {source}") from error
+    payload = {
+        "schema_version": _PROVENANCE_SCHEMA_VERSION,
+        "source": source,
+        "provider": provider,
+    }
+    data_provenance_path(data_path).write_text(
+        json.dumps(payload, sort_keys=True, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _read_data_provenance(data_path: Path) -> Mapping[str, object] | None:
+    provenance_path = data_provenance_path(data_path)
+    if not provenance_path.is_file():
+        return None
+    try:
+        payload = _load_json(provenance_path)
+    except (json.JSONDecodeError, OSError, TypeError, ValueError) as error:
+        raise _DataProvenanceError(
+            f"invalid data provenance metadata: {error}"
+        ) from error
+    source = payload.get("source")
+    provider = payload.get("provider")
+    if (
+        payload.get("schema_version") != _PROVENANCE_SCHEMA_VERSION
+        or not isinstance(source, str)
+        or not isinstance(provider, str)
+        or _PROVIDER_BY_SOURCE.get(source) != provider
+    ):
+        raise _DataProvenanceError("invalid data provenance metadata contract")
+    return payload
+
+
+def _source_label(
+    spec: StrategySpec,
+    options: PipelineOptions,
+    data_path: Path,
+) -> str:
+    provenance = _read_data_provenance(data_path)
+    if provenance is None:
+        return (
+            "SMOKE_TEST_DATA_ONLY"
+            if options.allow_smoke_test_data and spec.data_source == "yfinance"
+            else "Futu_LOCAL_CACHE"
+        )
+    if (
+        provenance["source"] == "yfinance"
+        and not options.allow_smoke_test_data
+    ):
+        raise _DataProvenanceError(
+            "recorded yfinance smoke-test data requires explicit smoke-test mode"
+        )
+    return str(provenance["provider"])
 
 
 def current_git_revision() -> str:
@@ -289,17 +362,26 @@ def _select_data(
         data, warnings = load_standardized_csv(data_path)
         return _filter_complete_data(spec, data), warnings
 
-    source = (
-        "SMOKE_TEST_DATA_ONLY"
-        if options.allow_smoke_test_data and spec.data_source == "yfinance"
-        else "Futu_LOCAL_CACHE"
-    )
-
     if data_path.is_file():
         try:
+            source = _source_label(spec, options, data_path)
             data, warnings = load_validated()
+        except _DataProvenanceError as error:
+            return PipelineResult(
+                "DATA_CAPABILITY_BLOCKER",
+                None,
+                None,
+                (str(error),),
+            )
         except _InsufficientCoverage:
             pass
+        except FileNotFoundError:
+            return PipelineResult(
+                "DATA_CAPABILITY_BLOCKER",
+                None,
+                None,
+                ("validated local cache unavailable",),
+            )
         except (
             DataQualityError,
             OSError,
@@ -317,14 +399,36 @@ def _select_data(
             ("validated local cache unavailable",),
         )
     refresh_data(spec, data_path)
+    if not data_path.is_file():
+        return PipelineResult(
+            "DATA_CAPABILITY_BLOCKER",
+            None,
+            None,
+            ("validated local cache unavailable after refresh",),
+        )
     try:
+        source = _source_label(spec, options, data_path)
         data, warnings = load_validated()
+    except _DataProvenanceError as error:
+        return PipelineResult(
+            "DATA_CAPABILITY_BLOCKER",
+            None,
+            None,
+            (str(error),),
+        )
     except _InsufficientCoverage as error:
         return PipelineResult(
             "DATA_CAPABILITY_BLOCKER",
             None,
             None,
             (str(error),),
+        )
+    except FileNotFoundError:
+        return PipelineResult(
+            "DATA_CAPABILITY_BLOCKER",
+            None,
+            None,
+            ("validated local cache unavailable after refresh",),
         )
     except (
         DataQualityError,
@@ -549,9 +653,17 @@ def _audit_only(
                 "ARTIFACT_HASH_MISMATCH",
                 f"{name} artifact path or hash does not match manifest evidence",
             )
+    recorded_strategy_config_path = manifest.get("strategy_config_path")
+    try:
+        strategy_config_path_matches = (
+            recorded_strategy_config_path is not None
+            and Path(str(recorded_strategy_config_path)).resolve()
+            == required_paths["strategy_config"].resolve()
+        )
+    except (OSError, TypeError, ValueError):
+        strategy_config_path_matches = False
     if (
-        manifest.get("strategy_config_path")
-        != str(required_paths["strategy_config"])
+        not strategy_config_path_matches
         or manifest.get("strategy_config_file_hash")
         != artifact_hashes.get("strategy_config")
     ):

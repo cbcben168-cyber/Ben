@@ -4,9 +4,15 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+from tv_quant import pipeline_cli
 from tv_quant.pipeline_models import AuditIssue, AuditReport, AuditStatus
-from tv_quant.research_pipeline import PipelineOptions, run_pipeline
+from tv_quant.research_pipeline import (
+    PipelineOptions,
+    data_provenance_path,
+    run_pipeline,
+)
 from tv_quant.run_manifest import canonical_hash, sha256_file
+from tv_quant.strategy_spec import load_strategy_spec
 
 from tests.pipeline.helpers import (
     write_ema_config,
@@ -102,6 +108,70 @@ def test_existing_yfinance_smoke_cache_preserves_smoke_provenance(tmp_path):
     assert manifest["smoke_test_marker"] == "SMOKE_TEST_DATA_ONLY"
 
 
+def test_yfinance_refresh_provenance_blocks_later_formal_cache_use(
+    monkeypatch,
+    tmp_path,
+):
+    data_path = tmp_path / "SPY_daily.csv"
+    smoke_spec = load_strategy_spec(yfinance_smoke_config(tmp_path))
+    legacy_calls = []
+
+    def offline_yfinance_refresh(argv):
+        legacy_calls.append(argv)
+        write_valid_spy_csv(data_path)
+        return 0
+
+    monkeypatch.setattr(
+        pipeline_cli.legacy_cli,
+        "main",
+        offline_yfinance_refresh,
+    )
+    pipeline_cli._refresh_data(smoke_spec, data_path)
+    formal_config = covered_ema_config(tmp_path)
+
+    blocked = run_pipeline(
+        formal_config,
+        PipelineOptions(data_root=tmp_path),
+        refresh_data=lambda *args: pytest.fail("existing cache must not refresh"),
+    )
+
+    assert len(legacy_calls) == 1
+    assert blocked.status == "DATA_CAPABILITY_BLOCKER"
+    assert "yfinance" in blocked.warnings[0]
+
+    explicit_smoke = run_pipeline(
+        formal_config,
+        PipelineOptions(
+            data_root=tmp_path,
+            report_root=tmp_path / "reports",
+            allow_smoke_test_data=True,
+        ),
+    )
+
+    assert explicit_smoke.run_directory is not None
+    manifest = json.loads(
+        (explicit_smoke.run_directory / "run_manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert manifest["provider"] == "SMOKE_TEST_DATA_ONLY"
+    assert manifest["smoke_test_marker"] == "SMOKE_TEST_DATA_ONLY"
+
+
+def test_invalid_data_provenance_sidecar_is_a_data_blocker(tmp_path):
+    data_path = tmp_path / "SPY_daily.csv"
+    write_valid_spy_csv(data_path)
+    data_provenance_path(data_path).write_text("{}", encoding="utf-8")
+
+    result = run_pipeline(
+        covered_ema_config(tmp_path),
+        PipelineOptions(data_root=tmp_path),
+    )
+
+    assert result.status == "DATA_CAPABILITY_BLOCKER"
+    assert "provenance" in result.warnings[0]
+
+
 @pytest.mark.parametrize(
     "failure_kind",
     ("malformed", "duplicate", "missing", "unsorted", "invalid"),
@@ -175,6 +245,18 @@ def test_absent_cache_may_use_explicit_refresh(tmp_path):
 
     assert calls == [("SPY", tmp_path / "SPY_daily.csv")]
     assert result.status in {"PASS", "CONDITIONAL_PASS"}
+
+
+def test_refresh_that_does_not_create_cache_remains_data_blocker(tmp_path):
+    result = run_pipeline(
+        covered_ema_config(tmp_path),
+        PipelineOptions(data_root=tmp_path),
+        refresh_data=lambda *args: None,
+    )
+
+    assert result.status == "DATA_CAPABILITY_BLOCKER"
+    assert result.audit_report is None
+    assert "unavailable" in result.warnings[0]
 
 
 def test_audit_runs_before_final_report(monkeypatch, tmp_path):
@@ -387,6 +469,48 @@ def test_audit_only_requires_run_directory(tmp_path):
             write_ema_config(tmp_path),
             PipelineOptions(audit_only=True),
         )
+
+
+def test_audit_only_accepts_equivalent_resolved_strategy_config_path(tmp_path):
+    write_valid_spy_csv(tmp_path / "SPY_daily.csv")
+    config_path = covered_ema_config(tmp_path)
+    initial = run_pipeline(
+        config_path,
+        PipelineOptions(data_root=tmp_path, report_root=tmp_path / "reports"),
+    )
+    assert initial.run_directory is not None
+
+    manifest_path = initial.run_directory / "run_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["strategy_config_path"] = str(
+        initial.run_directory
+        / "unused"
+        / ".."
+        / "strategy_config.yaml"
+    )
+    manifest_path.write_text(
+        json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    audit_path = initial.run_directory / "audit.json"
+    audit = json.loads(audit_path.read_text(encoding="utf-8"))
+    audit["manifest_hash"] = sha256_file(manifest_path)
+    audit.pop("audit_payload_hash")
+    audit["audit_payload_hash"] = canonical_hash(audit)
+    audit_path.write_text(
+        json.dumps(audit, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    result = run_pipeline(
+        config_path,
+        PipelineOptions(
+            run_directory=initial.run_directory,
+            audit_only=True,
+        ),
+    )
+
+    assert result.status in {"PASS", "CONDITIONAL_PASS"}
 
 
 def test_audit_only_malformed_config_rewrites_stale_pass_without_side_effects(

@@ -26,6 +26,10 @@ def test_ema_pipeline_writes_report_and_audit(tmp_path):
     assert (result.run_directory / "trades.csv").is_file()
     assert (result.run_directory / "run_manifest.json").is_file()
     assert (result.run_directory / "audit.json").is_file()
+    report_zh = result.run_directory / "report_zh.md"
+    strategy_config = result.run_directory / "strategy_config.yaml"
+    assert report_zh.is_file()
+    assert strategy_config.read_bytes() == config.read_bytes()
     summary = json.loads(
         (result.run_directory / "summary.json").read_text(encoding="utf-8")
     )
@@ -33,6 +37,19 @@ def test_ema_pipeline_writes_report_and_audit(tmp_path):
     assert summary["parameters"]["ema_fast"] == 50
     assert summary["parameters"]["ema_slow"] == 200
     assert summary["audit_status"] in {"PASS", "CONDITIONAL_PASS"}
+    report_text = report_zh.read_text(encoding="utf-8")
+    for required_text in (
+        "状态",
+        "标的",
+        "日期",
+        "数据提供方",
+        "策略总收益",
+        "最大回撤",
+        "交易次数",
+        "相对买入并持有差异",
+        "限制",
+    ):
+        assert required_text in report_text
 
 
 def test_rsi_blocker_does_not_refresh_or_backtest(tmp_path, monkeypatch):

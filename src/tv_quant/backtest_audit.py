@@ -19,6 +19,7 @@ from .pipeline_models import (
     CapabilityStatus,
     StrategySpec,
 )
+from .run_manifest import HASHED_ARTIFACT_NAMES, canonical_hash
 
 
 @dataclass(frozen=True)
@@ -190,6 +191,7 @@ def _check_manifest(context: AuditContext) -> tuple[bool, list[AuditIssue], list
     required = (
         "strategy_config_hash", "data_hash", "code_commit", "fill_timing",
         "commission_bps", "slippage_bps", "generated_at_utc",
+        "strategy_config_path", "strategy_config_file_hash",
     )
     missing = [field for field in required if not _is_present(context.manifest.get(field))]
     if missing:
@@ -202,7 +204,15 @@ def _check_manifest(context: AuditContext) -> tuple[bool, list[AuditIssue], list
 def _check_artifacts(context: AuditContext) -> tuple[bool, list[AuditIssue], list[str]]:
     if not context.require_artifact_files:
         return True, [], []
-    required = {"summary", "equity", "trades", "manifest", "audit"}
+    required = {
+        "summary",
+        "equity",
+        "trades",
+        "manifest",
+        "audit",
+        "report_zh",
+        "strategy_config",
+    }
     missing = sorted(
         name for name in required
         if name not in context.artifact_paths
@@ -213,6 +223,33 @@ def _check_artifacts(context: AuditContext) -> tuple[bool, list[AuditIssue], lis
         return False, [AuditIssue(
             "MISSING_ARTIFACT", "ERROR", f"missing artifacts: {', '.join(sorted(missing))}"
         )], []
+    recorded_paths = context.manifest.get("artifact_paths")
+    recorded_hashes = context.manifest.get("artifact_hashes")
+    if not isinstance(recorded_paths, Mapping) or not isinstance(
+        recorded_hashes,
+        Mapping,
+    ):
+        return False, [AuditIssue(
+            "HASH_MISMATCH",
+            "ERROR",
+            "manifest artifact path or hash evidence is missing",
+        )], []
+    for name in HASHED_ARTIFACT_NAMES:
+        actual_path = Path(context.artifact_paths[name])
+        try:
+            matches = (
+                Path(str(recorded_paths.get(name))).resolve()
+                == actual_path.resolve()
+                and recorded_hashes.get(name) == sha256_file(actual_path)
+            )
+        except (OSError, TypeError, ValueError):
+            matches = False
+        if not matches:
+            return False, [AuditIssue(
+                "HASH_MISMATCH",
+                "ERROR",
+                f"{name} artifact path or hash differs from manifest",
+            )], []
     return True, [], []
 
 
@@ -311,24 +348,48 @@ def _check_sample_and_concentration(
 
 def _check_reproducibility(context: AuditContext) -> tuple[bool, list[AuditIssue], list[str]]:
     manifest = context.manifest
-    hashes = ("strategy_config_hash", "data_hash")
+    hashes = (
+        "strategy_config_hash",
+        "strategy_config_file_hash",
+        "data_hash",
+    )
     if any(not _is_present(manifest.get(field)) for field in hashes):
         return False, [AuditIssue(
             "MISSING_MANIFEST_FIELD", "ERROR", "reproducibility requires non-empty input hashes"
         )], []
-    data_path = manifest.get("data_path")
-    if data_path is None:
-        return True, [], []
+    if manifest["strategy_config_hash"] != canonical_hash(context.spec.raw):
+        return False, [AuditIssue(
+            "HASH_MISMATCH",
+            "ERROR",
+            "canonical strategy configuration differs from manifest",
+        )], []
+    strategy_config_path = manifest.get("strategy_config_path")
     try:
-        actual_hash = sha256_file(Path(data_path))
+        config_hash = sha256_file(Path(strategy_config_path))
     except (OSError, TypeError, ValueError):
         return False, [AuditIssue(
-            "HASH_MISMATCH", "ERROR", "manifest data_path cannot be hashed"
+            "HASH_MISMATCH",
+            "ERROR",
+            "manifest strategy_config_path cannot be hashed",
         )], []
-    if actual_hash != manifest["data_hash"]:
+    if config_hash != manifest["strategy_config_file_hash"]:
         return False, [AuditIssue(
-            "HASH_MISMATCH", "ERROR", "current data hash differs from manifest"
+            "HASH_MISMATCH",
+            "ERROR",
+            "copied strategy configuration hash differs from manifest",
         )], []
+    data_path = manifest.get("data_path")
+    if data_path is not None:
+        try:
+            actual_hash = sha256_file(Path(data_path))
+        except (OSError, TypeError, ValueError):
+            return False, [AuditIssue(
+                "HASH_MISMATCH", "ERROR", "manifest data_path cannot be hashed"
+            )], []
+        if actual_hash != manifest["data_hash"]:
+            return False, [AuditIssue(
+                "HASH_MISMATCH", "ERROR", "current data hash differs from manifest"
+            )], []
     return True, [], []
 
 

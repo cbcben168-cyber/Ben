@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 import json
 from pathlib import Path
+import shutil
 import subprocess
 from typing import Callable, Mapping
 
@@ -180,6 +181,84 @@ def _summary_with_audit(
     return result
 
 
+def _update_summary_audit_fields(
+    path: Path,
+    audit: AuditReport,
+) -> dict[str, object]:
+    summary = _load_json(path)
+    summary.update(
+        {
+            "audit_status": audit.status.value,
+            "audit_checks": dict(audit.checks),
+            "audit_issues": [asdict(issue) for issue in audit.issues],
+            "audit_warnings": list(audit.warnings),
+        }
+    )
+    path.write_text(
+        json.dumps(
+            summary,
+            ensure_ascii=False,
+            indent=2,
+            default=str,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return summary
+
+
+def _write_chinese_report(
+    path: Path,
+    summary: Mapping[str, object],
+    audit: AuditReport,
+) -> None:
+    def percentage(name: str) -> str:
+        return f"{float(summary[name]):.6%}"
+
+    limitations = [
+        "仅限第一阶段 SPY/QQQ 日线历史研究；不连接账户、券商或真实订单。",
+        "信号在下一根 K 线成交，结果包含已配置的手续费和滑点。",
+    ]
+    limitations.extend(str(item) for item in summary["validation_warnings"])
+    limitations.extend(issue.message for issue in audit.issues)
+    limitations.extend(audit.warnings)
+    lines = [
+        "# 中文回测简报",
+        "",
+        f"- 状态：{audit.status.value}",
+        f"- 标的：{summary['ticker']}",
+        f"- 日期：{summary['data_start_utc']} 至 {summary['data_end_utc']}",
+        f"- 数据提供方：{summary['provider']}",
+        f"- 策略总收益：{percentage('total_return')}",
+        f"- 买入并持有收益：{percentage('buy_and_hold_return')}",
+        f"- 最大回撤：{percentage('max_drawdown')}",
+        f"- 交易次数：{int(summary['trade_count'])}",
+        f"- 相对买入并持有差异：{percentage('strategy_minus_buy_hold')}",
+        "",
+        "## 限制",
+        "",
+        *(f"- {item}" for item in limitations),
+        "",
+    ]
+    path.write_text("\n".join(lines), encoding="utf-8")
+
+
+def _data_quality_failure(error: Exception) -> PipelineResult:
+    audit = AuditReport(
+        status=AuditStatus.FAIL,
+        checks={"data_quality": False},
+        issues=(
+            AuditIssue(
+                "DATA_QUALITY_FAILURE",
+                "ERROR",
+                str(error),
+            ),
+        ),
+        warnings=(),
+    )
+    return PipelineResult("FAIL", None, audit, (str(error),))
+
+
 def _filter_complete_data(
     spec: StrategySpec,
     data: pd.DataFrame,
@@ -227,12 +306,7 @@ def _select_data(
             pd.errors.ParserError,
             UnicodeError,
         ) as error:
-            return PipelineResult(
-                "DATA_CAPABILITY_BLOCKER",
-                None,
-                None,
-                (str(error),),
-            )
+            return _data_quality_failure(error)
         else:
             return data, data_path, source, warnings
     if options.skip_data_refresh or refresh_data is None:
@@ -245,18 +319,20 @@ def _select_data(
     refresh_data(spec, data_path)
     try:
         data, warnings = load_validated()
-    except (
-        DataQualityError,
-        OSError,
-        pd.errors.ParserError,
-        UnicodeError,
-    ) as error:
+    except _InsufficientCoverage as error:
         return PipelineResult(
             "DATA_CAPABILITY_BLOCKER",
             None,
             None,
             (str(error),),
         )
+    except (
+        DataQualityError,
+        OSError,
+        pd.errors.ParserError,
+        UnicodeError,
+    ) as error:
+        return _data_quality_failure(error)
     return data, data_path, source, warnings
 
 
@@ -309,6 +385,8 @@ def _audit_only(
         "trades": run_directory / "trades.csv",
         "manifest": run_directory / "run_manifest.json",
         "audit": run_directory / "audit.json",
+        "report_zh": run_directory / "report_zh.md",
+        "strategy_config": run_directory / "strategy_config.yaml",
     }
     manifest_path = required_paths["manifest"]
     audit_path = required_paths["audit"]
@@ -412,6 +490,22 @@ def _audit_only(
             "STRATEGY_CONFIG_HASH_MISMATCH",
             "strategy config hash differs from run manifest",
         )
+    try:
+        config_file_matches = (
+            sha256_file(config_path)
+            == manifest.get("strategy_config_file_hash")
+        )
+    except OSError:
+        config_file_matches = False
+    if not config_file_matches:
+        return _audit_preflight_failure(
+            run_directory,
+            audit_path,
+            manifest_path,
+            AuditStatus.STRATEGY_CAPABILITY_BLOCKER,
+            "STRATEGY_CONFIG_FILE_HASH_MISMATCH",
+            "strategy config file hash differs from run manifest",
+        )
 
     artifact_hashes = manifest.get("artifact_hashes")
     manifest_artifact_paths = manifest.get("artifact_paths")
@@ -425,9 +519,15 @@ def _audit_only(
             manifest_path,
             AuditStatus.FAIL,
             "MISSING_ARTIFACT_HASH",
-            "manifest must bind summary, equity, and trades hashes",
+            "manifest must bind required artifact paths and hashes",
         )
-    for name in ("summary", "equity", "trades"):
+    for name in (
+        "summary",
+        "equity",
+        "trades",
+        "report_zh",
+        "strategy_config",
+    ):
         recorded_path = manifest_artifact_paths.get(name)
         expected_hash = artifact_hashes.get(name)
         try:
@@ -449,6 +549,20 @@ def _audit_only(
                 "ARTIFACT_HASH_MISMATCH",
                 f"{name} artifact path or hash does not match manifest evidence",
             )
+    if (
+        manifest.get("strategy_config_path")
+        != str(required_paths["strategy_config"])
+        or manifest.get("strategy_config_file_hash")
+        != artifact_hashes.get("strategy_config")
+    ):
+        return _audit_preflight_failure(
+            run_directory,
+            audit_path,
+            manifest_path,
+            AuditStatus.FAIL,
+            "ARTIFACT_HASH_MISMATCH",
+            "strategy_config evidence does not match manifest fields",
+        )
 
     try:
         data_path = Path(str(manifest["data_path"]))
@@ -463,15 +577,11 @@ def _audit_only(
                 "DATA_HASH_MISMATCH",
                 "manifest data hash does not match",
             )
-        data, data_warnings = load_standardized_csv(data_path)
-        data = _filter_complete_data(spec, data)
     except (
-        DataQualityError,
         KeyError,
         OSError,
         TypeError,
         ValueError,
-        pd.errors.ParserError,
     ) as error:
         return _audit_preflight_failure(
             run_directory,
@@ -479,6 +589,31 @@ def _audit_only(
             manifest_path,
             AuditStatus.DATA_CAPABILITY_BLOCKER,
             "DATA_PREFLIGHT_BLOCKER",
+            str(error),
+        )
+    try:
+        data, data_warnings = load_standardized_csv(data_path)
+        data = _filter_complete_data(spec, data)
+    except _InsufficientCoverage as error:
+        return _audit_preflight_failure(
+            run_directory,
+            audit_path,
+            manifest_path,
+            AuditStatus.DATA_CAPABILITY_BLOCKER,
+            "DATA_PREFLIGHT_BLOCKER",
+            str(error),
+        )
+    except (
+        DataQualityError,
+        UnicodeError,
+        pd.errors.ParserError,
+    ) as error:
+        return _audit_preflight_failure(
+            run_directory,
+            audit_path,
+            manifest_path,
+            AuditStatus.FAIL,
+            "DATA_QUALITY_FAILURE",
             str(error),
         )
 
@@ -596,6 +731,7 @@ def run_pipeline(
         {},
         code_commit,
         smoke_test_marker,
+        strategy_config_path=config_path,
     )
     context = _build_audit_context(
         spec,
@@ -608,16 +744,16 @@ def run_pipeline(
         {},
         require_artifact_files=False,
     )
-    audit = audit_backtest(context)
-    if audit.status is AuditStatus.FAIL:
+    preliminary_audit = audit_backtest(context)
+    if preliminary_audit.status is AuditStatus.FAIL:
         return PipelineResult(
-            audit.status.value,
+            preliminary_audit.status.value,
             None,
-            audit,
+            preliminary_audit,
             tuple(data_warnings),
         )
 
-    summary = _summary_with_audit(summary, audit, manifest)
+    summary = _summary_with_audit(summary, preliminary_audit, manifest)
     paths = write_reports(
         options.report_root,
         summary,
@@ -627,17 +763,40 @@ def run_pipeline(
     run_directory = paths["summary"].parent
     manifest_path = run_directory / "run_manifest.json"
     audit_path = run_directory / "audit.json"
+    report_zh_path = run_directory / "report_zh.md"
+    strategy_config_path = run_directory / "strategy_config.yaml"
+    shutil.copyfile(config_path, strategy_config_path)
+    _write_chinese_report(report_zh_path, summary, preliminary_audit)
     artifact_paths = {
         **paths,
         "manifest": manifest_path,
         "audit": audit_path,
+        "report_zh": report_zh_path,
+        "strategy_config": strategy_config_path,
     }
     manifest = bind_artifact_hashes(manifest, artifact_paths)
     write_manifest(manifest_path, manifest)
-    _write_audit(audit_path, audit, manifest_path)
+    _write_audit(audit_path, preliminary_audit, manifest_path)
+    final_context = _build_audit_context(
+        spec,
+        capability,
+        data,
+        backtest,
+        metrics,
+        benchmark,
+        manifest,
+        artifact_paths,
+        require_artifact_files=True,
+    )
+    final_audit = audit_backtest(final_context)
+    summary = _update_summary_audit_fields(paths["summary"], final_audit)
+    _write_chinese_report(report_zh_path, summary, final_audit)
+    manifest = bind_artifact_hashes(manifest, artifact_paths)
+    write_manifest(manifest_path, manifest)
+    _write_audit(audit_path, final_audit, manifest_path)
     return PipelineResult(
-        audit.status.value,
+        final_audit.status.value,
         run_directory,
-        audit,
+        final_audit,
         tuple(data_warnings),
     )

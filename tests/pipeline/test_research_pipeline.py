@@ -10,7 +10,6 @@ from tv_quant.run_manifest import canonical_hash, sha256_file
 
 from tests.pipeline.helpers import (
     write_ema_config,
-    write_invalid_csv,
     write_rsi_config,
     write_valid_spy_csv,
 )
@@ -103,11 +102,30 @@ def test_existing_yfinance_smoke_cache_preserves_smoke_provenance(tmp_path):
     assert manifest["smoke_test_marker"] == "SMOKE_TEST_DATA_ONLY"
 
 
-def test_malformed_existing_cache_blocks_without_refresh_or_backtest(
+@pytest.mark.parametrize(
+    "failure_kind",
+    ("malformed", "duplicate", "missing", "unsorted", "invalid"),
+)
+def test_invalid_existing_cache_fails_without_refresh_or_backtest(
+    failure_kind,
     monkeypatch,
     tmp_path,
 ):
-    write_invalid_csv(tmp_path / "SPY_daily.csv")
+    data_path = tmp_path / "SPY_daily.csv"
+    write_valid_spy_csv(data_path)
+    if failure_kind == "malformed":
+        data_path.write_text("not,ohlcv\n1,2\n", encoding="utf-8")
+    else:
+        data = pd.read_csv(data_path)
+        if failure_kind == "duplicate":
+            data.loc[1, "timestamp_utc"] = data.loc[0, "timestamp_utc"]
+        elif failure_kind == "missing":
+            data.loc[10, "close"] = None
+        elif failure_kind == "unsorted":
+            data = data.iloc[[1, 0, *range(2, len(data))]]
+        else:
+            data.loc[10, "high"] = float(data.loc[10, "close"]) - 1.0
+        data.to_csv(data_path, index=False)
     calls = []
     monkeypatch.setattr(
         "tv_quant.research_pipeline.run_backtest",
@@ -119,7 +137,12 @@ def test_malformed_existing_cache_blocks_without_refresh_or_backtest(
         refresh_data=lambda *a: calls.append("refresh"),
     )
 
-    assert result.status == "DATA_CAPABILITY_BLOCKER"
+    assert result.status == "FAIL"
+    assert result.audit_report is not None
+    assert any(
+        issue.code == "DATA_QUALITY_FAILURE"
+        for issue in result.audit_report.issues
+    )
     assert calls == []
 
 
@@ -164,7 +187,11 @@ def test_audit_runs_before_final_report(monkeypatch, tmp_path):
     real_write_reports = research_pipeline.write_reports
 
     def record_audit(context):
-        calls.append("audit")
+        if context.require_artifact_files:
+            assert all(path.is_file() for path in context.artifact_paths.values())
+            calls.append("final_artifact_audit")
+        else:
+            calls.append("preliminary_audit")
         return real_audit(context)
 
     def record_report(output_parent, summary, equity, trades):
@@ -181,7 +208,7 @@ def test_audit_runs_before_final_report(monkeypatch, tmp_path):
     )
 
     assert result.status in {"PASS", "CONDITIONAL_PASS"}
-    assert calls == ["audit", "report"]
+    assert calls == ["preliminary_audit", "report", "final_artifact_audit"]
 
 
 def test_audit_failure_stops_final_report_stage(monkeypatch, tmp_path):
@@ -208,9 +235,10 @@ def test_audit_failure_stops_final_report_stage(monkeypatch, tmp_path):
 
 def test_run_writes_required_summary_manifest_and_audit(tmp_path):
     write_valid_spy_csv(tmp_path / "SPY_daily.csv")
+    config_path = covered_ema_config(tmp_path)
 
     result = run_pipeline(
-        covered_ema_config(tmp_path),
+        config_path,
         PipelineOptions(data_root=tmp_path, report_root=tmp_path / "reports"),
     )
 
@@ -237,18 +265,75 @@ def test_run_writes_required_summary_manifest_and_audit(tmp_path):
     assert required_summary_keys <= summary.keys()
     manifest_path = result.run_directory / "run_manifest.json"
     audit_path = result.run_directory / "audit.json"
+    report_zh_path = result.run_directory / "report_zh.md"
+    strategy_config_path = result.run_directory / "strategy_config.yaml"
     assert manifest_path.is_file()
     assert audit_path.is_file()
+    assert report_zh_path.is_file()
+    assert strategy_config_path.read_bytes() == config_path.read_bytes()
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    for name in ("summary", "equity", "trades"):
-        artifact_path = result.run_directory / f"{name}.{'json' if name == 'summary' else 'csv'}"
+    artifact_files = {
+        "summary": result.run_directory / "summary.json",
+        "equity": result.run_directory / "equity.csv",
+        "trades": result.run_directory / "trades.csv",
+        "report_zh": report_zh_path,
+        "strategy_config": strategy_config_path,
+    }
+    for name, artifact_path in artifact_files.items():
+        assert Path(manifest["artifact_paths"][name]).resolve() == artifact_path.resolve()
         assert manifest["artifact_hashes"][name] == sha256_file(artifact_path)
+    assert (
+        Path(manifest["strategy_config_path"]).resolve()
+        == strategy_config_path.resolve()
+    )
+    assert manifest["strategy_config_file_hash"] == sha256_file(
+        strategy_config_path
+    )
 
     audit = json.loads(audit_path.read_text(encoding="utf-8"))
+    assert audit["checks"]["artifacts"] is True
     assert audit["manifest_hash"] == sha256_file(manifest_path)
     audit_payload_hash = audit.pop("audit_payload_hash")
     assert audit_payload_hash == canonical_hash(audit)
+
+
+def test_final_audit_failure_is_persisted_in_reports(monkeypatch, tmp_path):
+    write_valid_spy_csv(tmp_path / "SPY_daily.csv")
+
+    from tv_quant import research_pipeline
+
+    real_audit = research_pipeline.audit_backtest
+    audit_calls = []
+
+    def fail_final_artifact_audit(context):
+        audit_calls.append(context.require_artifact_files)
+        if context.require_artifact_files:
+            return failed_audit()
+        return real_audit(context)
+
+    monkeypatch.setattr(
+        research_pipeline,
+        "audit_backtest",
+        fail_final_artifact_audit,
+    )
+
+    result = run_pipeline(
+        covered_ema_config(tmp_path),
+        PipelineOptions(data_root=tmp_path, report_root=tmp_path / "reports"),
+    )
+
+    assert audit_calls == [False, True]
+    assert result.status == "FAIL"
+    assert result.run_directory is not None
+    summary = json.loads(
+        (result.run_directory / "summary.json").read_text(encoding="utf-8")
+    )
+    audit = json.loads(
+        (result.run_directory / "audit.json").read_text(encoding="utf-8")
+    )
+    assert summary["audit_status"] == "FAIL"
+    assert audit["status"] == "FAIL"
 
 
 def test_audit_only_skips_refresh_and_all_calculations(monkeypatch, tmp_path):
@@ -402,12 +487,74 @@ def test_audit_only_rejects_changed_source_data(tmp_path):
     )
 
 
+def test_audit_only_classifies_invalid_source_data_as_fail(tmp_path):
+    data_path = tmp_path / "SPY_daily.csv"
+    write_valid_spy_csv(data_path)
+    config_path = covered_ema_config(tmp_path)
+    initial = run_pipeline(
+        config_path,
+        PipelineOptions(data_root=tmp_path, report_root=tmp_path / "reports"),
+    )
+    assert initial.run_directory is not None
+
+    data = pd.read_csv(data_path)
+    data.loc[1, "timestamp_utc"] = data.loc[0, "timestamp_utc"]
+    data.to_csv(data_path, index=False)
+
+    manifest_path = initial.run_directory / "run_manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["data_hash"] = sha256_file(data_path)
+    manifest_path.write_text(
+        json.dumps(
+            manifest,
+            ensure_ascii=False,
+            sort_keys=True,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    audit_path = initial.run_directory / "audit.json"
+    audit = json.loads(audit_path.read_text(encoding="utf-8"))
+    audit["manifest_hash"] = sha256_file(manifest_path)
+    audit.pop("audit_payload_hash")
+    audit["audit_payload_hash"] = canonical_hash(audit)
+    audit_path.write_text(
+        json.dumps(
+            audit,
+            ensure_ascii=False,
+            sort_keys=True,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = run_pipeline(
+        config_path,
+        PipelineOptions(
+            run_directory=initial.run_directory,
+            audit_only=True,
+        ),
+    )
+
+    assert result.status == "FAIL"
+    audit_payload = json.loads(audit_path.read_text(encoding="utf-8"))
+    assert audit_payload["status"] == "FAIL"
+    assert any(
+        issue["code"] == "DATA_QUALITY_FAILURE"
+        for issue in audit_payload["issues"]
+    )
+
+
 @pytest.mark.parametrize(
     ("artifact_name", "file_name"),
     (
         ("summary", "summary.json"),
         ("equity", "equity.csv"),
         ("trades", "trades.csv"),
+        ("report_zh", "report_zh.md"),
+        ("strategy_config", "strategy_config.yaml"),
     ),
 )
 def test_audit_only_rejects_changed_output_artifact_before_trusting_it(

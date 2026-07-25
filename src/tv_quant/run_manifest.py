@@ -5,6 +5,15 @@ from pathlib import Path
 from typing import Any, Mapping
 
 
+HASHED_ARTIFACT_NAMES = (
+    "summary",
+    "equity",
+    "trades",
+    "report_zh",
+    "strategy_config",
+)
+
+
 def canonical_hash(value: Mapping[str, Any]) -> str:
     payload = json.dumps(
         value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str
@@ -27,8 +36,10 @@ def build_manifest(
     artifact_paths,
     code_commit,
     smoke_test_marker,
+    *,
+    strategy_config_path: Path | None = None,
 ) -> dict[str, object]:
-    return {
+    manifest = {
         "strategy_config_hash": canonical_hash(spec.raw),
         "data_hash": sha256_file(data_path),
         "code_commit": code_commit,
@@ -50,21 +61,29 @@ def build_manifest(
         "smoke_test_marker": smoke_test_marker,
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
     }
+    if strategy_config_path is not None:
+        manifest["strategy_config_path"] = str(strategy_config_path)
+        manifest["strategy_config_file_hash"] = sha256_file(
+            strategy_config_path
+        )
+    return manifest
 
 
 def bind_artifact_hashes(
     manifest: Mapping[str, Any],
     artifact_paths: Mapping[str, Path],
 ) -> dict[str, object]:
-    output_names = ("summary", "equity", "trades")
     bound = dict(manifest)
     bound["artifact_paths"] = {
         name: str(path) for name, path in artifact_paths.items()
     }
     bound["artifact_hashes"] = {
         name: sha256_file(Path(artifact_paths[name]))
-        for name in output_names
+        for name in HASHED_ARTIFACT_NAMES
     }
+    strategy_config_path = Path(artifact_paths["strategy_config"])
+    bound["strategy_config_path"] = str(strategy_config_path)
+    bound["strategy_config_file_hash"] = sha256_file(strategy_config_path)
     return bound
 
 

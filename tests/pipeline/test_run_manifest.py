@@ -33,6 +33,8 @@ def test_build_manifest_records_reproducibility_evidence(tmp_path):
     spec = validate_strategy_mapping(valid_payload())
     data_path = tmp_path / "SPY_daily.csv"
     data_path.write_text("deterministic-data\n", encoding="utf-8")
+    strategy_config_path = tmp_path / "strategy_config.yaml"
+    strategy_config_path.write_text("strategy_name: ema_baseline\n", encoding="utf-8")
     artifact_paths = {
         "summary": tmp_path / "summary.json",
         "equity": tmp_path / "equity.csv",
@@ -46,9 +48,14 @@ def test_build_manifest_records_reproducibility_evidence(tmp_path):
         artifact_paths,
         "abc123",
         None,
+        strategy_config_path=strategy_config_path,
     )
 
     assert manifest["strategy_config_hash"] == canonical_hash(spec.raw)
+    assert manifest["strategy_config_path"] == str(strategy_config_path)
+    assert manifest["strategy_config_file_hash"] == sha256_file(
+        strategy_config_path
+    )
     assert manifest["data_hash"] == sha256_file(data_path)
     assert manifest["code_commit"] == "abc123"
     assert manifest["provider"] == "Futu_LOCAL_CACHE"
@@ -66,6 +73,8 @@ def test_build_manifest_binds_report_paths_and_smoke_provenance(tmp_path):
     spec = validate_strategy_mapping(valid_payload())
     data_path = tmp_path / "SPY_daily.csv"
     data_path.write_text("deterministic-data\n", encoding="utf-8")
+    strategy_config_path = tmp_path / "strategy_config.yaml"
+    strategy_config_path.write_text("strategy_name: ema_baseline\n", encoding="utf-8")
     artifact_paths = {
         "summary": tmp_path / "summary.json",
         "equity": tmp_path / "equity.csv",
@@ -79,6 +88,7 @@ def test_build_manifest_binds_report_paths_and_smoke_provenance(tmp_path):
         artifact_paths,
         "abc123",
         "SMOKE_TEST_DATA_ONLY",
+        strategy_config_path=strategy_config_path,
     )
 
     assert manifest["artifact_paths"] == {
@@ -95,8 +105,10 @@ def test_bind_artifact_hashes_records_generated_output_evidence(tmp_path):
         "trades": tmp_path / "trades.csv",
         "manifest": tmp_path / "run_manifest.json",
         "audit": tmp_path / "audit.json",
+        "report_zh": tmp_path / "report_zh.md",
+        "strategy_config": tmp_path / "strategy_config.yaml",
     }
-    for name in ("summary", "equity", "trades"):
+    for name in ("summary", "equity", "trades", "report_zh", "strategy_config"):
         artifact_paths[name].write_text(f"{name}\n", encoding="utf-8")
 
     manifest = bind_artifact_hashes({"provider": "test"}, artifact_paths)
@@ -106,8 +118,20 @@ def test_bind_artifact_hashes_records_generated_output_evidence(tmp_path):
     }
     assert manifest["artifact_hashes"] == {
         name: sha256_file(artifact_paths[name])
-        for name in ("summary", "equity", "trades")
+        for name in (
+            "summary",
+            "equity",
+            "trades",
+            "report_zh",
+            "strategy_config",
+        )
     }
+    assert manifest["strategy_config_path"] == str(
+        artifact_paths["strategy_config"]
+    )
+    assert manifest["strategy_config_file_hash"] == sha256_file(
+        artifact_paths["strategy_config"]
+    )
 
 
 def test_write_manifest_is_sorted_utf8_json_with_trailing_newline(tmp_path):

@@ -6,6 +6,7 @@ import pandas as pd
 
 from tv_quant.backtest_audit import AuditContext, audit_backtest
 from tv_quant.pipeline_models import AuditStatus, CapabilityResult, CapabilityStatus
+from tv_quant.run_manifest import canonical_hash, sha256_file
 from tv_quant.strategy_spec import check_capabilities, validate_strategy_mapping
 
 from tests.pipeline.helpers import valid_payload
@@ -20,8 +21,13 @@ def empty_trades():
 
 def artifact_paths(root: Path) -> dict[str, Path]:
     paths = {
-        name: root / f"{name}.json"
-        for name in ("summary", "equity", "trades", "manifest", "audit")
+        "summary": root / "summary.json",
+        "equity": root / "equity.csv",
+        "trades": root / "trades.csv",
+        "manifest": root / "run_manifest.json",
+        "audit": root / "audit.json",
+        "report_zh": root / "report_zh.md",
+        "strategy_config": root / "strategy_config.yaml",
     }
     for path in paths.values():
         path.write_text("{}", encoding="utf-8")
@@ -62,13 +68,28 @@ def valid_context(tmp_path: Path):
             "commission": 0.05152575, "net_cash_flow": -103.10302575,
         },
     ])
+    paths = artifact_paths(tmp_path)
     manifest = {
-        "strategy_config_hash": "config-hash", "data_hash": "data-hash", "code_commit": "abc",
+        "strategy_config_hash": canonical_hash(spec.raw),
+        "strategy_config_path": str(paths["strategy_config"]),
+        "strategy_config_file_hash": sha256_file(paths["strategy_config"]),
+        "data_hash": "data-hash", "code_commit": "abc",
         "provider": "Futu_LOCAL_CACHE", "symbol": "SPY", "timeframe": "1d",
         "start_date": "2020-01-01", "end_date": "2024-12-31", "fill_timing": "next_bar",
         "commission_bps": 5.0, "slippage_bps": 5.0, "optimization_allowed": False,
         "benchmark": "buy_and_hold", "generated_at_utc": "2024-01-01T00:00:00+00:00",
         "oos_locked": True, "locked_oos_start": "2021-01-01", "locked_oos_end": "2021-12-31",
+        "artifact_paths": {name: str(path) for name, path in paths.items()},
+        "artifact_hashes": {
+            name: sha256_file(paths[name])
+            for name in (
+                "summary",
+                "equity",
+                "trades",
+                "report_zh",
+                "strategy_config",
+            )
+        },
     }
     return AuditContext(
         spec=spec,
@@ -79,7 +100,7 @@ def valid_context(tmp_path: Path):
         strategy_metrics={"total_return": 0.001},
         benchmark_return=0.001,
         manifest=manifest,
-        artifact_paths=artifact_paths(tmp_path),
+        artifact_paths=paths,
     )
 
 
@@ -129,6 +150,30 @@ def test_missing_artifact_is_fail(tmp_path):
     paths["summary"] = tmp_path / "missing-summary.json"
     context = replace(valid_context(tmp_path), artifact_paths=paths)
     assert audit_backtest(context).status is AuditStatus.FAIL
+
+
+def test_missing_chinese_report_artifact_is_fail(tmp_path):
+    context = valid_context(tmp_path)
+    paths = dict(context.artifact_paths)
+    paths["report_zh"] = tmp_path / "missing-report_zh.md"
+
+    report = audit_backtest(replace(context, artifact_paths=paths))
+
+    assert report.status is AuditStatus.FAIL
+    assert any(issue.code == "MISSING_ARTIFACT" for issue in report.issues)
+
+
+def test_tampered_strategy_config_artifact_hash_is_fail(tmp_path):
+    context = valid_context(tmp_path)
+    context.artifact_paths["strategy_config"].write_text(
+        "tampered: true\n",
+        encoding="utf-8",
+    )
+
+    report = audit_backtest(context)
+
+    assert report.status is AuditStatus.FAIL
+    assert any(issue.code == "HASH_MISMATCH" for issue in report.issues)
 
 
 def test_capability_blocker_is_returned(tmp_path):

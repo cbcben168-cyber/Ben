@@ -70,6 +70,7 @@ def audit_backtest(context: AuditContext) -> AuditReport:
     for name, checker in (
         ("next_bar_fill", _check_next_bar_fill),
         ("costs", _check_costs),
+        ("equity_cash_reconciliation", _check_equity_cash_reconciliation),
         ("benchmark", _check_benchmark),
         ("optimization", _check_optimization),
         ("manifest", _check_manifest),
@@ -105,9 +106,36 @@ def _check_next_bar_fill(context: AuditContext) -> tuple[bool, list[AuditIssue],
     signals = pd.to_datetime(
         context.trades["signal_timestamp_utc"], utc=True, errors="coerce"
     )
-    if fills.isna().any() or signals.isna().any() or not (fills > signals).all():
+    if "timestamp_utc" not in context.data:
         return False, [AuditIssue(
-            "SAME_BAR_SIGNAL_FILL", "ERROR", "every fill must be strictly after its signal"
+            "SAME_BAR_SIGNAL_FILL", "ERROR",
+            "source data is missing timestamps required for next-bar evidence",
+        )], []
+    data_timestamps = pd.to_datetime(
+        context.data["timestamp_utc"], utc=True, errors="coerce"
+    ).reset_index(drop=True)
+    if (
+        fills.isna().any()
+        or signals.isna().any()
+        or data_timestamps.isna().any()
+        or data_timestamps.duplicated().any()
+        or not data_timestamps.is_monotonic_increasing
+    ):
+        return False, [AuditIssue(
+            "SAME_BAR_SIGNAL_FILL", "ERROR",
+            "signal, fill, and source-data timestamps must be valid and ordered",
+        )], []
+    next_timestamp_by_signal = {
+        data_timestamps.iloc[index]: data_timestamps.iloc[index + 1]
+        for index in range(len(data_timestamps) - 1)
+    }
+    if any(
+        next_timestamp_by_signal.get(signal) != fill
+        for signal, fill in zip(signals, fills)
+    ):
+        return False, [AuditIssue(
+            "SAME_BAR_SIGNAL_FILL", "ERROR",
+            "every fill must equal the immediate next source-data timestamp after its signal",
         )], []
     return True, [], []
 
@@ -154,6 +182,148 @@ def _check_costs(context: AuditContext) -> tuple[bool, list[AuditIssue], list[st
             "COST_MISMATCH", "ERROR", "configured costs do not match trade evidence"
         )], []
     return True, [], []
+
+
+def _check_equity_cash_reconciliation(
+    context: AuditContext,
+) -> tuple[bool, list[AuditIssue], list[str]]:
+    required_equity = ("timestamp_utc", "cash", "shares", "close", "equity")
+    if any(column not in context.equity for column in required_equity):
+        return _reconciliation_failure(
+            "equity rows are missing timestamp, cash, shares, close, or equity evidence"
+        )
+    try:
+        equity_timestamps = pd.to_datetime(
+            context.equity["timestamp_utc"],
+            utc=True,
+            errors="coerce",
+        ).reset_index(drop=True)
+        equity_values = {
+            column: pd.to_numeric(
+                context.equity[column],
+                errors="coerce",
+            ).reset_index(drop=True)
+            for column in ("cash", "shares", "close", "equity")
+        }
+        if (
+            equity_timestamps.empty
+            or equity_timestamps.isna().any()
+            or equity_timestamps.duplicated().any()
+            or not equity_timestamps.is_monotonic_increasing
+            or any(values.isna().any() for values in equity_values.values())
+        ):
+            raise ValueError("invalid equity evidence")
+        for cash, shares, close, equity in zip(
+            equity_values["cash"],
+            equity_values["shares"],
+            equity_values["close"],
+            equity_values["equity"],
+        ):
+            numeric_values = (
+                float(cash),
+                float(shares),
+                float(close),
+                float(equity),
+            )
+            if not all(math.isfinite(value) for value in numeric_values):
+                raise ValueError("non-finite equity evidence")
+            if not math.isclose(
+                numeric_values[3],
+                numeric_values[0] + numeric_values[1] * numeric_values[2],
+                rel_tol=1e-9,
+                abs_tol=1e-9,
+            ):
+                return _reconciliation_failure(
+                    "each equity row must equal cash plus shares times close"
+                )
+
+        cash_flows: dict[pd.Timestamp, float] = {}
+        if not context.trades.empty:
+            required_trades = (
+                "timestamp_utc",
+                "side",
+                "gross_notional",
+                "commission",
+                "net_cash_flow",
+            )
+            if any(column not in context.trades for column in required_trades):
+                return _reconciliation_failure(
+                    "trades are missing cash-flow evidence"
+                )
+            trade_timestamps = pd.to_datetime(
+                context.trades["timestamp_utc"],
+                utc=True,
+                errors="coerce",
+            )
+            if trade_timestamps.isna().any():
+                raise ValueError("invalid trade timestamp evidence")
+            for position, (_, trade) in enumerate(context.trades.iterrows()):
+                side = str(trade["side"]).upper()
+                gross_notional = float(trade["gross_notional"])
+                commission = float(trade["commission"])
+                net_cash_flow = float(trade["net_cash_flow"])
+                if side not in {"BUY", "SELL"} or not all(
+                    math.isfinite(value)
+                    for value in (gross_notional, commission, net_cash_flow)
+                ):
+                    raise ValueError("invalid trade cash-flow evidence")
+                expected_flow = (
+                    -(gross_notional + commission)
+                    if side == "BUY"
+                    else gross_notional - commission
+                )
+                if not math.isclose(
+                    net_cash_flow,
+                    expected_flow,
+                    rel_tol=1e-9,
+                    abs_tol=1e-9,
+                ):
+                    return _reconciliation_failure(
+                        "trade net_cash_flow must include gross notional and commission"
+                    )
+                timestamp = trade_timestamps.iloc[position]
+                cash_flows[timestamp] = (
+                    cash_flows.get(timestamp, 0.0) + net_cash_flow
+                )
+
+        previous_cash = float(context.spec.initial_capital)
+        for timestamp, cash in zip(
+            equity_timestamps,
+            equity_values["cash"],
+        ):
+            actual_cash = float(cash)
+            expected_cash = previous_cash + cash_flows.pop(timestamp, 0.0)
+            if not math.isclose(
+                actual_cash,
+                expected_cash,
+                rel_tol=1e-9,
+                abs_tol=1e-9,
+            ):
+                return _reconciliation_failure(
+                    "equity cash delta must reflect trade net_cash_flow at each fill timestamp"
+                )
+            previous_cash = actual_cash
+        if cash_flows:
+            return _reconciliation_failure(
+                "every trade fill must have a matching equity cash row"
+            )
+    except (TypeError, ValueError, OverflowError):
+        return _reconciliation_failure(
+            "equity and trade cash-flow evidence is invalid"
+        )
+    return True, [], []
+
+
+def _reconciliation_failure(
+    message: str,
+) -> tuple[bool, list[AuditIssue], list[str]]:
+    return False, [
+        AuditIssue(
+            "EQUITY_CASH_RECONCILIATION_FAILURE",
+            "ERROR",
+            message,
+        )
+    ], []
 
 
 def _check_benchmark(context: AuditContext) -> tuple[bool, list[AuditIssue], list[str]]:

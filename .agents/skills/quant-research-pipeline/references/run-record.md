@@ -1,5 +1,12 @@
 # Run record
 
+Stage 0-3 failures write exactly one `failure_<run_id>.json` directly under
+`report_root`. The failure record contains `run_id`, integer `failed_stage`,
+`status`, `error_code`, `message`, `config_path`, the source configuration
+file SHA-256 as `config_hash` when available, and `generated_at_utc`. It must
+not create `summary.json`, `equity.csv`, or `trades.csv`, and it does not set a
+successful report directory on `PipelineResult`.
+
 每次标准运行必须保留以下证据：
 
 - 策略配置及 `strategy_config_hash`

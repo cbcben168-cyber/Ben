@@ -46,15 +46,18 @@ def valid_context(tmp_path: Path):
             "2020-01-01", "2020-01-02", "2021-01-01", "2021-01-02",
         ], utc=True),
         "ticker": ["SPY"] * 4,
-        "open": [100.0, 101.0, 102.0, 103.0], "high": [101.0, 102.0, 103.0, 104.0],
-        "low": [99.0, 100.0, 101.0, 102.0], "close": [100.0, 101.0, 102.0, 103.0],
+        "open": [100.0, 101.0, 102.0, 103.0], "high": [101.0, 103.0, 104.0, 105.0],
+        "low": [99.0, 100.0, 101.0, 102.0], "close": [100.0, 102.0, 103.0, 104.0],
         "volume": [1000] * 4,
     })
     equity = pd.DataFrame({
         "timestamp_utc": data["timestamp_utc"],
-        "equity": [100000.0, 100100.0, 100100.0, 100200.0],
-        "daily_return": [0.0, 0.001, 0.0, 0.001],
+        "cash": [100000.0, 99898.89897475, 99898.89897475, 99795.795949],
+        "shares": [0, 1, 1, 2],
+        "close": data["close"],
+        "equity": [100000.0, 100000.89897475, 100001.89897475, 100003.795949],
     })
+    equity["daily_return"] = equity["equity"].pct_change().fillna(0.0)
     trades = pd.DataFrame([
         {
             "timestamp_utc": data.loc[1, "timestamp_utc"], "side": "BUY", "shares": 1,
@@ -124,6 +127,18 @@ def test_same_bar_fill_is_fail(tmp_path):
     assert any(issue.code == "SAME_BAR_SIGNAL_FILL" for issue in report.issues)
 
 
+def test_skipped_bar_fill_is_fail(tmp_path):
+    context = valid_context(tmp_path)
+    trades = context.trades.copy()
+    trades.loc[0, "timestamp_utc"] = context.data.loc[2, "timestamp_utc"]
+
+    report = audit_backtest(replace(context, trades=trades))
+
+    assert report.status is AuditStatus.FAIL
+    assert report.checks["next_bar_fill"] is False
+    assert any(issue.code == "SAME_BAR_SIGNAL_FILL" for issue in report.issues)
+
+
 def test_cost_mismatch_is_fail(tmp_path):
     context = valid_context(tmp_path)
     context = replace(
@@ -137,13 +152,50 @@ def test_cost_mismatch_is_fail(tmp_path):
 
 def test_empty_trades_are_conditional(tmp_path):
     context = valid_context(tmp_path)
+    equity = context.equity.assign(
+        cash=context.spec.initial_capital,
+        shares=0,
+        equity=context.spec.initial_capital,
+        daily_return=0.0,
+    )
     report = audit_backtest(replace(
         context,
         trades=empty_trades(),
+        equity=equity,
         spec=replace(context.spec, in_sample_period=None, out_of_sample_period=None),
     ))
     assert report.status is AuditStatus.CONDITIONAL_PASS
     assert any(issue.code == "NO_TRADES" for issue in report.issues)
+
+
+def test_tampered_equity_row_fails_cash_reconciliation(tmp_path):
+    context = valid_context(tmp_path)
+    equity = context.equity.copy()
+    equity.loc[2, "equity"] += 1.0
+
+    report = audit_backtest(replace(context, equity=equity))
+
+    assert report.status is AuditStatus.FAIL
+    assert report.checks["equity_cash_reconciliation"] is False
+    assert any(
+        issue.code == "EQUITY_CASH_RECONCILIATION_FAILURE"
+        for issue in report.issues
+    )
+
+
+def test_trade_cash_flow_omitting_commission_fails_reconciliation(tmp_path):
+    context = valid_context(tmp_path)
+    trades = context.trades.copy()
+    trades.loc[0, "net_cash_flow"] = -trades.loc[0, "gross_notional"]
+
+    report = audit_backtest(replace(context, trades=trades))
+
+    assert report.status is AuditStatus.FAIL
+    assert report.checks["equity_cash_reconciliation"] is False
+    assert any(
+        issue.code == "EQUITY_CASH_RECONCILIATION_FAILURE"
+        for issue in report.issues
+    )
 
 
 def test_missing_artifact_is_fail(tmp_path):
@@ -298,6 +350,7 @@ def test_single_year_positive_growth_is_conditional(tmp_path):
     report = audit_backtest(replace(
         context,
         equity=equity,
+        trades=context.trades.iloc[:1].copy(),
         spec=replace(context.spec, in_sample_period=None, out_of_sample_period=None),
     ))
     assert report.status is AuditStatus.CONDITIONAL_PASS
@@ -325,6 +378,9 @@ def test_sell_fill_uses_adverse_open_slippage(tmp_path):
         gross_notional=99.95,
         commission=0.049975,
     )
-    report = audit_backtest(replace(context, trades=trades))
-    assert report.status is AuditStatus.PASS
-    assert report.checks["costs"] is True
+    passed, issues, warnings = backtest_audit._check_costs(
+        replace(context, trades=trades)
+    )
+    assert passed is True
+    assert issues == []
+    assert warnings == []

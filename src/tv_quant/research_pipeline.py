@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import shutil
 import subprocess
 from typing import Callable, Mapping
+from uuid import uuid4
 
 import pandas as pd
 import yaml
@@ -20,6 +22,7 @@ from .pipeline_models import (
     AuditReport,
     AuditStatus,
     CapabilityResult,
+    FailureRunRecord,
     StrategySpec,
 )
 from .reporting import write_reports
@@ -39,7 +42,6 @@ class PipelineOptions:
     data_root: Path = Path("data/raw")
     report_root: Path = Path("reports/runs")
     run_directory: Path | None = None
-    quick: bool = False
     audit_only: bool = False
     skip_data_refresh: bool = False
     allow_smoke_test_data: bool = False
@@ -51,6 +53,11 @@ class PipelineResult:
     run_directory: Path | None
     audit_report: AuditReport | None
     warnings: tuple[str, ...]
+    run_id: str | None = None
+    failed_stage: int | None = None
+    error_code: str | None = None
+    message: str | None = None
+    failure_record_path: Path | None = None
 
 
 RefreshData = Callable[[StrategySpec, Path], None]
@@ -63,6 +70,56 @@ _PROVIDER_BY_SOURCE = {
 
 class _DataProvenanceError(ValueError):
     pass
+
+
+def _config_file_hash(config_path: Path) -> str | None:
+    try:
+        return sha256_file(config_path) if config_path.is_file() else None
+    except OSError:
+        return None
+
+
+def _failure_result(
+    config_path: Path,
+    options: PipelineOptions,
+    *,
+    failed_stage: int,
+    status: str,
+    error_code: str,
+    message: str,
+    audit_report: AuditReport | None = None,
+    warnings: tuple[str, ...] | None = None,
+) -> PipelineResult:
+    generated_at_utc = datetime.now(timezone.utc).isoformat()
+    record = FailureRunRecord(
+        run_id=uuid4().hex,
+        failed_stage=failed_stage,
+        status=status,
+        error_code=error_code,
+        message=message,
+        config_path=str(config_path.resolve()),
+        config_hash=_config_file_hash(config_path),
+        generated_at_utc=generated_at_utc,
+    )
+    report_root = Path(options.report_root)
+    report_root.mkdir(parents=True, exist_ok=True)
+    record_path = report_root / f"failure_{record.run_id}.json"
+    record_path.write_text(
+        json.dumps(asdict(record), ensure_ascii=False, sort_keys=True, indent=2)
+        + "\n",
+        encoding="utf-8",
+    )
+    return PipelineResult(
+        status=status,
+        run_directory=None,
+        audit_report=audit_report,
+        warnings=warnings if warnings is not None else (message,),
+        run_id=record.run_id,
+        failed_stage=failed_stage,
+        error_code=error_code,
+        message=message,
+        failure_record_path=record_path,
+    )
 
 
 def data_provenance_path(data_path: Path) -> Path:
@@ -432,7 +489,17 @@ def _select_data(
             None,
             ("validated local cache unavailable",),
         )
-    refresh_data(spec, data_path)
+    try:
+        refresh_data(spec, data_path)
+    except RuntimeError as error:
+        return PipelineResult(
+            "DATA_CAPABILITY_BLOCKER",
+            None,
+            None,
+            (str(error),),
+            error_code="DATA_REFRESH_FAILURE",
+            message=str(error),
+        )
     if not data_path.is_file():
         return PipelineResult(
             "DATA_CAPABILITY_BLOCKER",
@@ -822,22 +889,62 @@ def run_pipeline(
     if options.audit_only:
         return _audit_only(config_path, options)
 
-    spec = load_strategy_spec(config_path)
+    try:
+        spec = load_strategy_spec(config_path)
+    except (OSError, TypeError, ValueError, yaml.YAMLError) as error:
+        return _failure_result(
+            config_path,
+            options,
+            failed_stage=0,
+            status=AuditStatus.STRATEGY_CAPABILITY_BLOCKER.value,
+            error_code="STRATEGY_CONFIG_INVALID",
+            message=str(error),
+        )
     capability = check_capabilities(
         spec,
         allow_smoke_test_data=options.allow_smoke_test_data,
     )
     if capability.status.value != "SUPPORTED":
-        return PipelineResult(
-            capability.status.value,
-            None,
-            None,
-            capability.reasons,
+        return _failure_result(
+            config_path,
+            options,
+            failed_stage=1,
+            status=capability.status.value,
+            error_code="CAPABILITY_BLOCKER",
+            message="; ".join(capability.reasons),
+            warnings=capability.reasons,
         )
 
     data_result = _select_data(spec, options, refresh_data)
     if isinstance(data_result, PipelineResult):
-        return data_result
+        failed_stage = (
+            2 if data_result.status == "DATA_CAPABILITY_BLOCKER" else 3
+        )
+        error_code = data_result.error_code
+        if error_code is None and data_result.audit_report is not None:
+            error_code = next(
+                (
+                    issue.code
+                    for issue in data_result.audit_report.issues
+                    if issue.severity == "ERROR"
+                ),
+                None,
+            )
+        message = data_result.message or (
+            "; ".join(data_result.warnings)
+            if data_result.warnings
+            else data_result.status
+        )
+        return _failure_result(
+            config_path,
+            options,
+            failed_stage=failed_stage,
+            status=data_result.status,
+            error_code=error_code or data_result.status,
+            message=message,
+            audit_report=data_result.audit_report,
+            warnings=data_result.warnings,
+        )
     data, data_path, source_label, data_warnings = data_result
 
     backtest = run_backtest(

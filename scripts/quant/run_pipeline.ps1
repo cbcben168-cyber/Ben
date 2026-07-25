@@ -2,7 +2,6 @@
 param(
     [Parameter(Mandatory = $true)]
     [string]$StrategyConfig,
-    [switch]$Quick,
     [switch]$AuditOnly,
     [switch]$SkipDataRefresh,
     [switch]$SmokeTestData,
@@ -27,7 +26,6 @@ $arguments = @(
     "--data-root", $DataRoot,
     "--report-root", $ReportRoot
 )
-if ($Quick) { $arguments += "--quick" }
 if ($AuditOnly) { $arguments += "--audit-only" }
 if ($SkipDataRefresh) { $arguments += "--skip-data-refresh" }
 if ($SmokeTestData) { $arguments += "--smoke-test-data" }

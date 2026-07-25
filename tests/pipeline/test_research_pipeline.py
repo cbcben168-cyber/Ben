@@ -1,4 +1,5 @@
 import json
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
@@ -53,6 +54,129 @@ def yfinance_smoke_config(root: Path) -> Path:
         encoding="utf-8",
     )
     return path
+
+
+def assert_failure_record(
+    result,
+    report_root: Path,
+    config_path: Path,
+    *,
+    failed_stage: int,
+    status: str,
+    error_code: str,
+) -> None:
+    assert result.run_directory is None
+    assert result.run_id
+    assert result.failed_stage == failed_stage
+    assert result.error_code == error_code
+    assert result.message
+    assert result.failure_record_path is not None
+    assert result.failure_record_path.parent == report_root
+    assert list(report_root.glob("failure_*.json")) == [
+        result.failure_record_path
+    ]
+    record = json.loads(
+        result.failure_record_path.read_text(encoding="utf-8")
+    )
+    assert record == {
+        "run_id": result.run_id,
+        "failed_stage": failed_stage,
+        "status": status,
+        "error_code": error_code,
+        "message": result.message,
+        "config_path": str(config_path.resolve()),
+        "config_hash": sha256_file(config_path),
+        "generated_at_utc": record["generated_at_utc"],
+    }
+    assert datetime.fromisoformat(record["generated_at_utc"]).tzinfo is not None
+    for artifact_name in ("summary.json", "equity.csv", "trades.csv"):
+        assert not list(report_root.rglob(artifact_name))
+
+
+def test_stage_0_invalid_config_writes_failure_record(tmp_path):
+    config_path = tmp_path / "invalid.yaml"
+    config_path.write_text("strategy: [\n", encoding="utf-8")
+    report_root = tmp_path / "stage0-reports"
+
+    result = run_pipeline(
+        config_path,
+        PipelineOptions(report_root=report_root),
+    )
+
+    assert_failure_record(
+        result,
+        report_root,
+        config_path,
+        failed_stage=0,
+        status="STRATEGY_CAPABILITY_BLOCKER",
+        error_code="STRATEGY_CONFIG_INVALID",
+    )
+
+
+def test_stage_1_capability_blocker_writes_failure_record(tmp_path):
+    config_path = write_rsi_config(tmp_path)
+    report_root = tmp_path / "stage1-reports"
+
+    result = run_pipeline(
+        config_path,
+        PipelineOptions(data_root=tmp_path, report_root=report_root),
+    )
+
+    assert_failure_record(
+        result,
+        report_root,
+        config_path,
+        failed_stage=1,
+        status="STRATEGY_CAPABILITY_BLOCKER",
+        error_code="CAPABILITY_BLOCKER",
+    )
+
+
+def test_stage_2_data_blocker_writes_failure_record(tmp_path):
+    config_path = covered_ema_config(tmp_path)
+    report_root = tmp_path / "stage2-reports"
+
+    result = run_pipeline(
+        config_path,
+        PipelineOptions(
+            data_root=tmp_path / "missing-data",
+            report_root=report_root,
+            skip_data_refresh=True,
+        ),
+    )
+
+    assert_failure_record(
+        result,
+        report_root,
+        config_path,
+        failed_stage=2,
+        status="DATA_CAPABILITY_BLOCKER",
+        error_code="DATA_CAPABILITY_BLOCKER",
+    )
+
+
+def test_stage_3_data_failure_writes_failure_record(tmp_path):
+    config_path = covered_ema_config(tmp_path)
+    data_path = tmp_path / "SPY_daily.csv"
+    write_valid_spy_csv(data_path)
+    data = pd.read_csv(data_path)
+    data.loc[1, "timestamp_utc"] = data.loc[0, "timestamp_utc"]
+    data.to_csv(data_path, index=False)
+    report_root = tmp_path / "stage3-reports"
+
+    result = run_pipeline(
+        config_path,
+        PipelineOptions(data_root=tmp_path, report_root=report_root),
+    )
+
+    assert_failure_record(
+        result,
+        report_root,
+        config_path,
+        failed_stage=3,
+        status="FAIL",
+        error_code="DATA_QUALITY_FAILURE",
+    )
 
 
 def test_capability_blocker_prevents_refresh_and_backtest(monkeypatch, tmp_path):

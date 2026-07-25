@@ -4,7 +4,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from tests.pipeline.helpers import write_ema_config, write_valid_spy_csv
+from tests.pipeline.helpers import (
+    write_ema_config,
+    write_rsi_config,
+    write_valid_spy_csv,
+)
 from tv_quant import pipeline_cli
 from tv_quant.pipeline_cli import _refresh_data, exit_code_for_status
 from tv_quant.research_pipeline import PipelineOptions, run_pipeline
@@ -82,7 +86,6 @@ def test_main_passes_flags_and_skips_config_preload_when_refresh_disabled(
             "--data-root", str(tmp_path / "data root"),
             "--report-root", str(tmp_path / "report root"),
             "--run-directory", str(run_directory),
-            "--quick",
             "--audit-only",
             "--skip-data-refresh",
             "--smoke-test-data",
@@ -96,7 +99,6 @@ def test_main_passes_flags_and_skips_config_preload_when_refresh_disabled(
         data_root=tmp_path / "data root",
         report_root=tmp_path / "report root",
         run_directory=run_directory,
-        quick=True,
         audit_only=True,
         skip_data_refresh=True,
         allow_smoke_test_data=True,
@@ -216,16 +218,50 @@ def test_audit_only_malformed_config_returns_strategy_blocker_and_writes_audit(
     )
 
 
-def test_non_audit_invalid_config_remains_configuration_error(tmp_path, capsys):
+def test_non_audit_invalid_config_returns_strategy_blocker_and_record(
+    tmp_path,
+    capsys,
+):
     config_path = tmp_path / "invalid.yaml"
     config_path.write_text("strategy_name: ema_baseline\n", encoding="utf-8")
+    report_root = tmp_path / "reports"
 
     exit_code = pipeline_cli.main(
         [
             "--strategy-config", str(config_path),
+            "--report-root", str(report_root),
             "--skip-data-refresh",
         ]
     )
 
-    assert exit_code == 2
-    assert "configuration_error=" in capsys.readouterr().out
+    assert exit_code == 3
+    output = capsys.readouterr().out
+    assert "status=STRATEGY_CAPABILITY_BLOCKER" in output
+    assert "configuration_error=" not in output
+    records = list(report_root.glob("failure_*.json"))
+    assert len(records) == 1
+    assert json.loads(records[0].read_text(encoding="utf-8"))["failed_stage"] == 0
+
+
+def test_non_audit_capability_blocker_returns_exit_3_and_record(
+    tmp_path,
+    capsys,
+):
+    config_path = write_rsi_config(tmp_path)
+    report_root = tmp_path / "reports"
+
+    exit_code = pipeline_cli.main(
+        [
+            "--strategy-config", str(config_path),
+            "--report-root", str(report_root),
+            "--skip-data-refresh",
+        ]
+    )
+
+    assert exit_code == 3
+    assert "status=STRATEGY_CAPABILITY_BLOCKER" in capsys.readouterr().out
+    records = list(report_root.glob("failure_*.json"))
+    assert len(records) == 1
+    record = json.loads(records[0].read_text(encoding="utf-8"))
+    assert record["failed_stage"] == 1
+    assert record["error_code"] == "CAPABILITY_BLOCKER"

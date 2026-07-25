@@ -64,3 +64,15 @@ class AuditReport:
     checks: Mapping[str, bool]
     issues: tuple[AuditIssue, ...]
     warnings: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class FailureRunRecord:
+    run_id: str
+    failed_stage: int
+    status: str
+    error_code: str
+    message: str
+    config_path: str | None
+    config_hash: str | None
+    generated_at_utc: str

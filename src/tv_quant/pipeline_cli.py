@@ -12,7 +12,7 @@ from .research_pipeline import (
 from .strategy_spec import load_strategy_spec
 
 
-class _RefreshDelegationFailure(Exception):
+class _RefreshDelegationFailure(RuntimeError):
     pass
 
 
@@ -64,7 +64,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--data-root", type=Path, default=Path("data/raw"))
     parser.add_argument("--report-root", type=Path, default=Path("reports/runs"))
     parser.add_argument("--run-directory", type=Path)
-    parser.add_argument("--quick", action="store_true")
     parser.add_argument("--audit-only", action="store_true")
     parser.add_argument("--skip-data-refresh", action="store_true")
     parser.add_argument("--smoke-test-data", action="store_true")
@@ -78,18 +77,15 @@ def main(argv: list[str] | None = None) -> int:
             data_root=args.data_root,
             report_root=args.report_root,
             run_directory=args.run_directory,
-            quick=args.quick,
             audit_only=args.audit_only,
             skip_data_refresh=args.skip_data_refresh,
             allow_smoke_test_data=args.smoke_test_data,
         )
         refresh = None
         if not args.audit_only and not args.skip_data_refresh:
-            spec = load_strategy_spec(args.strategy_config)
-
-            def refresh(_pipeline_spec, target_path):
+            def refresh(pipeline_spec, target_path):
                 try:
-                    _refresh_data(spec, target_path)
+                    _refresh_data(pipeline_spec, target_path)
                 except RuntimeError as error:
                     raise _RefreshDelegationFailure(str(error)) from error
 
@@ -100,9 +96,16 @@ def main(argv: list[str] | None = None) -> int:
     except (OSError, ValueError) as error:
         print(f"configuration_error={error}")
         return 2
+    if getattr(result, "error_code", None) == "DATA_REFRESH_FAILURE":
+        print(f"data_refresh_error={result.message}")
+        if result.failure_record_path is not None:
+            print(f"failure_record={result.failure_record_path}")
+        return exit_code_for_status(result.status)
     print(f"status={result.status}")
     if result.run_directory is not None:
         print(f"report_directory={result.run_directory}")
+    if getattr(result, "failure_record_path", None) is not None:
+        print(f"failure_record={result.failure_record_path}")
     return exit_code_for_status(result.status)
 
 

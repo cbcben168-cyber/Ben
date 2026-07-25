@@ -3,8 +3,9 @@
 | Check | Required evidence | Failure or warning code |
 | --- | --- | --- |
 | Data quality | Standardized UTC OHLCV rows validated by `validate_ohlcv` | `DATA_QUALITY_FAILURE` |
-| Next-bar fills | UTC signal and fill timestamps; every fill is strictly later | `SAME_BAR_SIGNAL_FILL` |
+| Next-bar fills | UTC signal and fill timestamps; every fill equals the immediate next timestamp in the validated source data | `SAME_BAR_SIGNAL_FILL` |
 | Costs | Trade market open, directional execution price, gross notional, commission, slippage bps, and configured bps | `COST_MISMATCH` |
+| Equity/cash reconciliation | Every equity row equals cash plus shares times close; every fill's net cash flow includes costs and matches the cash delta at that timestamp | `EQUITY_CASH_RECONCILIATION_FAILURE` |
 | Benchmark fairness | Benchmark return plus matching symbol, timeframe, dates, commission, and slippage | `BENCHMARK_MISMATCH` |
 | Optimization | Strategy specification and manifest both set `optimization_allowed: false` | `OPTIMIZATION_ENABLED` |
 | Manifest | Non-empty config hash, data hash, code commit, fill timing, cost rates, and UTC generation time | `MISSING_MANIFEST_FIELD` |

@@ -18,7 +18,11 @@ def canonical_hash(value: Mapping[str, Any]) -> str:
     payload = json.dumps(
         value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str
     )
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    return sha256_bytes(payload.encode("utf-8"))
+
+
+def sha256_bytes(payload: bytes) -> str:
+    return hashlib.sha256(payload).hexdigest()
 
 
 def sha256_file(path: Path) -> str:

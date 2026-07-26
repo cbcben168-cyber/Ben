@@ -4,6 +4,7 @@ from tv_quant.run_manifest import (
     bind_artifact_hashes,
     build_manifest,
     canonical_hash,
+    sha256_bytes,
     sha256_file,
     write_manifest,
 )
@@ -27,6 +28,23 @@ def test_sha256_file_changes_with_file_content(tmp_path):
     path.write_text("two\n", encoding="utf-8")
 
     assert sha256_file(path) != first
+
+
+def test_sha256_bytes_matches_known_digest():
+    assert sha256_bytes(b"abc") == (
+        "ba7816bf8f01cfea414140de5dae2223"
+        "b00361a396177a9cb410ff61f20015ad"
+    )
+
+
+def test_existing_manifest_hash_functions_keep_behavior(tmp_path):
+    path = tmp_path / "payload.bin"
+    path.write_bytes(b"abc")
+
+    assert canonical_hash({"b": 2, "a": 1}) == (
+        "43258cff783fe7036d8a43033f830adfc60ec037382473548ac742b888292777"
+    )
+    assert sha256_file(path) == sha256_bytes(b"abc")
 
 
 def test_build_manifest_records_reproducibility_evidence(tmp_path):

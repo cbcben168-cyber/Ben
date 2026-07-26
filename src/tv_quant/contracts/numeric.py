@@ -31,8 +31,8 @@ def canonical_decimal(value: object, path: str) -> str:
     result = _decimal(value, path)
     if result.is_zero():
         return "0"
-    normalized = format(result.normalize(), "f")
-    return normalized.rstrip("0").rstrip(".") if "." in normalized else normalized
+    serialized = format(result, "f")
+    return serialized.rstrip("0").rstrip(".") if "." in serialized else serialized
 
 
 def canonical_integer(value: object, path: str) -> int:

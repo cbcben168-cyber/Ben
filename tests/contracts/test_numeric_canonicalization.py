@@ -1,4 +1,4 @@
-from decimal import Decimal
+from decimal import Decimal, localcontext
 
 import pytest
 
@@ -13,6 +13,31 @@ def test_decimal_strings_normalize_1_1_00_to_one_semantic_hash():
         canonical_decimal("1.00", "ratio"),
     } == {"1"}
     assert canonical_decimal("-0.00", "threshold") == "0"
+
+
+def test_high_precision_decimal_canonicalization_is_context_invariant():
+    """Canonical decimals retain every significant digit regardless of context."""
+    left = Decimal("123456789012345678901234567890.12345678900100")
+    right = Decimal("123456789012345678901234567890.12345678900200")
+    expected_left = "123456789012345678901234567890.123456789001"
+    expected_right = "123456789012345678901234567890.123456789002"
+
+    with localcontext() as context:
+        context.prec = 5
+        low_precision = (
+            canonical_decimal(left, "ratio"),
+            canonical_decimal(right, "ratio"),
+        )
+    with localcontext() as context:
+        context.prec = 80
+        high_precision = (
+            canonical_decimal(left, "ratio"),
+            canonical_decimal(right, "ratio"),
+        )
+
+    assert low_precision == (expected_left, expected_right)
+    assert high_precision == (expected_left, expected_right)
+    assert low_precision[0] != low_precision[1]
 
 
 def test_initial_capital_and_bps_are_integer_values():

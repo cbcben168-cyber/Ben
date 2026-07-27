@@ -2,49 +2,49 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "quant-strategy/v2",
   "title": "quant-strategy/v2 contract",
-  "description": "Generated-equivalent document for the frozen V2 root, enum, and AST definitions. Runtime validation is contract-equivalent, not a complete Draft 2020-12 evaluator.",
+  "description": "Deterministic external contract derived from the frozen V2 root, enum, and AST definitions. Runtime validation is contract-equivalent, not a complete Draft 2020-12 evaluator.",
   "type": "object",
   "additionalProperties": false,
-  "required": [
-    "schema_version",
-    "strategy_id",
-    "strategy_family",
-    "strategy_name",
-    "symbol",
-    "market",
-    "timeframe",
-    "session",
-    "backtest_range",
-    "initial_capital",
-    "entry",
-    "exit",
-    "filters",
-    "position_sizing",
-    "stop",
-    "target",
-    "fill_timing",
-    "data",
-    "benchmark",
-    "plugin",
-    "optimization_allowed",
-    "report_language"
-  ],
+  "required": ["schema_version", "strategy_id", "strategy_family", "strategy_name", "symbol", "market", "timeframe", "session", "backtest_range", "initial_capital", "entry", "exit", "filters", "position_sizing", "stop", "target", "fill_timing", "data", "benchmark", "plugin", "optimization_allowed", "report_language"],
   "properties": {
-    "schema_version": { "enum": ["v2.1"] },
-    "strategy_id": { "type": "string", "minLength": 1 },
-    "strategy_family": { "type": "string", "minLength": 1 },
-    "strategy_name": { "type": "string", "minLength": 1 },
-    "symbol": { "type": "string", "pattern": "^[A-Z][A-Z0-9.-]{0,9}$" },
-    "market": { "enum": ["US_EQUITY"] },
-    "timeframe": { "enum": ["1d", "15m", "30m", "60m"] },
+    "schema_version": {"enum": ["v2.1"]},
+    "strategy_id": {"type": "string", "minLength": 1},
+    "strategy_family": {"type": "string", "minLength": 1},
+    "strategy_name": {"type": "string", "minLength": 1},
+    "symbol": {"type": "string", "pattern": "^[A-Z][A-Z0-9.-]{0,9}$"},
+    "market": {"enum": ["US_EQUITY"]},
+    "timeframe": {"enum": ["1d", "15m", "30m", "60m"]},
+    "session": {"$ref": "#/$defs/session"},
+    "backtest_range": {"$ref": "#/$defs/backtest_range"},
+    "initial_capital": {"$ref": "#/$defs/initial_capital"},
+    "entry": {"$ref": "#/$defs/predicate_expression"},
+    "exit": {"$ref": "#/$defs/predicate_expression"},
+    "filters": {"type": "array", "items": {"$ref": "#/$defs/predicate_expression"}},
+    "position_sizing": {"$ref": "#/$defs/position_sizing"},
+    "stop": {"$ref": "#/$defs/disabled_or_rule"},
+    "target": {"$ref": "#/$defs/disabled_or_rule"},
+    "fill_timing": {"enum": ["next_bar_open"]},
+    "data": {"type": "object"},
+    "benchmark": {"$ref": "#/$defs/benchmark"},
+    "plugin": {"$ref": "#/$defs/plugin"},
+    "optimization_allowed": {"const": false},
+    "report_language": {"enum": ["zh-CN"]}
+  },
+  "$defs": {
+    "decimal_value": {
+      "oneOf": [
+        {"type": "integer"},
+        {"type": "string", "pattern": "^[+-]?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$"}
+      ]
+    },
     "session": {
       "type": "object",
       "additionalProperties": false,
       "required": ["timezone", "regular_hours_only", "calendar_id"],
       "properties": {
-        "timezone": { "const": "America/New_York" },
-        "regular_hours_only": { "const": true },
-        "calendar_id": { "type": "string", "minLength": 1 }
+        "timezone": {"const": "America/New_York"},
+        "regular_hours_only": {"const": true},
+        "calendar_id": {"type": "string", "minLength": 1}
       }
     },
     "backtest_range": {
@@ -52,8 +52,8 @@
       "additionalProperties": false,
       "required": ["start", "end"],
       "properties": {
-        "start": { "type": "string", "format": "date" },
-        "end": { "type": "string", "format": "date" }
+        "start": {"type": "string", "format": "date"},
+        "end": {"type": "string", "format": "date"}
       }
     },
     "initial_capital": {
@@ -61,83 +61,220 @@
       "additionalProperties": false,
       "required": ["amount", "currency"],
       "properties": {
-        "amount": { "const": 100000 },
-        "currency": { "const": "USD" }
+        "amount": {"const": 100000},
+        "currency": {"const": "USD"}
       }
     },
-    "entry": { "type": "object" },
-    "exit": { "type": "object" },
-    "filters": { "type": "array", "items": { "type": "object" } },
-    "position_sizing": { "type": "object" },
-    "stop": { "type": "object" },
-    "target": { "type": "object" },
-    "fill_timing": { "enum": ["next_bar_open"] },
-    "data": { "type": "object" },
-    "benchmark": { "type": "object" },
-    "plugin": { "type": ["object", "null"] },
-    "optimization_allowed": { "const": false },
-    "report_language": { "enum": ["zh-CN"] }
-  },
-  "$defs": {
     "indicator_ref": {
-      "category": "ValueExpression",
-      "required_fields": ["node_type", "name", "parameters", "output", "unit"],
-      "output_type": "value",
-      "additional_properties": false
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node_type", "name", "parameters", "output", "unit"],
+      "properties": {
+        "node_type": {"const": "indicator_ref"},
+        "name": {"enum": ["EMA", "SMA", "RSI", "MACD", "ATR", "BOLLINGER", "DONCHIAN", "VOLUME_SMA", "RELATIVE_VOLUME"]},
+        "parameters": {"type": "object"},
+        "output": {"type": "string", "minLength": 1},
+        "unit": {"type": "string", "minLength": 1}
+      },
+      "x-contract-category": "ValueExpression",
+      "x-contract-output-type": "value"
     },
     "constant": {
-      "category": "ValueExpression",
-      "required_fields": ["node_type", "value", "unit"],
-      "output_type": "value",
-      "additional_properties": false
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node_type", "value", "unit"],
+      "properties": {
+        "node_type": {"const": "constant"},
+        "value": {"$ref": "#/$defs/decimal_value"},
+        "unit": {"type": "string", "minLength": 1}
+      },
+      "x-contract-category": "ValueExpression",
+      "x-contract-output-type": "value"
     },
     "price_ref": {
-      "category": "ValueExpression",
-      "required_fields": ["node_type", "field", "unit"],
-      "output_type": "value",
-      "additional_properties": false
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node_type", "field", "unit"],
+      "properties": {
+        "node_type": {"const": "price_ref"},
+        "field": {"type": "string", "minLength": 1},
+        "unit": {"type": "string", "minLength": 1}
+      },
+      "x-contract-category": "ValueExpression",
+      "x-contract-output-type": "value"
     },
     "volume_ref": {
-      "category": "ValueExpression",
-      "required_fields": ["node_type", "field", "unit"],
-      "output_type": "value",
-      "additional_properties": false
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node_type", "field", "unit"],
+      "properties": {
+        "node_type": {"const": "volume_ref"},
+        "field": {"type": "string", "minLength": 1},
+        "unit": {"type": "string", "minLength": 1}
+      },
+      "x-contract-category": "ValueExpression",
+      "x-contract-output-type": "value"
     },
     "compare": {
-      "category": "PredicateExpression",
-      "required_fields": ["node_type", "operator", "left", "right"],
-      "output_type": "predicate",
-      "additional_properties": false
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node_type", "operator", "left", "right"],
+      "properties": {
+        "node_type": {"const": "compare"},
+        "operator": {"enum": ["gt", "gte", "lt", "lte", "eq", "neq"]},
+        "left": {"$ref": "#/$defs/value_expression"},
+        "right": {"$ref": "#/$defs/value_expression"}
+      },
+      "x-contract-category": "PredicateExpression",
+      "x-contract-output-type": "predicate"
     },
     "cross_above": {
-      "category": "PredicateExpression",
-      "required_fields": ["node_type", "left", "right"],
-      "output_type": "predicate",
-      "additional_properties": false
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node_type", "left", "right"],
+      "properties": {
+        "node_type": {"const": "cross_above"},
+        "left": {"$ref": "#/$defs/value_expression"},
+        "right": {"$ref": "#/$defs/value_expression"}
+      },
+      "x-contract-category": "PredicateExpression",
+      "x-contract-output-type": "predicate"
     },
     "cross_below": {
-      "category": "PredicateExpression",
-      "required_fields": ["node_type", "left", "right"],
-      "output_type": "predicate",
-      "additional_properties": false
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node_type", "left", "right"],
+      "properties": {
+        "node_type": {"const": "cross_below"},
+        "left": {"$ref": "#/$defs/value_expression"},
+        "right": {"$ref": "#/$defs/value_expression"}
+      },
+      "x-contract-category": "PredicateExpression",
+      "x-contract-output-type": "predicate"
     },
     "all": {
-      "category": "PredicateExpression",
-      "required_fields": ["node_type", "children"],
-      "output_type": "predicate",
-      "additional_properties": false
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node_type", "children"],
+      "properties": {
+        "node_type": {"const": "all"},
+        "children": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/predicate_expression"}}
+      },
+      "x-contract-category": "PredicateExpression",
+      "x-contract-output-type": "predicate"
     },
     "any": {
-      "category": "PredicateExpression",
-      "required_fields": ["node_type", "children"],
-      "output_type": "predicate",
-      "additional_properties": false
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node_type", "children"],
+      "properties": {
+        "node_type": {"const": "any"},
+        "children": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/predicate_expression"}}
+      },
+      "x-contract-category": "PredicateExpression",
+      "x-contract-output-type": "predicate"
     },
     "not": {
-      "category": "PredicateExpression",
-      "required_fields": ["node_type", "child"],
-      "output_type": "predicate",
-      "additional_properties": false
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node_type", "child"],
+      "properties": {
+        "node_type": {"const": "not"},
+        "child": {"$ref": "#/$defs/predicate_expression"}
+      },
+      "x-contract-category": "PredicateExpression",
+      "x-contract-output-type": "predicate"
+    },
+    "value_expression": {
+      "oneOf": [
+        {"$ref": "#/$defs/indicator_ref"},
+        {"$ref": "#/$defs/constant"},
+        {"$ref": "#/$defs/price_ref"},
+        {"$ref": "#/$defs/volume_ref"}
+      ]
+    },
+    "predicate_expression": {
+      "oneOf": [
+        {"$ref": "#/$defs/compare"},
+        {"$ref": "#/$defs/cross_above"},
+        {"$ref": "#/$defs/cross_below"},
+        {"$ref": "#/$defs/all"},
+        {"$ref": "#/$defs/any"},
+        {"$ref": "#/$defs/not"}
+      ]
+    },
+    "disabled_or_rule": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled"],
+          "properties": {"enabled": {"const": false}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "rule", "unit"],
+          "properties": {
+            "enabled": {"const": true},
+            "rule": {"type": "string", "minLength": 1},
+            "unit": {"type": "string", "minLength": 1}
+          }
+        }
+      ]
+    },
+    "position_sizing": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type"],
+          "properties": {"type": {"const": "full_capital"}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "fraction"],
+          "properties": {
+            "type": {"const": "fixed_fraction"},
+            "fraction": {"$ref": "#/$defs/decimal_value"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "risk_per_trade", "stop_distance"],
+          "properties": {
+            "type": {"const": "risk_based"},
+            "risk_per_trade": {"$ref": "#/$defs/decimal_value"},
+            "stop_distance": {"$ref": "#/$defs/decimal_value"}
+          }
+        }
+      ]
+    },
+    "benchmark": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "symbol"],
+      "properties": {
+        "type": {"const": "buy_and_hold"},
+        "symbol": {"const": "same_as_strategy"}
+      }
+    },
+    "plugin": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "version", "source_hash"],
+          "properties": {
+            "name": {"type": "string", "minLength": 1},
+            "version": {"type": "string", "minLength": 1},
+            "source_hash": {"type": "string", "minLength": 1}
+          }
+        }
+      ]
     }
   }
 }

@@ -7,8 +7,9 @@ from pathlib import Path
 import pytest
 
 from tv_quant.contracts.schema_contract import (
+    AST_NODE_DEFINITIONS,
+    ENUMS,
     ROOT_REQUIRED_FIELDS,
-    schema_contract_snapshot,
 )
 from tv_quant.contracts.strategy_v2 import (
     load_strategy_spec_v2,
@@ -72,6 +73,11 @@ def _write_payload(tmp_path, payload: object):
     return path
 
 
+def _schema() -> dict[str, object]:
+    schema_path = Path(__file__).parents[2] / "schemas" / "quant-strategy-v2.schema.json"
+    return json.loads(schema_path.read_text(encoding="utf-8"))
+
+
 def test_valid_minimal_v2_config_loads(tmp_path):
     """A complete explicit V2 mapping loads without network or Phase 1 parsing."""
     spec = load_strategy_spec_v2(_write_payload(tmp_path, _minimal_v2_mapping()))
@@ -82,9 +88,7 @@ def test_valid_minimal_v2_config_loads(tmp_path):
 
 def test_schema_id_and_version_are_quant_strategy_v2_v21():
     """A wrong schema identity or version makes V2 configuration unrecognizable."""
-    schema_path = Path(__file__).parents[2] / "schemas" / "quant-strategy-v2.schema.json"
-
-    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    schema = _schema()
 
     assert schema["$id"] == "quant-strategy/v2"
     assert schema["properties"]["schema_version"]["enum"] == ["v2.1"]
@@ -92,12 +96,19 @@ def test_schema_id_and_version_are_quant_strategy_v2_v21():
 
 def test_python_contract_and_json_schema_required_fields_match():
     """Schema drift could make a valid Python contract invalid to other consumers."""
-    schema_path = Path(__file__).parents[2] / "schemas" / "quant-strategy-v2.schema.json"
-    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    schema = _schema()
 
     assert schema["required"] == list(ROOT_REQUIRED_FIELDS)
     assert schema["additionalProperties"] is False
-    assert schema["$defs"] == schema_contract_snapshot()["ast_node_definitions"]
+    for name, definition in AST_NODE_DEFINITIONS.items():
+        rendered = schema["$defs"][name]
+
+        assert rendered["type"] == "object"
+        assert rendered["required"] == list(definition["required_fields"])
+        assert rendered["additionalProperties"] is False
+        assert rendered["properties"]["node_type"]["const"] == name
+        assert rendered["x-contract-category"] == definition["category"]
+        assert rendered["x-contract-output-type"] == definition["output_type"]
 
 
 def test_symbol_schema_accepts_valid_us_equity_symbol_without_spy_qqq_cap():
@@ -190,3 +201,71 @@ def test_legacy_phase1_mapping_requires_explicit_v2_loader(tmp_path):
 
     with pytest.raises(ValueError, match="missing required field: schema_version"):
         load_strategy_spec_v2(_write_payload(tmp_path, legacy))
+
+
+def test_ast_runtime_enforces_frozen_enums_and_predicate_roots():
+    """Ignoring Task 2 AST metadata permits invalid or value-root trading rules."""
+    invalid_operator = _minimal_v2_mapping()
+    invalid_operator["entry"] = deepcopy(invalid_operator["entry"])
+    invalid_operator["entry"]["operator"] = "exec"
+    invalid_indicator = _minimal_v2_mapping()
+    invalid_indicator["entry"] = deepcopy(invalid_indicator["entry"])
+    invalid_indicator["entry"]["right"]["name"] = "BOGUS"
+    value_root = _minimal_v2_mapping()
+    value_root["entry"] = {"node_type": "price_ref", "field": "close", "unit": "USD"}
+
+    with pytest.raises(ValueError, match=r"entry\.operator"):
+        validate_strategy_mapping_v2(invalid_operator)
+    with pytest.raises(ValueError, match=r"entry\.right\.name"):
+        validate_strategy_mapping_v2(invalid_indicator)
+    with pytest.raises(ValueError, match="entry"):
+        validate_strategy_mapping_v2(value_root)
+
+
+@pytest.mark.parametrize("value", ["NaN", "Infinity", "-Infinity", "not-a-number", 1.0])
+def test_constant_nodes_require_task2_numeric_values(value):
+    """Nonnumeric or binary-float constants cannot bypass canonical decimal validation."""
+    payload = _minimal_v2_mapping()
+    payload["entry"] = {
+        "node_type": "compare",
+        "operator": "gt",
+        "left": {"node_type": "price_ref", "field": "close", "unit": "USD"},
+        "right": {"node_type": "constant", "value": value, "unit": "USD"},
+    }
+
+    with pytest.raises(ValueError, match=r"entry\.right\.value"):
+        validate_strategy_mapping_v2(payload)
+
+
+def test_json_schema_uses_operative_ast_and_disabled_state_definitions():
+    """Generic nested objects would leave external consumers without contract enforcement."""
+    schema = _schema()
+    definitions = schema["$defs"]
+
+    assert schema["properties"]["entry"] == {"$ref": "#/$defs/predicate_expression"}
+    assert schema["properties"]["exit"] == {"$ref": "#/$defs/predicate_expression"}
+    assert schema["properties"]["filters"]["items"] == {
+        "$ref": "#/$defs/predicate_expression"
+    }
+    assert schema["properties"]["stop"] == {"$ref": "#/$defs/disabled_or_rule"}
+    assert schema["properties"]["target"] == {"$ref": "#/$defs/disabled_or_rule"}
+    assert definitions["disabled_or_rule"]["oneOf"][0]["properties"]["enabled"] == {
+        "const": False
+    }
+    assert definitions["predicate_expression"]["oneOf"]
+    assert definitions["value_expression"]["oneOf"]
+
+
+def test_json_schema_enums_and_ast_contract_metadata_match_task2():
+    """Every frozen Task 2 enum must constrain the matching external schema location."""
+    schema = _schema()
+    properties = schema["properties"]
+
+    for field in ("schema_version", "market", "timeframe", "fill_timing", "report_language"):
+        assert properties[field]["enum"] == list(ENUMS[field])
+    assert schema["$defs"]["indicator_ref"]["properties"]["name"]["enum"] == list(
+        ENUMS["indicator_name"]
+    )
+    assert schema["$defs"]["compare"]["properties"]["operator"]["enum"] == list(
+        ENUMS["comparison_operator"]
+    )

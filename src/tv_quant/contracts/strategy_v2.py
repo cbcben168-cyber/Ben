@@ -47,9 +47,9 @@ def _exact_fields(mapping: Mapping[str, object], path: str, fields: set[str]) ->
         raise _error(path, "missing required field(s): " + ", ".join(missing))
 
 
-def _enum(field: str, value: object) -> None:
+def _enum(field: str, value: object, path: str | None = None) -> None:
     if value not in ENUMS[field]:
-        raise _error(field, "must be one of " + ", ".join(ENUMS[field]))
+        raise _error(path or field, "must be one of " + ", ".join(ENUMS[field]))
 
 
 def _string(value: object, path: str) -> str:
@@ -117,27 +117,42 @@ def _validate_capital(value: object) -> None:
         raise _error("initial_capital.currency", "must equal USD")
 
 
-def _validate_ast(value: object, path: str) -> None:
+def _validate_ast(value: object, path: str, category: str) -> None:
     node = _mapping(value, path)
     node_type = node.get("node_type")
     if not isinstance(node_type, str) or node_type not in AST_NODE_DEFINITIONS:
         raise _error(f"{path}.node_type", "unknown AST node type")
     definition = AST_NODE_DEFINITIONS[node_type]
+    expected_output_type = {
+        "ValueExpression": "value",
+        "PredicateExpression": "predicate",
+    }[category]
+    if (
+        definition["category"] != category
+        or definition["output_type"] != expected_output_type
+    ):
+        raise _error(path, f"{category} with {expected_output_type} output required")
     allowed = set(definition["required_fields"])
     _exact_fields(node, path, allowed)
     for field in definition["required_fields"]:
         _safe_value(node[field], f"{path}.{field}")
+    if node_type == "indicator_ref":
+        _enum("indicator_name", node["name"], f"{path}.name")
+    elif node_type == "constant":
+        canonical_decimal(node["value"], f"{path}.value")
     if node_type in {"compare", "cross_above", "cross_below"}:
-        _validate_ast(node["left"], f"{path}.left")
-        _validate_ast(node["right"], f"{path}.right")
+        if node_type == "compare":
+            _enum("comparison_operator", node["operator"], f"{path}.operator")
+        _validate_ast(node["left"], f"{path}.left", "ValueExpression")
+        _validate_ast(node["right"], f"{path}.right", "ValueExpression")
     elif node_type in {"all", "any"}:
         children = node["children"]
         if not isinstance(children, list) or not children:
             raise _error(f"{path}.children", "non-empty array required")
         for index, child in enumerate(children):
-            _validate_ast(child, f"{path}.children[{index}]")
+            _validate_ast(child, f"{path}.children[{index}]", "PredicateExpression")
     elif node_type == "not":
-        _validate_ast(node["child"], f"{path}.child")
+        _validate_ast(node["child"], f"{path}.child", "PredicateExpression")
 
 
 def _validate_disabled_or_rule(value: object, path: str) -> None:
@@ -207,13 +222,13 @@ def validate_strategy_mapping_v2(payload: Mapping[str, Any]) -> StrategySpecV2:
     _validate_session(payload["session"])
     _validate_backtest_range(payload["backtest_range"])
     _validate_capital(payload["initial_capital"])
-    _validate_ast(payload["entry"], "entry")
-    _validate_ast(payload["exit"], "exit")
+    _validate_ast(payload["entry"], "entry", "PredicateExpression")
+    _validate_ast(payload["exit"], "exit", "PredicateExpression")
     filters = payload["filters"]
     if not isinstance(filters, list):
         raise _error("filters", "array required")
     for index, item in enumerate(filters):
-        _validate_ast(item, f"filters[{index}]")
+        _validate_ast(item, f"filters[{index}]", "PredicateExpression")
     _validate_position_sizing(payload["position_sizing"])
     _validate_disabled_or_rule(payload["stop"], "stop")
     _validate_disabled_or_rule(payload["target"], "target")

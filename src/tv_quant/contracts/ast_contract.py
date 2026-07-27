@@ -36,6 +36,7 @@ _FORBIDDEN_PARAMETER_TERMS = frozenset(
     {
         "account",
         "broker",
+        "callback",
         "callable",
         "class",
         "code",
@@ -60,8 +61,25 @@ _FORBIDDEN_PARAMETER_TERMS = frozenset(
         "webhook",
     }
 )
+_FORBIDDEN_COMPOUND_PARAMETER_KEYS = frozenset(
+    {
+        "accountid",
+        "brokeraccount",
+        "filepath",
+        "hostname",
+        "ordertype",
+        "pythoncode",
+        "sourcecode",
+        "uricallback",
+        "urlcallback",
+        "uris",
+        "urls",
+    }
+)
 _NON_FINITE_TEXT = frozenset({"NaN", "Infinity", "-Infinity"})
-_CAMEL_CASE_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
+_CAMEL_CASE_BOUNDARY = re.compile(
+    r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])"
+)
 
 
 def _node(
@@ -297,8 +315,11 @@ def _unit(value: object, path: str) -> str:
 
 def _is_forbidden_parameter_key(key: str) -> bool:
     normalized = _CAMEL_CASE_BOUNDARY.sub("_", key).lower()
-    collapsed = re.sub(r"[^a-z0-9]", "", normalized)
-    return any(term in collapsed for term in _FORBIDDEN_PARAMETER_TERMS)
+    terms = tuple(part for part in re.split(r"[^a-z0-9]+", normalized) if part)
+    return (
+        any(term in _FORBIDDEN_PARAMETER_TERMS for term in terms)
+        or "".join(terms) in _FORBIDDEN_COMPOUND_PARAMETER_KEYS
+    )
 
 
 def _canonical_parameter_number(value: object, path: str, key: str | None) -> object:

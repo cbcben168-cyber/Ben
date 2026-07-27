@@ -169,6 +169,8 @@ def test_indicator_parameters_reject_compound_dynamic_terms_without_blocking_per
         "account_id",
         "order_type",
         "source_code",
+        "callback",
+        "myCallback",
     ):
         invalid = {**valid, "parameters": {key: "unsafe"}}
 
@@ -176,6 +178,13 @@ def test_indicator_parameters_reject_compound_dynamic_terms_without_blocking_per
 
         assert issue.path == f"operand.parameters.{key}"
         assert "dynamic/path/network" in issue.message
+
+    for key in ("border", "profile", "classification"):
+        allowed = {**valid, "parameters": {key: "safe"}}
+
+        assert isinstance(
+            validate_ast(allowed, ValueExpression, "operand"), ValueExpression
+        )
 
 
 @pytest.mark.parametrize(
@@ -307,13 +316,14 @@ def test_boolean_unit_rejects_non_boolean_and_string_unit_rejects_boolean():
 
 
 @pytest.mark.parametrize("unit", ["string", "boolean"])
-def test_string_boolean_comparisons_reject_ordering_operators(unit):
+@pytest.mark.parametrize("operator", ["gt", "gte", "lt", "lte"])
+def test_string_boolean_comparisons_reject_ordering_operators(unit, operator):
     """Non-numeric scalar units have equality semantics only."""
     value = "label" if unit == "string" else True
     constant = {"node_type": "constant", "value": value, "unit": unit}
     predicate = {
         "node_type": "compare",
-        "operator": "gt",
+        "operator": operator,
         "left": constant,
         "right": constant,
     }

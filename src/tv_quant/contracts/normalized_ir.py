@@ -18,7 +18,7 @@ from .ast_contract import (
     validate_ast,
 )
 from .numeric import canonical_decimal, canonical_integer
-from .strategy_v2 import StrategySpecV2
+from .strategy_v2 import StrategySpecV2, validate_strategy_mapping_v2
 
 
 _EXPLICIT_FIELDS = (
@@ -110,8 +110,13 @@ def _issue(code: str, path: str, message: str) -> ValidationIssue:
 
 def _freeze(value: object, path: str = "$") -> object:
     if isinstance(value, Mapping):
+        if any(not isinstance(key, str) for key in value):
+            raise ValueError(f"{path}: object keys must be strings")
         return MappingProxyType(
-            {str(key): _freeze(item, f"{path}.{key}") for key, item in value.items()}
+            {
+                key: _freeze(value[key], f"{path}.{key}")
+                for key in sorted(value)
+            }
         )
     if isinstance(value, (list, tuple)):
         return tuple(_freeze(item, f"{path}[{index}]") for index, item in enumerate(value))
@@ -127,10 +132,11 @@ def _freeze(value: object, path: str = "$") -> object:
 def _normalized_mapping(value: object, path: str, *, integer_fields: frozenset[str] = frozenset()) -> Mapping[str, object]:
     if not isinstance(value, Mapping):
         raise ValueError(f"{path}: object required")
+    if any(not isinstance(key, str) for key in value):
+        raise ValueError(f"{path}: object keys must be strings")
     result: dict[str, object] = {}
-    for key, item in value.items():
-        if not isinstance(key, str):
-            raise ValueError(f"{path}: object keys must be strings")
+    for key in sorted(value):
+        item = value[key]
         item_path = f"{path}.{key}"
         if key in integer_fields:
             result[key] = canonical_integer(item, item_path)
@@ -173,14 +179,28 @@ def _capability_issues(
 ) -> tuple[ValidationIssue, ...]:
     """Use the narrow validation hook without importing a future registry module."""
     validator = getattr(capability_registry, "validate_strategy", None)
-    if validator is None:
-        return ()
+    if not callable(validator):
+        return (
+            _issue(
+                "STRATEGY_CAPABILITY_BLOCKER",
+                "capability_registry",
+                "validate_strategy capability gate is required",
+            ),
+        )
     issues = validator(spec)
     if not isinstance(issues, tuple) or not all(
         isinstance(issue, ValidationIssue) for issue in issues
     ):
         raise ValueError("capability_registry.validate_strategy must return issue tuple")
     return issues
+
+
+def _thaw(value: object) -> object:
+    if isinstance(value, Mapping):
+        return {key: _thaw(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_thaw(item) for item in value]
+    return value
 
 
 def normalize_strategy_spec(
@@ -205,6 +225,16 @@ def normalize_strategy_spec(
     required_issue = _explicit_fields(payload)
     if required_issue is not None:
         return NormalizationResult(ir=None, issues=(required_issue,))
+
+    try:
+        validated_spec = validate_strategy_mapping_v2(_thaw(payload))
+    except ValueError as error:
+        path, _, message = str(error).partition(": ")
+        return NormalizationResult(
+            ir=None,
+            issues=(_issue("CONFIG_VALIDATION_BLOCKER", path or "$", message or str(error)),),
+        )
+    payload = validated_spec.payload
 
     try:
         initial_capital = _normalized_mapping(
@@ -261,7 +291,7 @@ def normalize_strategy_spec(
         )
 
     try:
-        issues = _capability_issues(capability_registry, spec)
+        issues = _capability_issues(capability_registry, validated_spec)
     except ValueError as error:
         return NormalizationResult(
             ir=None,
@@ -274,7 +304,7 @@ def normalize_strategy_spec(
 
 def _payload_value(value: object) -> object:
     if isinstance(value, Mapping):
-        return {str(key): _payload_value(item) for key, item in value.items()}
+        return {key: _payload_value(value[key]) for key in sorted(value)}
     if isinstance(value, tuple):
         return tuple(_payload_value(item) for item in value)
     if isinstance(value, ValueExpression):

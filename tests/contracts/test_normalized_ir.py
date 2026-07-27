@@ -148,6 +148,22 @@ def test_identical_semantics_produce_identical_ir_and_hash(registry: _FixedRegis
     assert normalized_config_hash(left_ir) == normalized_config_hash(right_ir)
 
 
+def test_nested_mapping_field_order_is_canonical(registry: _FixedRegistry) -> None:
+    left = _mapping()
+    left["data"] = {"z": {"last": "2024-12-31", "first": "2024-01-02"}, "a": "cache"}
+    right = _mapping()
+    right["data"] = {"a": "cache", "z": {"first": "2024-01-02", "last": "2024-12-31"}}
+
+    left_ir = _result(validate_strategy_mapping_v2(left), registry).ir
+    right_ir = _result(validate_strategy_mapping_v2(right), registry).ir
+
+    assert left_ir is not None
+    assert right_ir is not None
+    assert tuple(left_ir.data) == ("a", "z")
+    assert tuple(left_ir.data["z"]) == ("first", "last")
+    assert normalized_config_payload(left_ir) == normalized_config_payload(right_ir)
+
+
 def test_decimal_numeric_forms_produce_identical_hash(registry: _FixedRegistry) -> None:
     left = _mapping()
     right = deepcopy(left)
@@ -245,3 +261,39 @@ def test_unsupported_capability_reports_issue_without_execution(spec: StrategySp
 
     assert result.ir is None
     assert result.issues == registry.issues
+
+
+def test_registry_without_capability_validator_blocks_normalization(
+    spec: StrategySpecV2,
+) -> None:
+    result = normalize_strategy_spec(
+        spec,
+        capability_registry=object(),
+        source_config_hash="source-config-hash",
+    )
+
+    assert result.ir is None
+    assert result.issues[0].code == "STRATEGY_CAPABILITY_BLOCKER"
+    assert result.issues[0].path == "capability_registry"
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (("optimization_allowed", "false"), ("fill_timing", "next_bar")),
+)
+def test_directly_constructed_invalid_spec_is_not_coerced(
+    spec: StrategySpecV2, registry: _FixedRegistry, field: str, value: object
+) -> None:
+    payload = dict(spec.payload)
+    payload[field] = value
+    invalid = StrategySpecV2(
+        payload=MappingProxyType(payload),
+        source_payload=MappingProxyType(payload),
+        symbol=spec.symbol,
+    )
+
+    result = _result(invalid, registry)
+
+    assert result.ir is None
+    assert result.issues[0].code == "CONFIG_VALIDATION_BLOCKER"
+    assert result.issues[0].path == field

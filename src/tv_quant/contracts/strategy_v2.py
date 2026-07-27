@@ -17,8 +17,16 @@ from .numeric import canonical_decimal, canonical_integer
 from .schema_contract import AST_NODE_DEFINITIONS, ENUMS, ROOT_REQUIRED_FIELDS
 
 
-_SYMBOL = re.compile(r"[A-Z][A-Z0-9.-]{0,9}\Z")
+_SYMBOL = re.compile(r"[A-Za-z][A-Za-z0-9.-]{0,9}\Z")
 _JSON_SCALAR_TYPES = (str, bool, type(None), int, Decimal)
+
+
+@dataclass(frozen=True, slots=True)
+class ValidationIssue:
+    """One stable validation location and explanation for V2 consumers."""
+
+    path: str
+    message: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,6 +34,8 @@ class StrategySpecV2:
     """Minimal immutable V2 configuration after contract-equivalent validation."""
 
     payload: Mapping[str, Any]
+    source_payload: Mapping[str, Any]
+    symbol: str
 
 
 def _error(path: str, message: str) -> ValueError:
@@ -216,9 +226,10 @@ def validate_strategy_mapping_v2(payload: Mapping[str, Any]) -> StrategySpecV2:
         _enum(field, payload[field])
     for field in ("strategy_id", "strategy_family", "strategy_name"):
         _string(payload[field], field)
-    symbol = _string(payload["symbol"], "symbol")
-    if not _SYMBOL.fullmatch(symbol):
+    source_symbol = _string(payload["symbol"], "symbol")
+    if not _SYMBOL.fullmatch(source_symbol):
         raise _error("symbol", "valid US equity symbol required")
+    symbol = source_symbol.upper()
     _validate_session(payload["session"])
     _validate_backtest_range(payload["backtest_range"])
     _validate_capital(payload["initial_capital"])
@@ -239,7 +250,13 @@ def validate_strategy_mapping_v2(payload: Mapping[str, Any]) -> StrategySpecV2:
     if payload["optimization_allowed"] is not False:
         raise _error("optimization_allowed", "must equal false")
 
-    return StrategySpecV2(payload=_freeze(dict(payload)))
+    semantic_payload = dict(payload)
+    semantic_payload["symbol"] = symbol
+    return StrategySpecV2(
+        payload=_freeze(semantic_payload),
+        source_payload=_freeze(dict(payload)),
+        symbol=symbol,
+    )
 
 
 def load_strategy_spec_v2(path: Path) -> StrategySpecV2:

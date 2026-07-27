@@ -175,7 +175,7 @@ def test_indicator_parameters_reject_compound_dynamic_terms_without_blocking_per
         "cache_filepath",
         "primary_accountid",
         "remote_urlcallback",
-        "myfilepath",
+        "filepathcache",
         "brokeraccount",
         "hostname",
         "ordertype",
@@ -191,7 +191,15 @@ def test_indicator_parameters_reject_compound_dynamic_terms_without_blocking_per
         assert issue.path == f"operand.parameters.{key}"
         assert "dynamic/path/network" in issue.message
 
-    for key in ("border", "profile", "classification"):
+    for key in (
+        "border",
+        "profile",
+        "classification",
+        "borderid",
+        "ghostname",
+        "resourcecode",
+        "myfilepath",
+    ):
         allowed = {**valid, "parameters": {key: "safe"}}
 
         assert isinstance(

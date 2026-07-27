@@ -8,11 +8,13 @@ from collections.abc import Mapping
 import pytest
 
 from tv_quant.adapters.phase1_config_adapter import (
+    Phase1AdapterCapabilityBlocker,
     Phase1ToV2AdapterResult,
     adapt_phase1_to_v2,
 )
 from tv_quant.contracts.normalized_ir import NormalizedStrategyIR
 from tv_quant.contracts.strategy_v2 import StrategySpecV2
+from tv_quant.run_manifest import canonical_hash
 
 
 def _phase1_yaml(**overrides: object) -> str:
@@ -77,10 +79,7 @@ def test_phase1_to_v2_result_preserves_source_and_generated_hashes(tmp_path: Pat
     result = adapt_phase1_to_v2(path, "phase1-to-v2/1")
 
     assert result.source_hash == hashlib.sha256(source_bytes).hexdigest()
-    generated_bytes = json.dumps(
-        _jsonable(result.v2_payload), ensure_ascii=False, sort_keys=True, separators=(",", ":")
-    ).encode("utf-8")
-    assert result.generated_v2_hash == hashlib.sha256(generated_bytes).hexdigest()
+    assert result.generated_v2_hash == canonical_hash(_jsonable(result.v2_payload))
     assert result.source_hash_after == result.source_hash
 
 
@@ -113,20 +112,35 @@ def test_adapter_emits_explicit_filters_stop_target_fill_and_session(tmp_path: P
     assert result.v2_payload["position_sizing"] == {"type": "full_capital"}
 
 
+def test_adapter_preserves_distinct_accepted_legacy_cost_values(tmp_path: Path) -> None:
+    """Rounding a valid Phase 1 cost would silently change the generated V2 hash."""
+    result = adapt_phase1_to_v2(
+        _write_phase1_config(
+            tmp_path,
+            commission_model={"type": "basis_points", "value": 5.000000000000001},
+        ),
+        "phase1-to-v2/1",
+    )
+
+    assert result.v2_payload["data"]["legacy_costs"]["commission_bps"] == "5.000000000000001"
+
+
 @pytest.mark.parametrize(
-    ("field", "value"),
+    ("field", "value", "status"),
     (
-        ("symbol", "IWM"),
-        ("timeframe", "1h"),
-        ("entry_rules", [{"type": "rsi", "period": 2, "less_than": 10}]),
+        ("symbol", "IWM", "STRATEGY_CAPABILITY_BLOCKER"),
+        ("timeframe", "1h", "STRATEGY_CAPABILITY_BLOCKER"),
+        ("entry_rules", [{"type": "rsi", "period": 2, "less_than": 10}], "STRATEGY_CAPABILITY_BLOCKER"),
+        ("data_source", "yfinance", "DATA_CAPABILITY_BLOCKER"),
     ),
 )
 def test_adapter_rejects_non_ema_or_non_spy_qqq_capability(
-    tmp_path: Path, field: str, value: object
+    tmp_path: Path, field: str, value: object, status: str
 ) -> None:
-    """Broadening the adapter beyond Phase 1's fixed capability profile must fail closed."""
-    with pytest.raises(ValueError, match="capability blocker"):
+    """Collapsing Phase 1 blocker identities would hide the failed pipeline stage."""
+    with pytest.raises(Phase1AdapterCapabilityBlocker) as raised:
         adapt_phase1_to_v2(_write_phase1_config(tmp_path, **{field: value}), "phase1-to-v2/1")
+    assert raised.value.status.value == status
 
 
 def test_v2_to_phase1_adapter_is_not_part_of_v21() -> None:

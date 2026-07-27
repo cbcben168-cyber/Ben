@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
 
 from tv_quant.contracts.normalized_ir import NormalizedStrategyIR, normalize_strategy_spec
 from tv_quant.contracts.strategy_v2 import StrategySpecV2, validate_strategy_mapping_v2
-from tv_quant.run_manifest import sha256_bytes, sha256_file
+from tv_quant.pipeline_models import CapabilityStatus
+from tv_quant.run_manifest import canonical_hash, sha256_file
 from tv_quant.strategy_spec import check_capabilities, load_strategy_spec
 
 
@@ -33,16 +33,30 @@ class Phase1ToV2AdapterResult:
     source_bytes_unchanged: bool
 
 
-class _FixedPhase1CapabilityRegistry:
-    """The adapter only reaches this registry after the Phase 1 capability gate."""
+class Phase1AdapterCapabilityBlocker(ValueError):
+    """Preserve the Phase 1 capability-gate status at the adapter boundary."""
 
-    def validate_strategy(self, _spec: StrategySpecV2) -> tuple[object, ...]:
+    def __init__(self, status: CapabilityStatus, reasons: tuple[str, ...]) -> None:
+        self.status = status
+        self.reasons = reasons
+        super().__init__(f"{status.value}: " + "; ".join(reasons))
+
+
+class _SingleValidatedSpecRegistry:
+    """Allow normalization of only the V2 spec that passed the Phase 1 gate."""
+
+    def __init__(self, expected_spec: StrategySpecV2) -> None:
+        self._expected_spec = expected_spec
+
+    def validate_strategy(self, spec: StrategySpecV2) -> tuple[object, ...]:
+        if spec != self._expected_spec:
+            raise ValueError("adapter received an unexpected V2 specification")
         return ()
 
 
 def _basis_points_text(value: float) -> str:
     """Keep legacy costs explicit without introducing binary floats into V2."""
-    return format(value, ".15g")
+    return str(value)
 
 
 def _v2_payload(spec) -> dict[str, object]:
@@ -102,13 +116,6 @@ def _v2_payload(spec) -> dict[str, object]:
     }
 
 
-def _generated_hash(payload: Mapping[str, object]) -> str:
-    encoded = json.dumps(
-        payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
-    ).encode("utf-8")
-    return sha256_bytes(encoded)
-
-
 def adapt_phase1_to_v2(
     phase1_config_path: Path,
     adapter_version: str,
@@ -122,8 +129,9 @@ def adapt_phase1_to_v2(
     spec = load_strategy_spec(source_path)
     capability = check_capabilities(spec)
     if capability.status.value != "SUPPORTED":
-        raise ValueError(
-            "Phase 1 adapter capability blocker: " + "; ".join(capability.reasons)
+        raise Phase1AdapterCapabilityBlocker(
+            capability.status,
+            capability.reasons,
         )
 
     unsupported_fields = tuple(
@@ -138,7 +146,7 @@ def adapt_phase1_to_v2(
     v2_spec = validate_strategy_mapping_v2(generated_payload)
     normalized = normalize_strategy_spec(
         v2_spec,
-        capability_registry=_FixedPhase1CapabilityRegistry(),
+        capability_registry=_SingleValidatedSpecRegistry(v2_spec),
         source_config_hash=source_hash,
     )
     if normalized.ir is None:
@@ -159,7 +167,7 @@ def adapt_phase1_to_v2(
         source_hash_after=source_hash_after,
         adapter_version=adapter_version,
         v2_payload=v2_spec.payload,
-        generated_v2_hash=_generated_hash(generated_payload),
+        generated_v2_hash=canonical_hash(generated_payload),
         strategy_spec_v2=v2_spec,
         normalized_ir=normalized.ir,
         warnings=warnings,
@@ -168,4 +176,8 @@ def adapt_phase1_to_v2(
     )
 
 
-__all__ = ("Phase1ToV2AdapterResult", "adapt_phase1_to_v2")
+__all__ = (
+    "Phase1AdapterCapabilityBlocker",
+    "Phase1ToV2AdapterResult",
+    "adapt_phase1_to_v2",
+)

@@ -175,7 +175,6 @@ def test_indicator_parameters_reject_compound_dynamic_terms_without_blocking_per
         "cache_filepath",
         "primary_accountid",
         "remote_urlcallback",
-        "filepathcache",
         "brokeraccount",
         "hostname",
         "ordertype",
@@ -199,6 +198,8 @@ def test_indicator_parameters_reject_compound_dynamic_terms_without_blocking_per
         "ghostname",
         "resourcecode",
         "myfilepath",
+        "filepathcache",
+        "filepathology",
     ):
         allowed = {**valid, "parameters": {key: "safe"}}
 

@@ -314,13 +314,13 @@ def _unit(value: object, path: str) -> str:
 
 
 def _is_forbidden_parameter_key(key: str) -> bool:
-    """Reject lexical danger tokens without guessing substrings inside safe names."""
+    """Reject exact lexical danger tokens without guessing arbitrary substrings."""
     normalized = _CAMEL_CASE_BOUNDARY.sub("_", key).lower()
     terms = tuple(part for part in re.split(r"[^a-z0-9]+", normalized) if part)
     return (
         any(term in _FORBIDDEN_PARAMETER_TERMS for term in terms)
         or any(
-            term.startswith(compound)
+            term == compound
             for term in terms
             for compound in _FORBIDDEN_COMPOUND_PARAMETER_KEYS
         )

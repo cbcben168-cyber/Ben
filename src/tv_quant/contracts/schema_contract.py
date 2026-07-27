@@ -4,6 +4,8 @@ from collections.abc import Mapping
 from types import MappingProxyType
 from typing import Any
 
+from .ast_contract import AST_NODE_DEFINITIONS
+
 
 ROOT_REQUIRED_FIELDS = (
     "schema_version",
@@ -49,41 +51,6 @@ ENUMS = MappingProxyType(
             "RELATIVE_VOLUME",
         ),
         "comparison_operator": ("gt", "gte", "lt", "lte", "eq", "neq"),
-    }
-)
-
-
-def _node(
-    category: str,
-    required_fields: tuple[str, ...],
-    output_type: str,
-) -> Mapping[str, object]:
-    return MappingProxyType(
-        {
-            "category": category,
-            "required_fields": required_fields,
-            "output_type": output_type,
-            "additional_properties": False,
-        }
-    )
-
-
-AST_NODE_DEFINITIONS = MappingProxyType(
-    {
-        "indicator_ref": _node(
-            "ValueExpression", ("node_type", "name", "parameters", "output", "unit"), "value"
-        ),
-        "constant": _node("ValueExpression", ("node_type", "value", "unit"), "value"),
-        "price_ref": _node("ValueExpression", ("node_type", "field", "unit"), "value"),
-        "volume_ref": _node("ValueExpression", ("node_type", "field", "unit"), "value"),
-        "compare": _node(
-            "PredicateExpression", ("node_type", "operator", "left", "right"), "predicate"
-        ),
-        "cross_above": _node("PredicateExpression", ("node_type", "left", "right"), "predicate"),
-        "cross_below": _node("PredicateExpression", ("node_type", "left", "right"), "predicate"),
-        "all": _node("PredicateExpression", ("node_type", "children"), "predicate"),
-        "any": _node("PredicateExpression", ("node_type", "children"), "predicate"),
-        "not": _node("PredicateExpression", ("node_type", "child"), "predicate"),
     }
 )
 

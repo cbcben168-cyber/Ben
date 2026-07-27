@@ -162,6 +162,13 @@ def test_indicator_parameters_reject_compound_dynamic_terms_without_blocking_per
         "python.code",
         "URLCallback",
         "urls",
+        "broker_account",
+        "order-id",
+        "hostName",
+        "my.file_path",
+        "account_id",
+        "order_type",
+        "source_code",
     ):
         invalid = {**valid, "parameters": {key: "unsafe"}}
 
@@ -297,6 +304,24 @@ def test_boolean_unit_rejects_non_boolean_and_string_unit_rejects_boolean():
         issue = _issue(constant, ValueExpression, "operand")
 
         assert issue.path in {"operand.value", "operand.unit"}
+
+
+@pytest.mark.parametrize("unit", ["string", "boolean"])
+def test_string_boolean_comparisons_reject_ordering_operators(unit):
+    """Non-numeric scalar units have equality semantics only."""
+    value = "label" if unit == "string" else True
+    constant = {"node_type": "constant", "value": value, "unit": unit}
+    predicate = {
+        "node_type": "compare",
+        "operator": "gt",
+        "left": constant,
+        "right": constant,
+    }
+
+    issue = _issue(predicate, PredicateExpression, "entry")
+
+    assert issue.path == "entry"
+    assert "eq or neq" in issue.message
 
 
 def test_cross_rejects_string_series_even_when_units_match():

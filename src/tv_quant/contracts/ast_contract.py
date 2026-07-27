@@ -32,7 +32,7 @@ _COMPARABLE_UNITS = frozenset(
 _STRING_UNIT = "string"
 _BOOLEAN_UNIT = "boolean"
 _ALLOWED_UNITS = _COMPARABLE_UNITS | {_VOLUME_UNIT, _STRING_UNIT, _BOOLEAN_UNIT}
-_FORBIDDEN_PARAMETER_EXACT = frozenset(
+_FORBIDDEN_PARAMETER_TERMS = frozenset(
     {
         "account",
         "broker",
@@ -53,24 +53,6 @@ _FORBIDDEN_PARAMETER_EXACT = frozenset(
         "order",
         "path",
         "provider",
-        "python",
-        "socket",
-        "uri",
-        "url",
-        "webhook",
-    }
-)
-_FORBIDDEN_PARAMETER_FRAGMENTS = frozenset(
-    {
-        "callback",
-        "dynamic",
-        "exec",
-        "expression",
-        "filesystem",
-        "function",
-        "import",
-        "module",
-        "network",
         "python",
         "socket",
         "uri",
@@ -316,11 +298,7 @@ def _unit(value: object, path: str) -> str:
 def _is_forbidden_parameter_key(key: str) -> bool:
     normalized = _CAMEL_CASE_BOUNDARY.sub("_", key).lower()
     collapsed = re.sub(r"[^a-z0-9]", "", normalized)
-    return (
-        collapsed in _FORBIDDEN_PARAMETER_EXACT
-        or any(fragment in collapsed for fragment in _FORBIDDEN_PARAMETER_FRAGMENTS)
-        or collapsed.startswith(("file", "path"))
-    )
+    return any(term in collapsed for term in _FORBIDDEN_PARAMETER_TERMS)
 
 
 def _canonical_parameter_number(value: object, path: str, key: str | None) -> object:

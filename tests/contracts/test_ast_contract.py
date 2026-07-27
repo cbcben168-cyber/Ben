@@ -140,6 +140,46 @@ def test_indicator_parameters_reject_dynamic_fields_and_non_string_keys():
         assert issue.path.startswith("operand.parameters")
 
 
+def test_indicator_parameters_reject_compound_dynamic_terms_without_blocking_period():
+    """Compound executable/path/network keys are unsafe, while period remains valid."""
+    valid = {
+        "node_type": "indicator_ref",
+        "name": "EMA",
+        "parameters": {"period": 50},
+        "output": "series",
+        "unit": "USD",
+    }
+    assert isinstance(validate_ast(valid, ValueExpression, "operand"), ValueExpression)
+
+    for key in ("file_path", "python_code", "callback_url"):
+        invalid = {**valid, "parameters": {key: "unsafe"}}
+
+        issue = _issue(invalid, ValueExpression, "operand")
+
+        assert issue.path == f"operand.parameters.{key}"
+        assert "dynamic/path/network" in issue.message
+
+
+def test_indicator_parameter_numeric_errors_return_ast_validation_issues():
+    """Invalid Decimal and integer-period values cannot escape as raw ValueError."""
+    for parameters in (
+        {"threshold": Decimal("NaN")},
+        {"period": Decimal("1.5")},
+    ):
+        indicator = {
+            "node_type": "indicator_ref",
+            "name": "EMA",
+            "parameters": parameters,
+            "output": "series",
+            "unit": "USD",
+        }
+
+        issue = _issue(indicator, ValueExpression, "operand")
+
+        assert issue.path.startswith("operand.parameters")
+        assert issue.code == "CONFIG_VALIDATION_BLOCKER"
+
+
 def test_values_are_canonical_immutable_and_units_are_explicitly_compatible():
     """Numeric semantics, output shape, and compatible units are part of the AST."""
     canonical = validate_ast(_constant(Decimal("1.00")), ValueExpression, "operand")
@@ -181,6 +221,29 @@ def test_values_are_canonical_immutable_and_units_are_explicitly_compatible():
         validate_ast(compatible, PredicateExpression, "filters[0]"),
         PredicateExpression,
     )
+
+
+@pytest.mark.parametrize(
+    ("value", "unit"),
+    [("regime:bull", "string"), (True, "boolean")],
+)
+def test_constant_accepts_string_or_bool_with_typed_noncomparable_units(value, unit):
+    """Non-numeric constants stay immutable values but cannot enter numeric predicates."""
+    constant = {"node_type": "constant", "value": value, "unit": unit}
+
+    expression = validate_ast(constant, ValueExpression, "operand")
+    assert expression.payload["value"] == value
+    assert expression.unit == unit
+
+    predicate = {
+        "node_type": "compare",
+        "operator": "eq",
+        "left": constant,
+        "right": constant,
+    }
+    issue = _issue(predicate, PredicateExpression, "entry")
+    assert issue.path == "entry"
+    assert "not comparable" in issue.message
 
 
 @pytest.mark.parametrize(
@@ -231,6 +294,27 @@ def test_cross_requires_series_and_refs_have_frozen_fields_and_units():
         {"node_type": "volume_ref", "field": "close", "unit": "shares"},
     ):
         _issue(node, ValueExpression, "operand")
+
+
+@pytest.mark.parametrize("node_type", ["compare", "cross_above"])
+def test_volume_shares_value_expressions_are_not_comparable(node_type):
+    """Volume remains a legal value but shares are outside frozen predicate unit pairs."""
+    volume = {"node_type": "volume_ref", "field": "volume", "unit": "shares"}
+    volume_indicator = {
+        "node_type": "indicator_ref",
+        "name": "VOLUME_SMA",
+        "parameters": {"period": 20},
+        "output": "series",
+        "unit": "shares",
+    }
+    assert isinstance(validate_ast(volume, ValueExpression, "operand"), ValueExpression)
+
+    predicate = {"node_type": node_type, "left": volume, "right": volume_indicator}
+    if node_type == "compare":
+        predicate["operator"] = "gt"
+    issue = _issue(predicate, PredicateExpression, "entry")
+    assert issue.path == "entry"
+    assert "not comparable" in issue.message
 
 
 def test_node_id_depth_and_node_count_limits_are_deterministic():

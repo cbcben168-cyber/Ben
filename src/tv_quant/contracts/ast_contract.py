@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
+import re
 from types import MappingProxyType
 from typing import Any
 
@@ -26,12 +27,16 @@ _VOLUME_FIELDS = frozenset({"volume"})
 _PRICE_UNIT = "USD"
 _VOLUME_UNIT = "shares"
 _COMPARABLE_UNITS = frozenset(
-    {_PRICE_UNIT, _VOLUME_UNIT, "percentage", "ratio", "integer-period"}
+    {_PRICE_UNIT, "percentage", "ratio", "integer-period"}
 )
-_FORBIDDEN_PARAMETER_FIELDS = frozenset(
+_STRING_UNIT = "string"
+_BOOLEAN_UNIT = "boolean"
+_ALLOWED_UNITS = _COMPARABLE_UNITS | {_VOLUME_UNIT, _STRING_UNIT, _BOOLEAN_UNIT}
+_FORBIDDEN_PARAMETER_TERMS = frozenset(
     {
         "account",
         "broker",
+        "callback",
         "callable",
         "class",
         "code",
@@ -57,6 +62,7 @@ _FORBIDDEN_PARAMETER_FIELDS = frozenset(
     }
 )
 _NON_FINITE_TEXT = frozenset({"NaN", "Infinity", "-Infinity"})
+_CAMEL_CASE_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 
 
 def _node(
@@ -285,9 +291,23 @@ def _string(value: object, path: str) -> str:
 
 def _unit(value: object, path: str) -> str:
     unit = _string(value, path)
-    if unit not in _COMPARABLE_UNITS:
+    if unit not in _ALLOWED_UNITS:
         _issue(path, "unsupported explicit unit")
     return unit
+
+
+def _parameter_terms(key: str) -> tuple[str, ...]:
+    normalized = _CAMEL_CASE_BOUNDARY.sub("_", key).lower().replace("-", "_")
+    return tuple(part for part in normalized.split("_") if part)
+
+
+def _canonical_parameter_number(value: object, path: str, key: str | None) -> object:
+    try:
+        if key is not None and key.lower().replace("-", "_").endswith("period"):
+            return canonical_integer(value, path)
+        return canonical_decimal(value, path)
+    except ValueError as error:
+        _issue(path, str(error).partition(": ")[2] or str(error))
 
 
 def _freeze_parameter(value: object, path: str, key: str | None = None) -> object:
@@ -296,8 +316,7 @@ def _freeze_parameter(value: object, path: str, key: str | None = None) -> objec
             _issue(path, "parameter keys must be strings")
         frozen: dict[str, object] = {}
         for item_key in sorted(value):
-            normalized_key = item_key.lower().replace("-", "_")
-            if normalized_key in _FORBIDDEN_PARAMETER_FIELDS:
+            if any(term in _FORBIDDEN_PARAMETER_TERMS for term in _parameter_terms(item_key)):
                 _issue(f"{path}.{item_key}", "dynamic/path/network field is not permitted")
             frozen[item_key] = _freeze_parameter(
                 value[item_key], f"{path}.{item_key}", item_key
@@ -314,20 +333,12 @@ def _freeze_parameter(value: object, path: str, key: str | None = None) -> objec
         if value in _NON_FINITE_TEXT:
             _issue(path, "non-finite decimal value")
         if key is not None and key.lower().replace("-", "_").endswith("period"):
-            try:
-                return canonical_integer(value, path)
-            except ValueError as error:
-                _issue(path, str(error).partition(": ")[2] or str(error))
+            return _canonical_parameter_number(value, path, key)
         return value
     if isinstance(value, (int, Decimal)) and not isinstance(value, bool):
-        if key is not None and key.lower().replace("-", "_").endswith("period"):
-            return canonical_integer(value, path)
-        return canonical_decimal(value, path)
+        return _canonical_parameter_number(value, path, key)
     if isinstance(value, float):
-        try:
-            canonical_decimal(value, path)
-        except ValueError as error:
-            _issue(path, str(error).partition(": ")[2] or str(error))
+        _canonical_parameter_number(value, path, key)
     _issue(path, "non-JSON or executable parameter value is not permitted")
 
 
@@ -363,14 +374,38 @@ def _value(
         )
     elif node_type == "constant":
         unit = _unit(mapping["unit"], f"{path}.unit")
-        try:
-            value = (
-                canonical_integer(mapping["value"], f"{path}.value")
-                if unit == "integer-period"
-                else canonical_decimal(mapping["value"], f"{path}.value")
-            )
-        except ValueError as error:
-            _issue(f"{path}.value", str(error).partition(": ")[2] or str(error))
+        source_value = mapping["value"]
+        if isinstance(source_value, bool):
+            if unit != _BOOLEAN_UNIT:
+                _issue(f"{path}.unit", "boolean constant unit must equal boolean")
+            value = source_value
+        elif isinstance(source_value, str):
+            if source_value in _NON_FINITE_TEXT:
+                _issue(f"{path}.value", "non-finite decimal value")
+            try:
+                value = (
+                    canonical_integer(source_value, f"{path}.value")
+                    if unit == "integer-period"
+                    else canonical_decimal(source_value, f"{path}.value")
+                )
+            except ValueError:
+                if unit != _STRING_UNIT:
+                    _issue(f"{path}.value", "numeric constant required for declared unit")
+                value = source_value
+            else:
+                if unit not in _COMPARABLE_UNITS and unit != _VOLUME_UNIT:
+                    _issue(f"{path}.unit", "numeric constant requires numeric unit")
+        else:
+            if unit in {_STRING_UNIT, _BOOLEAN_UNIT}:
+                _issue(f"{path}.unit", "numeric constant requires numeric unit")
+            try:
+                value = (
+                    canonical_integer(source_value, f"{path}.value")
+                    if unit == "integer-period"
+                    else canonical_decimal(source_value, f"{path}.value")
+                )
+            except ValueError as error:
+                _issue(f"{path}.value", str(error).partition(": ")[2] or str(error))
         output = _SCALAR_OUTPUT
         payload.update({"value": value, "unit": unit})
     elif node_type == "price_ref":
@@ -423,6 +458,8 @@ def _predicate(
         right = _value(mapping["right"], f"{path}.right", depth + 1, state)
         if left.unit != right.unit:
             _issue(path, f"incompatible units: {left.unit} and {right.unit}")
+        if left.unit not in _COMPARABLE_UNITS:
+            _issue(path, f"unit {left.unit} is not comparable")
         if node_type != "compare" and (
             left.output != _SERIES_OUTPUT or right.output != _SERIES_OUTPUT
         ):

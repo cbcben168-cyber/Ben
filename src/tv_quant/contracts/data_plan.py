@@ -15,7 +15,7 @@ from .normalized_ir import NormalizedStrategyIR
 _PROVIDER_PREFERENCE = (
     "validated_local_cache_first",
     "futu_opend_incremental",
-    "validated_csv_import",
+    "validated_csv_parquet_import",
     "yfinance_smoke_only",
 )
 _PRIMARY_CAPABILITIES = ("daily_ohlcv_utc", "STRUCTURAL_ONLY")
@@ -40,6 +40,11 @@ class DatasetRequirement:
     cost_profile_requirement: str
     capability_requirements: tuple[str, ...]
 
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "session", _frozen_mapping(self.session, "session"))
+        object.__setattr__(self, "provider_preference", tuple(self.provider_preference))
+        object.__setattr__(self, "capability_requirements", tuple(self.capability_requirements))
+
 
 @dataclass(frozen=True, slots=True)
 class DataPlan:
@@ -51,11 +56,29 @@ class DataPlan:
     requested_range: Mapping[str, object]
     data_plan_hash: str
 
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "auxiliary", tuple(self.auxiliary))
+        object.__setattr__(
+            self, "requested_range", _frozen_mapping(self.requested_range, "requested_range")
+        )
+
 
 def _frozen_mapping(value: object, path: str) -> Mapping[str, object]:
     if not isinstance(value, Mapping) or any(not isinstance(key, str) for key in value):
         raise ValueError(f"{path}: object required")
-    return MappingProxyType({key: value[key] for key in sorted(value)})
+    return MappingProxyType(
+        {key: _deep_freeze(value[key], f"{path}.{key}") for key in sorted(value)}
+    )
+
+
+def _deep_freeze(value: object, path: str) -> object:
+    if isinstance(value, Mapping):
+        return _frozen_mapping(value, path)
+    if isinstance(value, (list, tuple)):
+        return tuple(_deep_freeze(item, f"{path}[{index}]") for index, item in enumerate(value))
+    if isinstance(value, bool) or value is None or isinstance(value, (str, int)):
+        return value
+    raise ValueError(f"{path}: immutable JSON-like value required")
 
 
 def _periods(value: object) -> tuple[int, ...]:

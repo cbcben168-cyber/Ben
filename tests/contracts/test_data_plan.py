@@ -123,11 +123,50 @@ def test_provider_preference_and_range_change_hash() -> None:
     assert baseline.primary.provider_preference == (
         "validated_local_cache_first",
         "futu_opend_incremental",
-        "validated_csv_import",
+        "validated_csv_parquet_import",
         "yfinance_smoke_only",
     )
     assert data_plan_hash(baseline) == baseline.data_plan_hash
     assert baseline.data_plan_hash != changed.data_plan_hash
+
+
+def test_public_data_plan_constructors_deep_freeze_mappings() -> None:
+    """Mutating caller-owned nested mappings must not alter a declared plan or its hash."""
+    from tv_quant.contracts.data_plan import DataPlan, DatasetRequirement
+
+    session = {"timezone": "America/New_York", "nested": {"value": 1}}
+    requested_range = {"start": "2024-01-02", "details": {"end": "2024-12-31"}}
+    requirement = DatasetRequirement(
+        dataset_role="primary",
+        provider_preference=("validated_local_cache_first",),
+        symbol="AAPL",
+        market="US_EQUITY",
+        timeframe="1d",
+        session=session,
+        timezone="UTC",
+        requested_start="2024-01-02",
+        requested_end="2024-12-31",
+        warmup_bars=0,
+        adjustment_requirement="adjusted_ohlcv",
+        corporate_action_requirement="corporate_actions_required",
+        cost_profile_requirement="cost_profile_required",
+        capability_requirements=("daily_ohlcv_utc",),
+    )
+    plan = DataPlan(
+        schema_version="v2.1",
+        primary=requirement,
+        auxiliary=(),
+        requested_range=requested_range,
+        data_plan_hash="stable-hash",
+    )
+
+    session["nested"]["value"] = 2
+    requested_range["details"]["end"] = "2025-01-01"
+
+    assert requirement.session["nested"]["value"] == 1
+    assert plan.requested_range["details"]["end"] == "2024-12-31"
+    with pytest.raises(TypeError):
+        requirement.session["timezone"] = "UTC"  # type: ignore[index]
 
 
 def test_unimplemented_capability_does_not_call_provider(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -171,6 +171,18 @@ def test_indicator_parameters_reject_compound_dynamic_terms_without_blocking_per
         "source_code",
         "callback",
         "myCallback",
+        "backup_urls",
+        "cache_filepath",
+        "primary_accountid",
+        "remote_urlcallback",
+        "myfilepath",
+        "brokeraccount",
+        "hostname",
+        "ordertype",
+        "pythoncode",
+        "sourcecode",
+        "uricallback",
+        "uris",
     ):
         invalid = {**valid, "parameters": {key: "unsafe"}}
 

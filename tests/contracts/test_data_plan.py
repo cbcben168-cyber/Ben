@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from decimal import Decimal
 import sys
 
 import pytest
@@ -167,6 +168,21 @@ def test_public_data_plan_constructors_deep_freeze_mappings() -> None:
     assert plan.requested_range["details"]["end"] == "2024-12-31"
     with pytest.raises(TypeError):
         requirement.session["timezone"] = "UTC"  # type: ignore[index]
+
+
+def test_data_plan_accepts_canonicalized_numeric_ir_metadata() -> None:
+    """Valid Decimal input reaches DataPlan as canonical text, never as a mutable numeric object."""
+    from tv_quant.contracts.data_plan import build_data_plan
+
+    payload = _payload()
+    payload["data"] = {
+        "source": "validated_local_cache_first",
+        "retention_days": Decimal("2.50"),
+    }
+    ir = _ir(payload)
+
+    assert ir.data["retention_days"] == "2.5"
+    assert build_data_plan(ir, _Registry()).primary.symbol == "AAPL"
 
 
 def test_unimplemented_capability_does_not_call_provider(monkeypatch: pytest.MonkeyPatch) -> None:

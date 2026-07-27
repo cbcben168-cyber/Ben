@@ -32,11 +32,10 @@ _COMPARABLE_UNITS = frozenset(
 _STRING_UNIT = "string"
 _BOOLEAN_UNIT = "boolean"
 _ALLOWED_UNITS = _COMPARABLE_UNITS | {_VOLUME_UNIT, _STRING_UNIT, _BOOLEAN_UNIT}
-_FORBIDDEN_PARAMETER_TERMS = frozenset(
+_FORBIDDEN_PARAMETER_EXACT = frozenset(
     {
         "account",
         "broker",
-        "callback",
         "callable",
         "class",
         "code",
@@ -54,6 +53,24 @@ _FORBIDDEN_PARAMETER_TERMS = frozenset(
         "order",
         "path",
         "provider",
+        "python",
+        "socket",
+        "uri",
+        "url",
+        "webhook",
+    }
+)
+_FORBIDDEN_PARAMETER_FRAGMENTS = frozenset(
+    {
+        "callback",
+        "dynamic",
+        "exec",
+        "expression",
+        "filesystem",
+        "function",
+        "import",
+        "module",
+        "network",
         "python",
         "socket",
         "uri",
@@ -296,9 +313,14 @@ def _unit(value: object, path: str) -> str:
     return unit
 
 
-def _parameter_terms(key: str) -> tuple[str, ...]:
-    normalized = _CAMEL_CASE_BOUNDARY.sub("_", key).lower().replace("-", "_")
-    return tuple(part for part in normalized.split("_") if part)
+def _is_forbidden_parameter_key(key: str) -> bool:
+    normalized = _CAMEL_CASE_BOUNDARY.sub("_", key).lower()
+    collapsed = re.sub(r"[^a-z0-9]", "", normalized)
+    return (
+        collapsed in _FORBIDDEN_PARAMETER_EXACT
+        or any(fragment in collapsed for fragment in _FORBIDDEN_PARAMETER_FRAGMENTS)
+        or collapsed.startswith(("file", "path"))
+    )
 
 
 def _canonical_parameter_number(value: object, path: str, key: str | None) -> object:
@@ -316,7 +338,7 @@ def _freeze_parameter(value: object, path: str, key: str | None = None) -> objec
             _issue(path, "parameter keys must be strings")
         frozen: dict[str, object] = {}
         for item_key in sorted(value):
-            if any(term in _FORBIDDEN_PARAMETER_TERMS for term in _parameter_terms(item_key)):
+            if _is_forbidden_parameter_key(item_key):
                 _issue(f"{path}.{item_key}", "dynamic/path/network field is not permitted")
             frozen[item_key] = _freeze_parameter(
                 value[item_key], f"{path}.{item_key}", item_key
@@ -324,7 +346,7 @@ def _freeze_parameter(value: object, path: str, key: str | None = None) -> objec
         return MappingProxyType(frozen)
     if isinstance(value, (list, tuple)):
         return tuple(
-            _freeze_parameter(item, f"{path}[{index}]")
+            _freeze_parameter(item, f"{path}[{index}]", key)
             for index, item in enumerate(value)
         )
     if isinstance(value, bool) or value is None:
@@ -375,29 +397,17 @@ def _value(
     elif node_type == "constant":
         unit = _unit(mapping["unit"], f"{path}.unit")
         source_value = mapping["value"]
-        if isinstance(source_value, bool):
-            if unit != _BOOLEAN_UNIT:
-                _issue(f"{path}.unit", "boolean constant unit must equal boolean")
+        if unit == _STRING_UNIT:
+            if not isinstance(source_value, str):
+                _issue(f"{path}.value", "string constant required for string unit")
             value = source_value
-        elif isinstance(source_value, str):
-            if source_value in _NON_FINITE_TEXT:
-                _issue(f"{path}.value", "non-finite decimal value")
-            try:
-                value = (
-                    canonical_integer(source_value, f"{path}.value")
-                    if unit == "integer-period"
-                    else canonical_decimal(source_value, f"{path}.value")
-                )
-            except ValueError:
-                if unit != _STRING_UNIT:
-                    _issue(f"{path}.value", "numeric constant required for declared unit")
-                value = source_value
-            else:
-                if unit not in _COMPARABLE_UNITS and unit != _VOLUME_UNIT:
-                    _issue(f"{path}.unit", "numeric constant requires numeric unit")
+        elif unit == _BOOLEAN_UNIT:
+            if not isinstance(source_value, bool):
+                _issue(f"{path}.value", "boolean constant required for boolean unit")
+            value = source_value
         else:
-            if unit in {_STRING_UNIT, _BOOLEAN_UNIT}:
-                _issue(f"{path}.unit", "numeric constant requires numeric unit")
+            if isinstance(source_value, bool):
+                _issue(f"{path}.value", "numeric constant required for declared unit")
             try:
                 value = (
                     canonical_integer(source_value, f"{path}.value")
@@ -458,7 +468,10 @@ def _predicate(
         right = _value(mapping["right"], f"{path}.right", depth + 1, state)
         if left.unit != right.unit:
             _issue(path, f"incompatible units: {left.unit} and {right.unit}")
-        if left.unit not in _COMPARABLE_UNITS:
+        if node_type == "compare" and left.unit in {_STRING_UNIT, _BOOLEAN_UNIT}:
+            if operator not in {"eq", "neq"}:
+                _issue(path, "string/boolean comparisons require eq or neq")
+        elif left.unit not in _COMPARABLE_UNITS:
             _issue(path, f"unit {left.unit} is not comparable")
         if node_type != "compare" and (
             left.output != _SERIES_OUTPUT or right.output != _SERIES_OUTPUT

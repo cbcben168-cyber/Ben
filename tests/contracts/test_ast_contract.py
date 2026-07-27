@@ -151,13 +151,47 @@ def test_indicator_parameters_reject_compound_dynamic_terms_without_blocking_per
     }
     assert isinstance(validate_ast(valid, ValueExpression, "operand"), ValueExpression)
 
-    for key in ("file_path", "python_code", "callback_url"):
+    for key in (
+        "file_path",
+        "python_code",
+        "callback_url",
+        "filepath",
+        "FILEPath",
+        "file.path",
+        "file/path",
+        "python.code",
+        "URLCallback",
+        "urls",
+    ):
         invalid = {**valid, "parameters": {key: "unsafe"}}
 
         issue = _issue(invalid, ValueExpression, "operand")
 
         assert issue.path == f"operand.parameters.{key}"
         assert "dynamic/path/network" in issue.message
+
+
+@pytest.mark.parametrize(
+    "parameters",
+    [
+        {"period": [1, Decimal("1.5")]},
+        {"period": (1, "2.5")},
+    ],
+)
+def test_period_parameter_containers_preserve_integer_validation(parameters):
+    """A period list or tuple cannot bypass integer-period validation for its items."""
+    indicator = {
+        "node_type": "indicator_ref",
+        "name": "EMA",
+        "parameters": parameters,
+        "output": "series",
+        "unit": "USD",
+    }
+
+    issue = _issue(indicator, ValueExpression, "operand")
+
+    assert issue.path.endswith("[1]")
+    assert issue.code == "CONFIG_VALIDATION_BLOCKER"
 
 
 def test_indicator_parameter_numeric_errors_return_ast_validation_issues():
@@ -225,23 +259,59 @@ def test_values_are_canonical_immutable_and_units_are_explicitly_compatible():
 
 @pytest.mark.parametrize(
     ("value", "unit"),
-    [("regime:bull", "string"), (True, "boolean")],
+    [
+        ("regime:bull", "string"),
+        ("00123", "string"),
+        ("NaN", "string"),
+        ("Infinity", "string"),
+        (True, "boolean"),
+    ],
 )
-def test_constant_accepts_string_or_bool_with_typed_noncomparable_units(value, unit):
-    """Non-numeric constants stay immutable values but cannot enter numeric predicates."""
+def test_constant_uses_declared_string_or_boolean_unit_before_value_shape(value, unit):
+    """String literals remain unchanged and booleans require the boolean unit."""
     constant = {"node_type": "constant", "value": value, "unit": unit}
 
     expression = validate_ast(constant, ValueExpression, "operand")
     assert expression.payload["value"] == value
     assert expression.unit == unit
 
-    predicate = {
-        "node_type": "compare",
-        "operator": "eq",
-        "left": constant,
-        "right": constant,
+    for operator in ("eq", "neq"):
+        predicate = {
+            "node_type": "compare",
+            "operator": operator,
+            "left": constant,
+            "right": constant,
+        }
+        assert isinstance(
+            validate_ast(predicate, PredicateExpression, "entry"),
+            PredicateExpression,
+        )
+
+
+def test_boolean_unit_rejects_non_boolean_and_string_unit_rejects_boolean():
+    """Declared scalar units are exact type declarations, not value guesses."""
+    for constant in (
+        {"node_type": "constant", "value": 1, "unit": "boolean"},
+        {"node_type": "constant", "value": True, "unit": "string"},
+    ):
+        issue = _issue(constant, ValueExpression, "operand")
+
+        assert issue.path in {"operand.value", "operand.unit"}
+
+
+def test_cross_rejects_string_series_even_when_units_match():
+    """Cross nodes remain available only to comparable numeric series values."""
+    indicator = {
+        "node_type": "indicator_ref",
+        "name": "EMA",
+        "parameters": {"period": 20},
+        "output": "series",
+        "unit": "string",
     }
-    issue = _issue(predicate, PredicateExpression, "entry")
+    cross = {"node_type": "cross_above", "left": indicator, "right": indicator}
+
+    issue = _issue(cross, PredicateExpression, "entry")
+
     assert issue.path == "entry"
     assert "not comparable" in issue.message
 

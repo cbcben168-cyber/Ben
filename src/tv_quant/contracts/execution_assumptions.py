@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
 import re
+from types import MappingProxyType
 
 from tv_quant.run_manifest import canonical_hash
 
@@ -26,29 +27,19 @@ _CALLER_FIELDS = frozenset(
 )
 _SESSION_FIELDS = frozenset({"timezone", "regular_hours_only", "calendar_id"})
 _SHA256_HEX = re.compile(r"[0-9a-f]{64}\Z")
-
-
-class _FrozenDict(dict[str, object]):
-    """An immutable dict subclass that remains JSON-serializable by the hash owner."""
-
-    def _immutable(self, *_args: object, **_kwargs: object) -> None:
-        raise TypeError("immutable mapping")
-
-    __setitem__ = _immutable
-    __delitem__ = _immutable
-    clear = _immutable
-    pop = _immutable
-    popitem = _immutable
-    setdefault = _immutable
-    update = _immutable
-    __ior__ = _immutable
+_STABLE_IDENTIFIER = re.compile(r"[A-Za-z0-9._:-]+\Z")
+_DISALLOWED_IDENTIFIER_SEGMENTS = frozenset(
+    {"lambda", "eval", "exec", "compile", "__import__", "importlib"}
+)
 
 
 def _frozen_value(value: object, path: str) -> object:
     if isinstance(value, Mapping):
         if any(not isinstance(key, str) for key in value):
             raise ValueError(f"{path}: object keys must be strings")
-        return _FrozenDict({key: _frozen_value(value[key], f"{path}.{key}") for key in sorted(value)})
+        return MappingProxyType(
+            {key: _frozen_value(value[key], f"{path}.{key}") for key in sorted(value)}
+        )
     if isinstance(value, (list, tuple)):
         return tuple(_frozen_value(item, f"{path}[{index}]") for index, item in enumerate(value))
     if isinstance(value, bool) or value is None or isinstance(value, (str, int)):
@@ -109,23 +100,16 @@ class ExecutionAssumptions:
         if set(session_policy) != _SESSION_FIELDS:
             raise ValueError("session_policy: exact keys required")
         object.__setattr__(self, "session_policy", session_policy)
+        _non_empty_string(session_policy.get("timezone"), "session_policy.timezone")
+        if not isinstance(session_policy.get("regular_hours_only"), bool):
+            raise ValueError("session_policy.regular_hours_only: boolean required")
+        _non_empty_string(session_policy.get("calendar_id"), "session_policy.calendar_id")
         if self.initial_capital_policy != "100000 USD":
             raise ValueError("initial_capital_policy: must equal 100000 USD")
-        if self.fill_timing != "next_bar_open":
-            raise ValueError("fill_timing: must equal next_bar_open")
-        if session_policy.get("timezone") != "America/New_York":
-            raise ValueError("session_policy.timezone: must equal America/New_York")
-        if session_policy.get("regular_hours_only") is not True:
-            raise ValueError("session_policy.regular_hours_only: must equal true")
-        _non_empty_string(session_policy.get("calendar_id"), "session_policy.calendar_id")
         if self.optimization_policy != "false":
             raise ValueError("optimization_policy: must equal false")
         if self.report_language != "zh-CN":
             raise ValueError("report_language: must equal zh-CN")
-        if self.schema_version != "v2.1" or self.compiler_version != "v2.1":
-            raise ValueError("schema/compiler version: must equal v2.1")
-        if self.normalizer_version != "v2.1":
-            raise ValueError("normalizer_version: must equal v2.1")
         if self.engine_status != "NOT_IMPLEMENTED":
             raise ValueError("engine_status: must equal NOT_IMPLEMENTED")
 
@@ -135,14 +119,23 @@ def _caller_inputs(value: object) -> Mapping[str, str]:
         raise ValueError("capability_registry: mapping required")
     if set(value) != _CALLER_FIELDS:
         raise ValueError("capability_registry: exact caller metadata keys required")
-    caller = _FrozenDict(
-        {key: _non_empty_string(value[key], f"capability_registry.{key}") for key in sorted(_CALLER_FIELDS)}
-    )
+    caller = {
+        key: _non_empty_string(value[key], f"capability_registry.{key}")
+        for key in sorted(_CALLER_FIELDS)
+    }
+    for key, identifier in caller.items():
+        if key != "capability_snapshot_hash":
+            segments = re.split(r"[._:-]", identifier)
+            if (
+                not _STABLE_IDENTIFIER.fullmatch(identifier)
+                or any(segment in _DISALLOWED_IDENTIFIER_SEGMENTS for segment in segments)
+            ):
+                raise ValueError(f"capability_registry.{key}: stable identifier required")
     if not _SHA256_HEX.fullmatch(caller["capability_snapshot_hash"]):
         raise ValueError("capability_registry.capability_snapshot_hash: lowercase SHA-256 hex required")
     if caller["normalizer_version"] != "v2.1":
         raise ValueError("capability_registry.normalizer_version: must equal v2.1")
-    return caller  # type: ignore[return-value]
+    return MappingProxyType(caller)
 
 
 def _validated_session(value: object) -> Mapping[str, object]:
@@ -208,7 +201,7 @@ def build_execution_assumptions(
 
 def _payload_value(value: object) -> object:
     if isinstance(value, Mapping):
-        return _FrozenDict({key: _payload_value(value[key]) for key in sorted(value)})
+        return MappingProxyType({key: _payload_value(value[key]) for key in sorted(value)})
     if isinstance(value, tuple):
         return tuple(_payload_value(item) for item in value)
     if isinstance(value, (float, Decimal)) or callable(value):
@@ -220,17 +213,25 @@ def execution_assumptions_payload(assumptions: ExecutionAssumptions) -> Mapping[
     """Return a fresh deterministic JSON-like payload for the hash owner."""
     if not isinstance(assumptions, ExecutionAssumptions):
         raise ValueError("ExecutionAssumptions required")
-    return _FrozenDict({
+    return MappingProxyType({
         field: _payload_value(getattr(assumptions, field))
         for field in ExecutionAssumptions.__dataclass_fields__
     })
+
+
+def _thaw(value: object) -> object:
+    if isinstance(value, Mapping):
+        return {key: _thaw(value[key]) for key in value}
+    if isinstance(value, tuple):
+        return tuple(_thaw(item) for item in value)
+    return value
 
 
 def assumptions_hash(assumptions: ExecutionAssumptions) -> str:
     """Hash only the typed canonical assumptions through the manifest hash owner."""
     if not isinstance(assumptions, ExecutionAssumptions):
         raise ValueError("ExecutionAssumptions required")
-    return canonical_hash(execution_assumptions_payload(assumptions))
+    return canonical_hash(_thaw(execution_assumptions_payload(assumptions)))
 
 
 __all__ = (

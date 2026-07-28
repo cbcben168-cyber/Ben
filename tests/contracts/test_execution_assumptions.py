@@ -182,6 +182,8 @@ def test_payload_is_deterministic_fresh_and_session_is_deeply_immutable() -> Non
         first_payload["session_policy"]["calendar_id"] = "XNAS"  # type: ignore[index]
     with pytest.raises(TypeError):
         first_payload["engine_status"] = "implemented"
+    with pytest.raises(TypeError):
+        dict.__setitem__(first_payload, "engine_status", "implemented")
 
 
 @pytest.mark.parametrize("field", sorted(_inputs()))
@@ -228,6 +230,8 @@ def test_session_calendar_change_changes_hash_but_environment_noise_is_rejected(
     baseline = _assumptions()
     changed = replace(baseline, session_policy={**baseline.session_policy, "calendar_id": "XNAS"})
     assert assumptions_hash(baseline) != assumptions_hash(changed)
+    changed_timezone = replace(baseline, session_policy={**baseline.session_policy, "timezone": "UTC"})
+    assert assumptions_hash(baseline) != assumptions_hash(changed_timezone)
     for noise_key in ("timestamp", "path", "pid", "mtime", "environment"):
         with pytest.raises(ValueError, match="exact keys required"):
             replace(baseline, session_policy={**baseline.session_policy, noise_key: "noise"})
@@ -236,18 +240,54 @@ def test_session_calendar_change_changes_hash_but_environment_noise_is_rejected(
 @pytest.mark.parametrize(
     ("field", "replacement"),
     (
-        ("initial_capital_policy", "1 USD"),
         ("fill_timing", "next_bar_close"),
-        ("optimization_policy", "true"),
-        ("report_language", "en-US"),
         ("schema_version", "v2.2"),
         ("compiler_version", "v2.2"),
         ("normalizer_version", "v2.2"),
-        ("engine_status", "implemented"),
     ),
 )
-def test_frozen_policy_and_version_changes_are_rejected(field: str, replacement: str) -> None:
-    """Pinned V2.1 policy/version values cannot be silently rebound."""
+def test_explicit_safe_policy_and_version_changes_change_hash(field: str, replacement: str) -> None:
+    """Typed assumptions bind every explicit fill and version field in their hash."""
+    from tv_quant.contracts.execution_assumptions import assumptions_hash
+
+    baseline = _assumptions()
+    changed = replace(baseline, **{field: replacement})
+    assert assumptions_hash(baseline) != assumptions_hash(changed)
+
+
+def test_builder_rejects_non_v21_fill_and_version_values() -> None:
+    """Only the builder, not hashing, fixes the V2.1 policy values."""
+    from tv_quant.contracts.execution_assumptions import build_execution_assumptions
+
+    ir = _ir()
+    plan = build_data_plan(ir, object())
+    for changed_ir in (
+        replace(ir, fill_timing="next_bar_close"),
+        replace(ir, schema_version="v2.2"),
+        replace(ir, compiler_version="v2.2"),
+    ):
+        with pytest.raises(ValueError):
+            build_execution_assumptions(changed_ir, plan, _inputs())
+    changed_inputs = _inputs()
+    changed_inputs["normalizer_version"] = "v2.2"
+    with pytest.raises(ValueError):
+        build_execution_assumptions(ir, plan, changed_inputs)
+
+
+@pytest.mark.parametrize(
+    ("field", "replacement"),
+    (
+        ("initial_capital_policy", "99999 USD"),
+        ("optimization_policy", "true"),
+        ("report_language", "en-US"),
+        ("engine_status", "IMPLEMENTED"),
+        ("plugin", {"name": "future-plugin"}),
+    ),
+)
+def test_typed_assumptions_reject_fixed_policy_engine_and_plugin_changes(
+    field: str, replacement: object
+) -> None:
+    """These non-negotiable V2.1 semantics cannot be weakened by direct construction."""
     with pytest.raises(ValueError):
         replace(_assumptions(), **{field: replacement})
 
@@ -260,10 +300,13 @@ def test_frozen_policy_and_version_changes_are_rejected(field: str, replacement:
         {"timezone": "America/New_York", "regular_hours_only": True, "calendar_id": ""},
     ),
 )
-def test_frozen_session_policy_changes_are_rejected(session_policy: Mapping[str, object]) -> None:
-    """Timezone and regular-hours policy are fixed, and calendar identity is required."""
+def test_builder_rejects_non_v21_session_policy(session_policy: Mapping[str, object]) -> None:
+    """Timezone and regular-hours policy are fixed by the builder gate."""
+    from tv_quant.contracts.execution_assumptions import build_execution_assumptions
+
+    ir = replace(_ir(), session=session_policy)
     with pytest.raises(ValueError):
-        replace(_assumptions(), session_policy=session_policy)
+        build_execution_assumptions(ir, build_data_plan(_ir(), object()), _inputs())
 
 
 @pytest.mark.parametrize("snapshot", ("a" * 63, "A" * 64, "g" * 64))
@@ -287,6 +330,31 @@ def test_caller_metadata_rejects_code_like_values() -> None:
     inputs["cost_profile_id"] = lambda: None
     with pytest.raises(ValueError, match="non-empty string required"):
         build_execution_assumptions(ir, build_data_plan(ir, object()), inputs)
+
+
+@pytest.mark.parametrize(
+    "identifier",
+    ("cost profile", "cost/profile", "cost\\profile", "cost()", "cost[0]", "'cost'", "a+b", "lambda:x", "eval(x)"),
+)
+def test_caller_metadata_rejects_dynamic_or_non_identifier_text(identifier: str) -> None:
+    """Metadata IDs are a narrow identifier grammar, not executable expression text."""
+    from tv_quant.contracts.execution_assumptions import build_execution_assumptions
+
+    ir = _ir()
+    inputs = _inputs()
+    inputs["cost_profile_id"] = identifier
+    with pytest.raises(ValueError, match="stable identifier"):
+        build_execution_assumptions(ir, build_data_plan(ir, object()), inputs)
+
+
+def test_harmless_identifier_with_exec_substring_is_accepted() -> None:
+    """Identifier syntax, rather than substring filtering, governs caller metadata."""
+    from tv_quant.contracts.execution_assumptions import build_execution_assumptions
+
+    ir = _ir()
+    inputs = _inputs()
+    inputs["cost_profile_id"] = "cost.execute-proof.v1"
+    assert build_execution_assumptions(ir, build_data_plan(ir, object()), inputs).cost_profile_id == inputs["cost_profile_id"]
 
 
 @pytest.mark.parametrize("bad_value", (lambda: None, float("nan"), float("inf"), float("-inf")))

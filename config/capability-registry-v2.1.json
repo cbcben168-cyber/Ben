@@ -1,0 +1,160 @@
+{
+  "schema_version": "v2.1",
+  "capabilities": [
+    {
+      "capability_id": "phase1.ema.daily.golden",
+      "version": "v2.1",
+      "implementation_status": "implemented",
+      "supported_market": [
+        "SPY",
+        "QQQ"
+      ],
+      "supported_timeframes": [
+        "1d"
+      ],
+      "provider": null,
+      "required_dependencies": [],
+      "formal_status": "formal_verified",
+      "structural_availability": "available",
+      "implementation_availability": "available",
+      "formal_eligibility": "eligible",
+      "smoke_only_status": "not_smoke_only",
+      "blocker_code": null,
+      "evidence": [
+        "strategy.run_backtest",
+        "phase1-backtest-tests",
+        "commit:81438c7"
+      ],
+      "last_verified": "2026-07-26",
+      "implementation_owner": "tv_quant.strategy"
+    },
+    {
+      "capability_id": "futu.daily.current",
+      "version": "v2.1",
+      "implementation_status": "implemented",
+      "supported_market": [
+        "US_EQUITY"
+      ],
+      "supported_timeframes": [
+        "1d"
+      ],
+      "provider": "FUTU_OPEND",
+      "required_dependencies": [
+        "futu-api"
+      ],
+      "formal_status": "not_live_verified",
+      "structural_availability": "available",
+      "implementation_availability": "available",
+      "formal_eligibility": "not_eligible",
+      "smoke_only_status": "smoke_only",
+      "blocker_code": null,
+      "evidence": [
+        "futu-downloader",
+        "futu-quota-tests",
+        "no-v2.1-live-connection"
+      ],
+      "last_verified": "2026-07-27",
+      "implementation_owner": "tv_quant.futu_downloader"
+    },
+    {
+      "capability_id": "vectorbt.daily.main",
+      "version": "v2.1",
+      "implementation_status": "not_implemented",
+      "supported_market": [
+        "US_EQUITY"
+      ],
+      "supported_timeframes": [
+        "1d"
+      ],
+      "provider": null,
+      "required_dependencies": [
+        "vectorbt"
+      ],
+      "formal_status": "unavailable",
+      "structural_availability": "available",
+      "implementation_availability": "unavailable",
+      "formal_eligibility": "not_eligible",
+      "smoke_only_status": "not_smoke_only",
+      "blocker_code": "ENGINE_CAPABILITY_BLOCKER",
+      "evidence": [
+        "design-only-v2.1"
+      ],
+      "last_verified": "2026-07-27",
+      "implementation_owner": "unassigned"
+    },
+    {
+      "capability_id": "intraday.15m.30m.60m",
+      "version": "v2.1",
+      "implementation_status": "not_implemented",
+      "supported_market": [
+        "US_EQUITY"
+      ],
+      "supported_timeframes": [
+        "15m",
+        "30m",
+        "60m"
+      ],
+      "provider": null,
+      "required_dependencies": [],
+      "formal_status": "unavailable",
+      "structural_availability": "available",
+      "implementation_availability": "unavailable",
+      "formal_eligibility": "not_eligible",
+      "smoke_only_status": "not_smoke_only",
+      "blocker_code": "DATA_CAPABILITY_BLOCKER",
+      "evidence": [
+        "design-only-v2.1"
+      ],
+      "last_verified": "2026-07-27",
+      "implementation_owner": "unassigned"
+    },
+    {
+      "capability_id": "corporate_actions.cash_dividend",
+      "version": "v2.1",
+      "implementation_status": "not_verified",
+      "supported_market": [
+        "US_EQUITY"
+      ],
+      "supported_timeframes": [
+        "1d"
+      ],
+      "provider": null,
+      "required_dependencies": [],
+      "formal_status": "unavailable",
+      "structural_availability": "available",
+      "implementation_availability": "unavailable",
+      "formal_eligibility": "not_eligible",
+      "smoke_only_status": "not_smoke_only",
+      "blocker_code": "CORPORATE_ACTION_DATA_BLOCKER",
+      "evidence": [
+        "cash-processing-not-verified"
+      ],
+      "last_verified": "2026-07-27",
+      "implementation_owner": "unassigned"
+    },
+    {
+      "capability_id": "plugin.execution.sandbox",
+      "version": "v2.1",
+      "implementation_status": "not_implemented",
+      "supported_market": [
+        "US_EQUITY"
+      ],
+      "supported_timeframes": [
+        "1d"
+      ],
+      "provider": null,
+      "required_dependencies": [],
+      "formal_status": "unavailable",
+      "structural_availability": "available",
+      "implementation_availability": "unavailable",
+      "formal_eligibility": "not_eligible",
+      "smoke_only_status": "not_smoke_only",
+      "blocker_code": "PLUGIN_VALIDATION_BLOCKER",
+      "evidence": [
+        "plugin-execution-not-implemented"
+      ],
+      "last_verified": "2026-07-27",
+      "implementation_owner": "unassigned"
+    }
+  ]
+}

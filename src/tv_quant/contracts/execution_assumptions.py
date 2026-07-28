@@ -55,6 +55,24 @@ def _non_empty_string(value: object, path: str) -> str:
     return value
 
 
+def _stable_identifier(value: object, path: str) -> str:
+    identifier = _non_empty_string(value, path)
+    segments = re.split(r"[._:-]", identifier)
+    if (
+        not _STABLE_IDENTIFIER.fullmatch(identifier)
+        or any(segment.lower() in _DISALLOWED_IDENTIFIER_SEGMENTS for segment in segments)
+    ):
+        raise ValueError(f"{path}: stable identifier required")
+    return identifier
+
+
+def _capability_snapshot_hash(value: object, path: str) -> str:
+    snapshot_hash = _non_empty_string(value, path)
+    if not _SHA256_HEX.fullmatch(snapshot_hash):
+        raise ValueError(f"{path}: lowercase SHA-256 hex required")
+    return snapshot_hash
+
+
 @dataclass(frozen=True, slots=True)
 class ExecutionAssumptions:
     """All V2.1 execution semantics that must bind a confirmation."""
@@ -94,6 +112,15 @@ class ExecutionAssumptions:
             _non_empty_string(getattr(self, field), field)
         if self.plugin is not None:
             raise ValueError("plugin: V2.1 requires null")
+        for field in (
+            "cost_profile_id",
+            "corporate_action_profile_id",
+            "benchmark_protocol_id",
+            "benchmark_protocol_version",
+            "normalizer_version",
+        ):
+            _stable_identifier(getattr(self, field), field)
+        _capability_snapshot_hash(self.capability_snapshot_hash, "capability_snapshot_hash")
         session_policy = _frozen_value(self.session_policy, "session_policy")
         if not isinstance(session_policy, Mapping):
             raise ValueError("session_policy: object required")
@@ -104,6 +131,12 @@ class ExecutionAssumptions:
         if not isinstance(session_policy.get("regular_hours_only"), bool):
             raise ValueError("session_policy.regular_hours_only: boolean required")
         _non_empty_string(session_policy.get("calendar_id"), "session_policy.calendar_id")
+        if self.fill_timing != "next_bar_open":
+            raise ValueError("fill_timing: must equal next_bar_open")
+        if session_policy.get("timezone") != "America/New_York":
+            raise ValueError("session_policy.timezone: must equal America/New_York")
+        if session_policy.get("regular_hours_only") is not True:
+            raise ValueError("session_policy.regular_hours_only: must equal true")
         if self.initial_capital_policy != "100000 USD":
             raise ValueError("initial_capital_policy: must equal 100000 USD")
         if self.optimization_policy != "false":
@@ -112,6 +145,12 @@ class ExecutionAssumptions:
             raise ValueError("report_language: must equal zh-CN")
         if self.engine_status != "NOT_IMPLEMENTED":
             raise ValueError("engine_status: must equal NOT_IMPLEMENTED")
+        if (
+            self.schema_version != "v2.1"
+            or self.compiler_version != "v2.1"
+            or self.normalizer_version != "v2.1"
+        ):
+            raise ValueError("schema/compiler/normalizer version: must equal v2.1")
 
 
 def _caller_inputs(value: object) -> Mapping[str, str]:
@@ -120,19 +159,13 @@ def _caller_inputs(value: object) -> Mapping[str, str]:
     if set(value) != _CALLER_FIELDS:
         raise ValueError("capability_registry: exact caller metadata keys required")
     caller = {
-        key: _non_empty_string(value[key], f"capability_registry.{key}")
+        key: (
+            _capability_snapshot_hash(value[key], f"capability_registry.{key}")
+            if key == "capability_snapshot_hash"
+            else _stable_identifier(value[key], f"capability_registry.{key}")
+        )
         for key in sorted(_CALLER_FIELDS)
     }
-    for key, identifier in caller.items():
-        if key != "capability_snapshot_hash":
-            segments = re.split(r"[._:-]", identifier)
-            if (
-                not _STABLE_IDENTIFIER.fullmatch(identifier)
-                or any(segment in _DISALLOWED_IDENTIFIER_SEGMENTS for segment in segments)
-            ):
-                raise ValueError(f"capability_registry.{key}: stable identifier required")
-    if not _SHA256_HEX.fullmatch(caller["capability_snapshot_hash"]):
-        raise ValueError("capability_registry.capability_snapshot_hash: lowercase SHA-256 hex required")
     if caller["normalizer_version"] != "v2.1":
         raise ValueError("capability_registry.normalizer_version: must equal v2.1")
     return MappingProxyType(caller)

@@ -230,8 +230,8 @@ def test_session_calendar_change_changes_hash_but_environment_noise_is_rejected(
     baseline = _assumptions()
     changed = replace(baseline, session_policy={**baseline.session_policy, "calendar_id": "XNAS"})
     assert assumptions_hash(baseline) != assumptions_hash(changed)
-    changed_timezone = replace(baseline, session_policy={**baseline.session_policy, "timezone": "UTC"})
-    assert assumptions_hash(baseline) != assumptions_hash(changed_timezone)
+    with pytest.raises(ValueError):
+        replace(baseline, session_policy={**baseline.session_policy, "timezone": "UTC"})
     for noise_key in ("timestamp", "path", "pid", "mtime", "environment"):
         with pytest.raises(ValueError, match="exact keys required"):
             replace(baseline, session_policy={**baseline.session_policy, noise_key: "noise"})
@@ -246,13 +246,12 @@ def test_session_calendar_change_changes_hash_but_environment_noise_is_rejected(
         ("normalizer_version", "v2.2"),
     ),
 )
-def test_explicit_safe_policy_and_version_changes_change_hash(field: str, replacement: str) -> None:
-    """Typed assumptions bind every explicit fill and version field in their hash."""
-    from tv_quant.contracts.execution_assumptions import assumptions_hash
-
-    baseline = _assumptions()
-    changed = replace(baseline, **{field: replacement})
-    assert assumptions_hash(baseline) != assumptions_hash(changed)
+def test_typed_assumptions_reject_fixed_fill_and_version_changes(
+    field: str, replacement: str
+) -> None:
+    """A typed hash input cannot represent values outside the frozen V2.1 contract."""
+    with pytest.raises(ValueError):
+        replace(_assumptions(), **{field: replacement})
 
 
 def test_builder_rejects_non_v21_fill_and_version_values() -> None:
@@ -334,7 +333,7 @@ def test_caller_metadata_rejects_code_like_values() -> None:
 
 @pytest.mark.parametrize(
     "identifier",
-    ("cost profile", "cost/profile", "cost\\profile", "cost()", "cost[0]", "'cost'", "a+b", "lambda:x", "eval(x)"),
+    ("cost profile", "cost/profile", "cost\\profile", "cost()", "cost[0]", "'cost'", "a+b", "lambda:x", "LAMBDA:x", "Eval:cost", "ImportLib.plugin", "eval(x)"),
 )
 def test_caller_metadata_rejects_dynamic_or_non_identifier_text(identifier: str) -> None:
     """Metadata IDs are a narrow identifier grammar, not executable expression text."""
@@ -355,6 +354,25 @@ def test_harmless_identifier_with_exec_substring_is_accepted() -> None:
     inputs = _inputs()
     inputs["cost_profile_id"] = "cost.execute-proof.v1"
     assert build_execution_assumptions(ir, build_data_plan(ir, object()), inputs).cost_profile_id == inputs["cost_profile_id"]
+
+
+@pytest.mark.parametrize(
+    ("field", "identifier"),
+    (
+        ("cost_profile_id", "eval:cost"),
+        ("cost_profile_id", "Eval:cost"),
+        ("corporate_action_profile_id", "importlib.actions"),
+        ("corporate_action_profile_id", "ImportLib.actions"),
+        ("benchmark_protocol_id", "benchmark/path"),
+        ("benchmark_protocol_version", "v 1"),
+        ("normalizer_version", "V2.1"),
+        ("capability_snapshot_hash", "A" * 64),
+    ),
+)
+def test_direct_typed_construction_rejects_unsafe_identifiers(field: str, identifier: str) -> None:
+    """Public typed assumptions enforce the same stable-ID boundary as the builder."""
+    with pytest.raises(ValueError):
+        replace(_assumptions(), **{field: identifier})
 
 
 @pytest.mark.parametrize("bad_value", (lambda: None, float("nan"), float("inf"), float("-inf")))

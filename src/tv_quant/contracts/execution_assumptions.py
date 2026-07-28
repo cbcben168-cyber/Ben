@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from decimal import Decimal
-from types import MappingProxyType
+import re
 
 from tv_quant.run_manifest import canonical_hash
 
@@ -24,15 +24,31 @@ _CALLER_FIELDS = frozenset(
         "normalizer_version",
     }
 )
+_SESSION_FIELDS = frozenset({"timezone", "regular_hours_only", "calendar_id"})
+_SHA256_HEX = re.compile(r"[0-9a-f]{64}\Z")
+
+
+class _FrozenDict(dict[str, object]):
+    """An immutable dict subclass that remains JSON-serializable by the hash owner."""
+
+    def _immutable(self, *_args: object, **_kwargs: object) -> None:
+        raise TypeError("immutable mapping")
+
+    __setitem__ = _immutable
+    __delitem__ = _immutable
+    clear = _immutable
+    pop = _immutable
+    popitem = _immutable
+    setdefault = _immutable
+    update = _immutable
+    __ior__ = _immutable
 
 
 def _frozen_value(value: object, path: str) -> object:
     if isinstance(value, Mapping):
         if any(not isinstance(key, str) for key in value):
             raise ValueError(f"{path}: object keys must be strings")
-        return MappingProxyType(
-            {key: _frozen_value(value[key], f"{path}.{key}") for key in sorted(value)}
-        )
+        return _FrozenDict({key: _frozen_value(value[key], f"{path}.{key}") for key in sorted(value)})
     if isinstance(value, (list, tuple)):
         return tuple(_frozen_value(item, f"{path}[{index}]") for index, item in enumerate(value))
     if isinstance(value, bool) or value is None or isinstance(value, (str, int)):
@@ -90,6 +106,8 @@ class ExecutionAssumptions:
         session_policy = _frozen_value(self.session_policy, "session_policy")
         if not isinstance(session_policy, Mapping):
             raise ValueError("session_policy: object required")
+        if set(session_policy) != _SESSION_FIELDS:
+            raise ValueError("session_policy: exact keys required")
         object.__setattr__(self, "session_policy", session_policy)
         if self.initial_capital_policy != "100000 USD":
             raise ValueError("initial_capital_policy: must equal 100000 USD")
@@ -106,6 +124,8 @@ class ExecutionAssumptions:
             raise ValueError("report_language: must equal zh-CN")
         if self.schema_version != "v2.1" or self.compiler_version != "v2.1":
             raise ValueError("schema/compiler version: must equal v2.1")
+        if self.normalizer_version != "v2.1":
+            raise ValueError("normalizer_version: must equal v2.1")
         if self.engine_status != "NOT_IMPLEMENTED":
             raise ValueError("engine_status: must equal NOT_IMPLEMENTED")
 
@@ -115,15 +135,22 @@ def _caller_inputs(value: object) -> Mapping[str, str]:
         raise ValueError("capability_registry: mapping required")
     if set(value) != _CALLER_FIELDS:
         raise ValueError("capability_registry: exact caller metadata keys required")
-    return MappingProxyType(
+    caller = _FrozenDict(
         {key: _non_empty_string(value[key], f"capability_registry.{key}") for key in sorted(_CALLER_FIELDS)}
     )
+    if not _SHA256_HEX.fullmatch(caller["capability_snapshot_hash"]):
+        raise ValueError("capability_registry.capability_snapshot_hash: lowercase SHA-256 hex required")
+    if caller["normalizer_version"] != "v2.1":
+        raise ValueError("capability_registry.normalizer_version: must equal v2.1")
+    return caller  # type: ignore[return-value]
 
 
 def _validated_session(value: object) -> Mapping[str, object]:
     session = _frozen_value(value, "ir.session")
     if not isinstance(session, Mapping):  # defensive: _frozen_value preserves mapping type
         raise ValueError("ir.session: object required")
+    if set(session) != _SESSION_FIELDS:
+        raise ValueError("ir.session: exact keys required")
     if session.get("timezone") != "America/New_York":
         raise ValueError("ir.session.timezone: must equal America/New_York")
     if session.get("regular_hours_only") is not True:
@@ -181,7 +208,7 @@ def build_execution_assumptions(
 
 def _payload_value(value: object) -> object:
     if isinstance(value, Mapping):
-        return {key: _payload_value(value[key]) for key in sorted(value)}
+        return _FrozenDict({key: _payload_value(value[key]) for key in sorted(value)})
     if isinstance(value, tuple):
         return tuple(_payload_value(item) for item in value)
     if isinstance(value, (float, Decimal)) or callable(value):
@@ -193,10 +220,10 @@ def execution_assumptions_payload(assumptions: ExecutionAssumptions) -> Mapping[
     """Return a fresh deterministic JSON-like payload for the hash owner."""
     if not isinstance(assumptions, ExecutionAssumptions):
         raise ValueError("ExecutionAssumptions required")
-    return {
+    return _FrozenDict({
         field: _payload_value(getattr(assumptions, field))
         for field in ExecutionAssumptions.__dataclass_fields__
-    }
+    })
 
 
 def assumptions_hash(assumptions: ExecutionAssumptions) -> str:

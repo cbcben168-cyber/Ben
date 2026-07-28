@@ -25,6 +25,11 @@ REGISTRY_PATH = (
 )
 
 
+class _CallableString(str):
+    def __call__(self) -> None:
+        return None
+
+
 def _record(**overrides: object) -> dict[str, object]:
     record: dict[str, object] = {
         "capability_id": "test.capability",
@@ -40,7 +45,7 @@ def _record(**overrides: object) -> dict[str, object]:
         "formal_eligibility": "not_eligible",
         "smoke_only_status": "not_smoke_only",
         "blocker_code": BlockerCode.ENGINE_CAPABILITY_BLOCKER.value,
-        "evidence": ["frozen-v2.1-design-boundary"],
+        "evidence": ["boundary:frozen-v2.1-design"],
         "last_verified": "2026-07-27",
         "implementation_owner": "tv_quant.contracts",
     }
@@ -107,7 +112,7 @@ def test_symbol_structural_support_is_not_phase1_execution_support() -> None:
     phase1 = registry.require("phase1.ema.daily.golden", "v2.1")
     futu = registry.require("futu.daily.current", "v2.1")
 
-    assert phase1.supported_market == ("SPY", "QQQ")
+    assert phase1.supported_market == ("QQQ", "SPY")
     assert futu.supported_market == ("US_EQUITY",)
     assert futu.structural_availability == "available"
     assert futu.formal_eligibility == "not_eligible"
@@ -265,7 +270,7 @@ def test_validated_registry_and_snapshot_are_deeply_immutable() -> None:
     registry = CapabilityRegistry(source)
     source["capabilities"][0]["evidence"].append("late-mutation")
 
-    assert registry.capabilities[0].evidence == ("frozen-v2.1-design-boundary",)
+    assert registry.capabilities[0].evidence == ("boundary:frozen-v2.1-design",)
     with pytest.raises(FrozenInstanceError):
         registry.capabilities[0].capability_id = "changed"
     with pytest.raises(TypeError):
@@ -277,7 +282,7 @@ def test_validated_registry_and_snapshot_are_deeply_immutable() -> None:
 def test_snapshot_hash_changes_with_content_status_scope_and_version() -> None:
     base = _payload()
     mutations = (
-        _replace_record(base, evidence=["different-evidence"]),
+        _replace_record(base, evidence=["boundary:different-evidence"]),
         _replace_record(base, implementation_status="not_verified"),
         _replace_record(base, supported_market=["SPY"]),
         _replace_record(base, version="v2.2"),
@@ -364,3 +369,155 @@ def test_registry_constructor_rejects_non_mapping_and_non_object_records() -> No
         CapabilityRegistry([])
     with pytest.raises(ValueError, match="record"):
         CapabilityRegistry({"schema_version": "v2.1", "capabilities": [ModuleType("x")]})
+
+
+def test_scope_reordering_does_not_change_snapshot_or_hash() -> None:
+    first = CapabilityRegistry(
+        _payload(
+            _record(
+                supported_market=["SPY", "QQQ"],
+                supported_timeframes=["1d", "15m"],
+            )
+        )
+    )
+    reordered = CapabilityRegistry(
+        _payload(
+            _record(
+                supported_market=["QQQ", "SPY"],
+                supported_timeframes=["15m", "1d"],
+            )
+        )
+    )
+
+    assert first.snapshot_payload() == reordered.snapshot_payload()
+    assert capability_snapshot_hash(first) == capability_snapshot_hash(reordered)
+
+
+def test_duplicate_scope_values_are_rejected() -> None:
+    with pytest.raises(ValueError, match="supported_market.*unique"):
+        CapabilityRegistry(_payload(_record(supported_market=["SPY", "SPY"])))
+    with pytest.raises(ValueError, match="supported_timeframes.*unique"):
+        CapabilityRegistry(_payload(_record(supported_timeframes=["1d", "1d"])))
+
+
+@pytest.mark.parametrize("field", ("supported_market", "supported_timeframes"))
+def test_empty_scope_values_are_rejected(field: str) -> None:
+    with pytest.raises(ValueError, match=f"{field}.*non-empty"):
+        CapabilityRegistry(_payload(_record(**{field: []})))
+
+
+@pytest.mark.parametrize(
+    "machine_local_evidence",
+    (
+        r"path:C:\Users\alice\registry.json",
+        "pid:4242",
+        "hostname:DESKTOP-LOCAL",
+        "username:alice",
+        "timestamp:2026-07-27T12:34:56Z",
+    ),
+)
+def test_machine_local_evidence_is_rejected(machine_local_evidence: str) -> None:
+    with pytest.raises(ValueError, match="evidence.*stable"):
+        CapabilityRegistry(_payload(_record(evidence=[machine_local_evidence])))
+
+
+def test_machine_local_implementation_owner_is_rejected() -> None:
+    with pytest.raises(ValueError, match="implementation_owner"):
+        CapabilityRegistry(
+            _payload(_record(implementation_owner="hostname:DESKTOP-LOCAL"))
+        )
+
+
+@pytest.mark.parametrize(
+    "payload",
+    (
+        {
+            _CallableString("schema_version"): "v2.1",
+            "capabilities": [_record()],
+        },
+        _payload(_record(capability_id=_CallableString("callable.capability"))),
+        _payload(_record(supported_market=[_CallableString("SPY")])),
+        _payload(
+            _record(
+                blocker_code=_CallableString(
+                    BlockerCode.ENGINE_CAPABILITY_BLOCKER.value
+                )
+            )
+        ),
+    ),
+)
+def test_callable_string_subclasses_are_rejected(payload: dict[str, object]) -> None:
+    with pytest.raises(ValueError, match="built-in string"):
+        CapabilityRegistry(payload)
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    (
+        (
+            {"formal_status": "not_live_verified"},
+            "not_live_verified.*implemented",
+        ),
+        (
+            {
+                "implementation_status": "not_verified",
+                "formal_status": "not_live_verified",
+            },
+            "not_live_verified.*implemented",
+        ),
+        (
+            {
+                "implementation_status": "implemented",
+                "formal_status": "unavailable",
+            },
+            "implemented.*formal_verified or not_live_verified",
+        ),
+        (
+            {
+                "implementation_status": "implemented",
+                "implementation_availability": "available",
+                "formal_status": "not_live_verified",
+                "smoke_only_status": "not_smoke_only",
+                "blocker_code": None,
+            },
+            "not_live_verified.*smoke_only",
+        ),
+        (
+            {
+                "implementation_status": "implemented",
+                "implementation_availability": "available",
+                "formal_status": "not_live_verified",
+                "smoke_only_status": "smoke_only",
+            },
+            "not_live_verified.*blocker",
+        ),
+        (
+            {"smoke_only_status": "smoke_only"},
+            "unavailable.*not_smoke_only",
+        ),
+        (
+            {
+                "implementation_status": "implemented",
+                "implementation_availability": "available",
+                "formal_status": "formal_verified",
+                "formal_eligibility": "not_eligible",
+                "blocker_code": None,
+            },
+            "formal_verified.*formal-eligible",
+        ),
+    ),
+    ids=(
+        "not-implemented-not-live",
+        "not-verified-not-live",
+        "implemented-unavailable",
+        "not-live-not-smoke",
+        "not-live-with-blocker",
+        "unavailable-smoke-only",
+        "formal-verified-not-eligible",
+    ),
+)
+def test_status_coherence_matrix_rejects_dishonest_combinations(
+    overrides: dict[str, object], message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        CapabilityRegistry(_payload(_record(**overrides)))

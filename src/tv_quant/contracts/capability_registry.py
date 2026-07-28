@@ -47,13 +47,19 @@ _AVAILABILITY_STATUSES = frozenset({"available", "unavailable"})
 _FORMAL_ELIGIBILITY_STATUSES = frozenset({"eligible", "not_eligible"})
 _SMOKE_ONLY_STATUSES = frozenset({"smoke_only", "not_smoke_only"})
 _STABLE_IDENTIFIER = re.compile(r"[A-Za-z0-9._:-]+\Z")
+_STABLE_EVIDENCE = re.compile(
+    r"(?:boundary|code|commit|test):[A-Za-z0-9._-]+\Z"
+)
+_STABLE_OWNER = re.compile(r"tv_quant(?:\.[A-Za-z0-9_]+)+\Z")
 
 
 def _exact_fields(
     value: object, expected: frozenset[str], path: str
 ) -> Mapping[str, object]:
-    if not isinstance(value, Mapping) or any(not isinstance(key, str) for key in value):
+    if not isinstance(value, Mapping):
         raise ValueError(f"{path}: mapping required")
+    if any(type(key) is not str for key in value):
+        raise ValueError(f"{path}: mapping keys must be built-in strings")
     actual = set(value)
     if actual != expected:
         missing = sorted(expected - actual)
@@ -63,8 +69,8 @@ def _exact_fields(
 
 
 def _string(value: object, path: str) -> str:
-    if not isinstance(value, str) or not value:
-        raise ValueError(f"{path}: non-empty string required")
+    if type(value) is not str or not value:
+        raise ValueError(f"{path}: non-empty built-in string required")
     return value
 
 
@@ -78,10 +84,42 @@ def _identifier(value: object, path: str) -> str:
 def _string_tuple(value: object, path: str) -> tuple[str, ...]:
     if not isinstance(value, (list, tuple)):
         raise ValueError(f"{path}: array of strings required")
-    result = tuple(
+    return tuple(
         _string(item, f"{path}[{index}]") for index, item in enumerate(value)
     )
-    return result
+
+
+def _normalized_identifier_tuple(
+    value: object, path: str, *, non_empty: bool
+) -> tuple[str, ...]:
+    items = tuple(
+        _identifier(item, f"{path}[{index}]")
+        for index, item in enumerate(_string_tuple(value, path))
+    )
+    if non_empty and not items:
+        raise ValueError(f"{path}: non-empty scope required")
+    if len(set(items)) != len(items):
+        raise ValueError(f"{path}: unique values required")
+    return tuple(sorted(items))
+
+
+def _evidence_tuple(value: object, path: str) -> tuple[str, ...]:
+    items = _string_tuple(value, path)
+    if not items:
+        raise ValueError(f"{path}: non-empty stable evidence required")
+    for index, item in enumerate(items):
+        if not _STABLE_EVIDENCE.fullmatch(item):
+            raise ValueError(f"{path}[{index}]: stable evidence identifier required")
+    if len(set(items)) != len(items):
+        raise ValueError(f"{path}: unique values required")
+    return tuple(sorted(items))
+
+
+def _implementation_owner(value: object) -> str:
+    owner = _string(value, "implementation_owner")
+    if owner != "unassigned" and not _STABLE_OWNER.fullmatch(owner):
+        raise ValueError("implementation_owner: stable owner identifier required")
+    return owner
 
 
 def _status(value: object, allowed: frozenset[str], path: str) -> str:
@@ -129,19 +167,25 @@ class CapabilityRecord:
         object.__setattr__(
             self,
             "supported_market",
-            _string_tuple(self.supported_market, "supported_market"),
+            _normalized_identifier_tuple(
+                self.supported_market, "supported_market", non_empty=True
+            ),
         )
         object.__setattr__(
             self,
             "supported_timeframes",
-            _string_tuple(self.supported_timeframes, "supported_timeframes"),
+            _normalized_identifier_tuple(
+                self.supported_timeframes, "supported_timeframes", non_empty=True
+            ),
         )
         if self.provider is not None:
             object.__setattr__(self, "provider", _identifier(self.provider, "provider"))
         object.__setattr__(
             self,
             "required_dependencies",
-            _string_tuple(self.required_dependencies, "required_dependencies"),
+            _normalized_identifier_tuple(
+                self.required_dependencies, "required_dependencies", non_empty=False
+            ),
         )
         object.__setattr__(
             self,
@@ -187,27 +231,31 @@ class CapabilityRecord:
         if self.blocker_code is not None and not isinstance(
             self.blocker_code, BlockerCode
         ):
+            if type(self.blocker_code) is not str:
+                raise ValueError("blocker_code: built-in string required")
             try:
                 object.__setattr__(self, "blocker_code", BlockerCode(self.blocker_code))
             except (TypeError, ValueError) as exc:
                 raise ValueError("blocker_code: unknown blocker code") from exc
-        object.__setattr__(self, "evidence", _string_tuple(self.evidence, "evidence"))
+        object.__setattr__(self, "evidence", _evidence_tuple(self.evidence, "evidence"))
         object.__setattr__(
             self, "last_verified", _string(self.last_verified, "last_verified")
         )
         object.__setattr__(
             self,
             "implementation_owner",
-            _identifier(self.implementation_owner, "implementation_owner"),
+            _implementation_owner(self.implementation_owner),
         )
         self._validate_consistency()
 
     def _validate_consistency(self) -> None:
-        if self.formal_status == "formal_verified" and self.blocker_code is not None:
-            raise ValueError("formal record cannot carry blocker_code")
-        if self.smoke_only_status == "smoke_only" and self.formal_eligibility == "eligible":
-            raise ValueError("smoke-only capability cannot be formal-eligible")
-        if self.formal_eligibility == "eligible":
+        if self.formal_status == "formal_verified":
+            if self.blocker_code is not None:
+                raise ValueError("formal record cannot carry blocker_code")
+            if self.smoke_only_status == "smoke_only":
+                raise ValueError("smoke-only capability cannot be formal-eligible")
+            if self.formal_eligibility != "eligible":
+                raise ValueError("formal_verified capability must be formal-eligible")
             if self.implementation_status != "implemented":
                 raise ValueError("formal capability must be implemented")
             if self.structural_availability != "available":
@@ -218,15 +266,35 @@ class CapabilityRecord:
                 raise ValueError("formal capability must be formal_verified")
             if self.smoke_only_status != "not_smoke_only":
                 raise ValueError("formal capability cannot be smoke-only")
-        elif self.formal_status == "formal_verified":
-            raise ValueError("formal_verified capability must be formal-eligible")
-        if (
-            self.implementation_status != "implemented"
-            and self.implementation_availability == "available"
-        ):
-            raise ValueError("available implementation must be implemented")
-        if self.formal_status == "unavailable" and self.blocker_code is None:
+            return
+
+        if self.formal_status == "not_live_verified":
+            if self.implementation_status != "implemented":
+                raise ValueError("not_live_verified capability must be implemented")
+            if self.structural_availability != "available":
+                raise ValueError("not_live_verified capability must be structurally available")
+            if self.implementation_availability != "available":
+                raise ValueError("not_live_verified implementation must be available")
+            if self.formal_eligibility != "not_eligible":
+                raise ValueError("not_live_verified capability cannot be formal-eligible")
+            if self.smoke_only_status != "smoke_only":
+                raise ValueError("not_live_verified capability must be smoke_only")
+            if self.blocker_code is not None:
+                raise ValueError("not_live_verified capability cannot carry blocker_code")
+            return
+
+        if self.formal_eligibility != "not_eligible":
+            raise ValueError("unavailable capability cannot be formal-eligible")
+        if self.implementation_availability != "unavailable":
+            raise ValueError("unavailable capability implementation must be unavailable")
+        if self.smoke_only_status != "not_smoke_only":
+            raise ValueError("unavailable capability must be not_smoke_only")
+        if self.blocker_code is None:
             raise ValueError("unavailable capability requires blocker_code")
+        if self.implementation_status == "implemented":
+            raise ValueError(
+                "implemented capability must be formal_verified or not_live_verified"
+            )
 
 
 @dataclass(frozen=True, slots=True, init=False)

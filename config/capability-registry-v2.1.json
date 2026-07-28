@@ -21,8 +21,8 @@
       "smoke_only_status": "not_smoke_only",
       "blocker_code": null,
       "evidence": [
-        "strategy.run_backtest",
-        "phase1-backtest-tests",
+        "code:strategy.run_backtest",
+        "test:phase1-backtest",
         "commit:81438c7"
       ],
       "last_verified": "2026-07-26",
@@ -49,9 +49,9 @@
       "smoke_only_status": "smoke_only",
       "blocker_code": null,
       "evidence": [
-        "futu-downloader",
-        "futu-quota-tests",
-        "no-v2.1-live-connection"
+        "code:futu-downloader",
+        "test:futu-quota",
+        "boundary:no-v2.1-live-connection"
       ],
       "last_verified": "2026-07-27",
       "implementation_owner": "tv_quant.futu_downloader"
@@ -77,7 +77,7 @@
       "smoke_only_status": "not_smoke_only",
       "blocker_code": "ENGINE_CAPABILITY_BLOCKER",
       "evidence": [
-        "design-only-v2.1"
+        "boundary:design-only-v2.1"
       ],
       "last_verified": "2026-07-27",
       "implementation_owner": "unassigned"
@@ -103,7 +103,7 @@
       "smoke_only_status": "not_smoke_only",
       "blocker_code": "DATA_CAPABILITY_BLOCKER",
       "evidence": [
-        "design-only-v2.1"
+        "boundary:design-only-v2.1"
       ],
       "last_verified": "2026-07-27",
       "implementation_owner": "unassigned"
@@ -127,7 +127,7 @@
       "smoke_only_status": "not_smoke_only",
       "blocker_code": "CORPORATE_ACTION_DATA_BLOCKER",
       "evidence": [
-        "cash-processing-not-verified"
+        "boundary:cash-processing-not-verified"
       ],
       "last_verified": "2026-07-27",
       "implementation_owner": "unassigned"
@@ -151,7 +151,7 @@
       "smoke_only_status": "not_smoke_only",
       "blocker_code": "PLUGIN_VALIDATION_BLOCKER",
       "evidence": [
-        "plugin-execution-not-implemented"
+        "boundary:plugin-execution-not-implemented"
       ],
       "last_verified": "2026-07-27",
       "implementation_owner": "unassigned"

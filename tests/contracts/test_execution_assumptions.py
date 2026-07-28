@@ -333,7 +333,7 @@ def test_caller_metadata_rejects_code_like_values() -> None:
 
 @pytest.mark.parametrize(
     "identifier",
-    ("cost profile", "cost/profile", "cost\\profile", "cost()", "cost[0]", "'cost'", "a+b", "lambda:x", "LAMBDA:x", "Eval:cost", "ImportLib.plugin", "eval(x)"),
+    ("cost profile", "cost/profile", "cost\\profile", "cost()", "cost[0]", "'cost'", "a+b", "lambda:x", "LAMBDA:x", "Eval:cost", "ImportLib.plugin", "__import__", "__IMPORT__", "eval(x)"),
 )
 def test_caller_metadata_rejects_dynamic_or_non_identifier_text(identifier: str) -> None:
     """Metadata IDs are a narrow identifier grammar, not executable expression text."""
@@ -363,6 +363,8 @@ def test_harmless_identifier_with_exec_substring_is_accepted() -> None:
         ("cost_profile_id", "Eval:cost"),
         ("corporate_action_profile_id", "importlib.actions"),
         ("corporate_action_profile_id", "ImportLib.actions"),
+        ("corporate_action_profile_id", "__import__"),
+        ("corporate_action_profile_id", "__IMPORT__"),
         ("benchmark_protocol_id", "benchmark/path"),
         ("benchmark_protocol_version", "v 1"),
         ("normalizer_version", "V2.1"),

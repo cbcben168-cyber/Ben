@@ -57,9 +57,11 @@ def _non_empty_string(value: object, path: str) -> str:
 
 def _stable_identifier(value: object, path: str) -> str:
     identifier = _non_empty_string(value, path)
+    normalized_identifier = identifier.lower()
     segments = re.split(r"[._:-]", identifier)
     if (
         not _STABLE_IDENTIFIER.fullmatch(identifier)
+        or normalized_identifier in _DISALLOWED_IDENTIFIER_SEGMENTS
         or any(segment.lower() in _DISALLOWED_IDENTIFIER_SEGMENTS for segment in segments)
     ):
         raise ValueError(f"{path}: stable identifier required")

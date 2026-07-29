@@ -7,6 +7,7 @@ from copy import deepcopy
 import importlib
 import json
 from pathlib import Path
+import shutil
 import socket
 import subprocess
 import sys
@@ -77,9 +78,18 @@ def config_path(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def evidence_root(tmp_path: Path) -> Path:
+def evidence_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> Path:
     root = tmp_path / "evidence"
     root.mkdir()
+    monkeypatch.setattr(
+        _runner(),
+        "_TRUSTED_EVIDENCE_ROOT",
+        root.resolve(),
+        raising=False,
+    )
     return root
 
 
@@ -358,6 +368,87 @@ def test_copied_request_path_cannot_create_caller_controlled_grant_state(
     assert response.blocker_code == "CONFIRMATION_INVALID"
     assert response.confirmation_token is None
     assert not copied_request.with_name("confirmation-state.json").exists()
+
+
+def test_copied_canonical_run_cannot_be_granted_from_a_second_evidence_root(
+    config_path: Path,
+    evidence_root: Path,
+    tmp_path: Path,
+) -> None:
+    """Copying the canonical subtree must not create a second grant authority."""
+    runner = _runner()
+    _, request_path = _prepare(config_path, evidence_root)
+    approval_path = _approval_path(request_path)
+    second_root = tmp_path / "second-evidence"
+    second_root.mkdir()
+    copied_run = second_root / request_path.parent.name
+    shutil.copytree(request_path.parent, copied_run)
+
+    copied = runner.run_v2(
+        _request(
+            config_path,
+            runner.RunnerMode.GRANT_CONFIRMATION,
+            second_root,
+            confirmation_request_path=copied_run / request_path.name,
+            approval_record_path=copied_run / approval_path.name,
+        )
+    )
+    genuine = runner.run_v2(
+        _request(
+            config_path,
+            runner.RunnerMode.GRANT_CONFIRMATION,
+            evidence_root,
+            confirmation_request_path=request_path,
+            approval_record_path=approval_path,
+        )
+    )
+
+    assert copied.status == "BLOCKED"
+    assert copied.blocker_code == "CONFIRMATION_INVALID"
+    assert copied.confirmation_token is None
+    assert genuine.status == "SUCCESS"
+    assert genuine.confirmation_token
+
+
+def test_copied_canonical_state_cannot_consume_token_from_a_second_evidence_root(
+    config_path: Path,
+    evidence_root: Path,
+    tmp_path: Path,
+) -> None:
+    """Copying an unconsumed state must not create one token use per caller root."""
+    runner = _runner()
+    _, request_path, _, granted = _grant(config_path, evidence_root)
+    token = granted.confirmation_token
+    assert token is not None
+    second_root = tmp_path / "second-evidence"
+    second_root.mkdir()
+    copied_run = second_root / request_path.parent.name
+    shutil.copytree(request_path.parent, copied_run)
+
+    copied = runner.run_v2(
+        _request(
+            config_path,
+            runner.RunnerMode.EXECUTE,
+            second_root,
+            confirmation_request_path=copied_run / request_path.name,
+            confirmation_token=token,
+        )
+    )
+    genuine = runner.run_v2(
+        _request(
+            config_path,
+            runner.RunnerMode.EXECUTE,
+            evidence_root,
+            confirmation_request_path=request_path,
+            confirmation_token=token,
+        )
+    )
+
+    assert copied.status == "BLOCKED"
+    assert copied.blocker_code == "CONFIRMATION_INVALID"
+    assert copied.confirmation_token is None
+    assert genuine.status == "NOT_IMPLEMENTED"
+    assert genuine.blocker_code == "EXECUTION_CAPABILITY_NOT_IMPLEMENTED"
 
 
 def test_tampered_request_identity_is_rejected_before_token_consumption(
@@ -648,6 +739,12 @@ def test_runner_does_not_call_pipeline_backtest_or_provider(
     monkeypatch.delattr(contracts_package, "runner_protocol", raising=False)
 
     runner = _runner()
+    monkeypatch.setattr(
+        runner,
+        "_TRUSTED_EVIDENCE_ROOT",
+        evidence_root.resolve(),
+        raising=False,
+    )
     validated = runner.run_v2(
         _request(config_path, runner.RunnerMode.VALIDATE, evidence_root)
     )

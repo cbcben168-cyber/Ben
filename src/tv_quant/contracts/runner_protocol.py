@@ -57,6 +57,7 @@ _DATA_PLAN_FILE = "data-plan.json"
 _STATE_FILE = "confirmation-state.json"
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 _REGISTRY_PATH = _REPOSITORY_ROOT / "config" / "capability-registry-v2.1.json"
+_TRUSTED_EVIDENCE_ROOT = _REPOSITORY_ROOT / "reports" / "v2-runner-evidence"
 _PHASE1_GOLDEN_SCOPE = {
     "strategy_family": "ema_crossover",
     "market": "US_EQUITY",
@@ -351,9 +352,10 @@ def _evidence_root(request: RunnerRequest) -> Path:
         raise ValueError("evidence_root required")
     try:
         root = request.evidence_root.resolve(strict=True)
+        trusted_root = _TRUSTED_EVIDENCE_ROOT.resolve(strict=True)
     except (OSError, RuntimeError) as exc:
         raise ValueError("evidence_root: existing directory required") from exc
-    if not root.is_dir():
+    if not root.is_dir() or not trusted_root.is_dir() or root != trusted_root:
         raise ValueError("evidence_root: existing directory required")
     return root
 

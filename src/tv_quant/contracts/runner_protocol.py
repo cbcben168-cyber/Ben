@@ -7,9 +7,7 @@ from dataclasses import dataclass, field as dataclass_field, fields, is_dataclas
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 import json
-import os
 from pathlib import Path
-import tempfile
 
 import yaml
 
@@ -513,25 +511,30 @@ def _prepare(request: RunnerRequest, contracts: _CompiledContracts) -> RunnerRes
         status="PROVISIONAL",
         formal_result_published=False,
     )
-    payloads = (
-        confirmation,
-        normalized_config_payload(contracts.ir),
-        contracts.data_plan,
+    publication = (
+        (
+            _run_file(root, contracts, _IR_FILE),
+            normalized_config_payload(contracts.ir),
+        ),
+        (
+            _run_file(root, contracts, _DATA_PLAN_FILE),
+            contracts.data_plan,
+        ),
+        (
+            _run_file(root, contracts, _REQUEST_FILE),
+            confirmation,
+        ),
     )
-    staging_directory = Path(
-        tempfile.mkdtemp(prefix=f".{contracts.run_id}.", dir=root)
-    )
-    staging_paths = tuple(staging_directory / Path(path).name for path in relative_paths)
+    run_directory.mkdir()
     try:
-        for path, payload in zip(staging_paths, payloads, strict=True):
+        for path, payload in publication:
             with path.open("x", encoding="utf-8", newline="\n") as handle:
                 handle.write(_serialize(payload))
                 handle.write("\n")
-        os.replace(staging_directory, run_directory)
     except Exception:
-        for path in staging_paths:
+        for path, _payload in publication:
             path.unlink(missing_ok=True)
-        staging_directory.rmdir()
+        run_directory.rmdir()
         raise
     evidence.resolved_paths(root)
     return _response(

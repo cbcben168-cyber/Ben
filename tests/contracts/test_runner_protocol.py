@@ -209,6 +209,38 @@ def test_prepare_confirmation_writes_only_provisional_evidence(
     assert response.report_summary_path is None
 
 
+def test_prepare_does_not_require_directory_rename_on_windows(
+    config_path: Path,
+    evidence_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Grant-safe publication must not depend on renaming a populated directory."""
+    runner = _runner()
+
+    def directory_rename_unavailable(*_args: object, **_kwargs: object) -> None:
+        raise PermissionError(13, "directory rename unavailable")
+
+    monkeypatch.setattr(os, "rename", directory_rename_unavailable)
+    monkeypatch.setattr(os, "replace", directory_rename_unavailable)
+
+    response = runner.run_v2(
+        _request(
+            config_path,
+            runner.RunnerMode.PREPARE_CONFIRMATION,
+            evidence_root,
+        )
+    )
+    published = evidence_root / response.run_id
+
+    assert response.status == "SUCCESS"
+    assert response.blocker_code is None
+    assert {path.name for path in published.iterdir()} == {
+        "confirmation-request.json",
+        "data-plan.json",
+        "normalized-ir.json",
+    }
+
+
 def test_prepare_bootstraps_only_the_absent_trusted_default_root(
     config_path: Path,
     tmp_path: Path,

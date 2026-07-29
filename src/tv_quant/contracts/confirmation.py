@@ -72,6 +72,7 @@ _GRANT_STATE_FIELDS = frozenset(
 )
 _LOCK_TIMEOUT_SECONDS = 5.0
 _LOCK_RETRY_SECONDS = 0.01
+_DUMMY_SHA256 = "0" * 64
 
 
 def _string(value: object, path: str) -> str:
@@ -452,9 +453,10 @@ class FileConfirmationStore:
         expected_data_plan_hash: str,
         expected_assumptions_hash: str,
     ) -> ConfirmationAuditRecord:
-        evaluated_at = self._now()
+        evaluated_at: str | None = None
         try:
             with self._exclusive_lock():
+                evaluated_at = self._now()
                 try:
                     grant_payload = self._read_grant_payload()
                 except _InvalidState:
@@ -494,7 +496,15 @@ class FileConfirmationStore:
                         evaluated_at,
                         request_id=grant.confirmation_request_id,
                     )
-                supplied_token_hash = sha256_bytes(confirmation_token.encode("utf-8"))
+                try:
+                    token_bytes = confirmation_token.encode("utf-8")
+                except UnicodeEncodeError:
+                    return self._blocked(
+                        BlockerCode.CONFIRMATION_HASH_MISMATCH,
+                        evaluated_at,
+                        request_id=grant.confirmation_request_id,
+                    )
+                supplied_token_hash = sha256_bytes(token_bytes)
                 if not hmac.compare_digest(
                     supplied_token_hash,
                     grant.confirmation_token_hash,
@@ -514,12 +524,21 @@ class FileConfirmationStore:
                     grant.bound_data_plan_hash,
                     grant.bound_assumptions_hash,
                 )
-                if any(
-                    type(expected) is not str
-                    or not _SHA256_HEX.fullmatch(expected)
-                    or not hmac.compare_digest(expected, stored)
-                    for expected, stored in zip(expected_hashes, stored_hashes, strict=True)
-                ):
+                malformed_hash = False
+                comparable_hashes: list[str] = []
+                for expected in expected_hashes:
+                    valid = type(expected) is str and bool(_SHA256_HEX.fullmatch(expected))
+                    malformed_hash = malformed_hash or not valid
+                    comparable_hashes.append(expected if valid else _DUMMY_SHA256)
+                hash_matches = tuple(
+                    hmac.compare_digest(expected, stored)
+                    for expected, stored in zip(
+                        comparable_hashes,
+                        stored_hashes,
+                        strict=True,
+                    )
+                )
+                if malformed_hash or not all(hash_matches):
                     return self._blocked(
                         BlockerCode.CONFIRMATION_HASH_MISMATCH,
                         evaluated_at,
@@ -529,6 +548,8 @@ class FileConfirmationStore:
                 consumed = replace(grant, consumed_at=evaluated_at)
                 self._atomic_write(self._state_payload(consumed))
         except (OSError, _StorageFailure):
+            if evaluated_at is None:
+                evaluated_at = self._now()
             return self._blocked(
                 BlockerCode.CONFIRMATION_STORAGE_BLOCKER,
                 evaluated_at,
@@ -577,6 +598,7 @@ class FileConfirmationStore:
             raise _InvalidState
         if (
             payload["schema_version"] != _CONFIRMATION_STATE_SCHEMA
+            or type(payload["state_version"]) is not int
             or payload["state_version"] != _CONFIRMATION_STATE_VERSION
         ):
             raise _InvalidState

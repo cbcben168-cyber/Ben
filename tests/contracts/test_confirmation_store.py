@@ -175,6 +175,34 @@ def test_atomic_consume_allows_exactly_one_consumer(tmp_path: Path) -> None:
     assert losers[0].consumed_at == NOW
 
 
+def test_lock_wait_crossing_expiry_is_rejected_without_mutation(tmp_path: Path) -> None:
+    state_path = tmp_path / "grant.json"
+    assert _store(state_path).persist_grant(_grant()).outcome == "SUCCESS"
+    issued_bytes = state_path.read_bytes()
+    current = {"now": datetime.fromisoformat("2026-07-29T01:14:59+00:00")}
+
+    class ExpiryCrossingBackend:
+        def acquire(self, _handle: object) -> None:
+            current["now"] = datetime.fromisoformat("2026-07-29T01:15:01+00:00")
+
+        def release(self, _handle: object) -> None:
+            return None
+
+    store = FileConfirmationStore(
+        state_path,
+        _clock=lambda: current["now"],
+        _lock_backend=ExpiryCrossingBackend(),
+    )
+
+    result = _consume(store)
+
+    assert result.outcome == "BLOCKED"
+    assert result.blocker_code is BlockerCode.CONFIRMATION_EXPIRED
+    assert result.evaluated_at == "2026-07-29T01:15:01+00:00"
+    assert result.consumed_at is None
+    assert state_path.read_bytes() == issued_bytes
+
+
 def test_crash_before_replace_leaves_grant_retryable(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -310,6 +338,58 @@ def test_storage_read_failure_returns_redacted_storage_blocker(
     assert TOKEN not in repr(result)
 
 
+@pytest.mark.parametrize("config_hash", ("d" * 64, "malformed"))
+def test_all_three_binding_comparisons_execute_without_short_circuit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    config_hash: str,
+) -> None:
+    state_path = tmp_path / "grant.json"
+    store = _store(state_path)
+    grant = _grant()
+    assert store.persist_grant(grant).outcome == "SUCCESS"
+    compare_calls: list[tuple[object, object]] = []
+    real_compare = confirmation.hmac.compare_digest
+
+    def record_compare(left: object, right: object) -> bool:
+        compare_calls.append((left, right))
+        return real_compare(left, right)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(confirmation.hmac, "compare_digest", record_compare)
+
+    result = _consume(store, config_hash=config_hash)
+
+    assert result.blocker_code is BlockerCode.CONFIRMATION_HASH_MISMATCH
+    assert len(compare_calls) == 4
+    assert [right for _left, right in compare_calls[1:]] == [
+        CONFIG_HASH,
+        DATA_PLAN_HASH,
+        ASSUMPTIONS_HASH,
+    ]
+    assert all(
+        type(left) is str and len(left) == 64 for left, _right in compare_calls[1:]
+    )
+
+
+def test_unpaired_surrogate_token_returns_redacted_hash_mismatch(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    state_path = tmp_path / "grant.json"
+    store = _store(state_path)
+    assert store.persist_grant(_grant()).outcome == "SUCCESS"
+    before = state_path.read_bytes()
+    malformed_token = "synthetic-secret-\ud800-token"
+
+    result = _consume(store, token=malformed_token)
+    captured = capsys.readouterr()
+
+    assert result.blocker_code is BlockerCode.CONFIRMATION_HASH_MISMATCH
+    assert state_path.read_bytes() == before
+    assert malformed_token not in repr(result)
+    assert malformed_token not in captured.out
+    assert malformed_token not in captured.err
+
+
 def test_audit_record_never_contains_plaintext_token(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -390,6 +470,25 @@ def test_missing_official_state_is_invalid(tmp_path: Path) -> None:
 
     assert result.outcome == "BLOCKED"
     assert result.blocker_code is BlockerCode.CONFIRMATION_INVALID
+
+
+@pytest.mark.parametrize("state_version", (True, 1.0))
+def test_state_version_requires_exact_integer_without_mutation(
+    tmp_path: Path, state_version: object
+) -> None:
+    state_path = tmp_path / "grant.json"
+    store = _store(state_path)
+    assert store.persist_grant(_grant()).outcome == "SUCCESS"
+    payload = json.loads(state_path.read_text(encoding="utf-8"))
+    payload["state_version"] = state_version
+    state_path.write_text(json.dumps(payload), encoding="utf-8")
+    before = state_path.read_bytes()
+
+    result = _consume(store)
+
+    assert result.blocker_code is BlockerCode.CONFIRMATION_INVALID
+    assert result.consumed_at is None
+    assert state_path.read_bytes() == before
 
 
 def test_consumed_state_is_rejected_before_single_use_validation(tmp_path: Path) -> None:

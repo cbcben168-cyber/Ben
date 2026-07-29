@@ -117,3 +117,23 @@ def test_resolve_under_root_rejects_ntfs_ads_and_reserved_dos_devices(
     ):
         with pytest.raises(ValueError):
             resolve_under_root(root, unsafe)
+
+
+def test_resolve_under_root_rejects_extended_windows_reserved_devices(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "root"
+    root.mkdir()
+
+    for unsafe in (
+        "COM¹",
+        "com².txt",
+        "nested/CoM³.data",
+        "LPT¹",
+        "lpt².log",
+        "nested/LpT³.json",
+        "nested/conin$.audit",
+        "CONOUT$.txt",
+    ):
+        with pytest.raises(ValueError):
+            resolve_under_root(root, unsafe)

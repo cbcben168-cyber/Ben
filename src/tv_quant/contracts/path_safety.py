@@ -2,14 +2,8 @@
 
 from __future__ import annotations
 
+import ntpath
 from pathlib import Path, PurePosixPath, PureWindowsPath
-
-
-_WINDOWS_RESERVED_STEMS = frozenset(
-    {"CON", "PRN", "AUX", "NUL"}
-    | {f"COM{number}" for number in range(1, 10)}
-    | {f"LPT{number}" for number in range(1, 10)}
-)
 
 
 def _validated_relative_path(relative_path: str) -> Path:
@@ -29,10 +23,8 @@ def _validated_relative_path(relative_path: str) -> Path:
     if windows_path.parts in ((), (".",)) or posix_path.parts in ((), (".",)):
         raise ValueError("relative_path: file or directory name required")
     for component in windows_path.parts:
-        if ":" in component:
-            raise ValueError("relative_path: NTFS alternate data streams forbidden")
-        if component.split(".", 1)[0].upper() in _WINDOWS_RESERVED_STEMS:
-            raise ValueError("relative_path: reserved DOS device name forbidden")
+        if ntpath.isreserved(component):
+            raise ValueError("relative_path: reserved Windows path component forbidden")
     return Path(relative_path)
 
 

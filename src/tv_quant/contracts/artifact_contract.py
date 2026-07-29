@@ -17,7 +17,7 @@ from .path_safety import _validated_relative_path, resolve_under_root
 
 
 _SHA256_HEX = re.compile(r"[0-9a-f]{64}\Z")
-_PATH_COMPONENT = re.compile(r"[A-Za-z0-9._:-]+\Z")
+_PATH_COMPONENT = re.compile(r"[A-Za-z0-9._-]+\Z")
 
 
 def _non_empty_string(value: object, field_name: str) -> str:

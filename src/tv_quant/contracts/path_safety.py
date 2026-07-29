@@ -5,6 +5,13 @@ from __future__ import annotations
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
 
+_WINDOWS_RESERVED_STEMS = frozenset(
+    {"CON", "PRN", "AUX", "NUL"}
+    | {f"COM{number}" for number in range(1, 10)}
+    | {f"LPT{number}" for number in range(1, 10)}
+)
+
+
 def _validated_relative_path(relative_path: str) -> Path:
     if type(relative_path) is not str or not relative_path or "\x00" in relative_path:
         raise ValueError("relative_path: non-empty path string required")
@@ -21,6 +28,11 @@ def _validated_relative_path(relative_path: str) -> Path:
         raise ValueError("relative_path: parent traversal forbidden")
     if windows_path.parts in ((), (".",)) or posix_path.parts in ((), (".",)):
         raise ValueError("relative_path: file or directory name required")
+    for component in windows_path.parts:
+        if ":" in component:
+            raise ValueError("relative_path: NTFS alternate data streams forbidden")
+        if component.split(".", 1)[0].upper() in _WINDOWS_RESERVED_STEMS:
+            raise ValueError("relative_path: reserved DOS device name forbidden")
     return Path(relative_path)
 
 

@@ -162,6 +162,12 @@ def test_v21_execute_cannot_mark_formal_result_published() -> None:
         _evidence(formal_result_published=True)
 
 
+def test_provisional_evidence_rejects_drive_relative_and_ads_run_ids() -> None:
+    for unsafe_run_id in ("C:run", "run:stream"):
+        with pytest.raises(ValueError):
+            _evidence(run_id=unsafe_run_id)
+
+
 def test_contract_does_not_define_second_hash_or_manifest_writer() -> None:
     assert artifact_contract.canonical_hash is run_manifest.canonical_hash
     assert artifact_contract.sha256_file is run_manifest.sha256_file

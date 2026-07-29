@@ -94,3 +94,26 @@ def test_resolve_under_root_rejects_request_id_separators_and_windows_drive_unc(
     for unsafe_run_id in ("request/id", r"request\id"):
         with pytest.raises(ValueError):
             ProvisionalEvidence(run_id=unsafe_run_id, **common)
+
+
+def test_resolve_under_root_rejects_ntfs_ads_and_reserved_dos_devices(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "root"
+    root.mkdir()
+
+    for unsafe in (
+        "evidence.json:stream",
+        "nested/evidence.json:stream",
+        "NUL",
+        "nul",
+        "NUL.txt",
+        "CON",
+        "con.TXT",
+        "nested/PrN.log",
+        "AUX.json",
+        "COM1.data",
+        "lpt9.txt",
+    ):
+        with pytest.raises(ValueError):
+            resolve_under_root(root, unsafe)

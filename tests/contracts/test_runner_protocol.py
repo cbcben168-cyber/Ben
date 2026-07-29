@@ -6,6 +6,7 @@ import builtins
 from copy import deepcopy
 import importlib
 import json
+import os
 from pathlib import Path
 import shutil
 import socket
@@ -82,12 +83,13 @@ def evidence_root(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> Path:
-    root = tmp_path / "evidence"
-    root.mkdir()
+    trusted_repository = tmp_path / "trusted-repository"
+    root = trusted_repository / "reports" / "v2-runner-evidence"
+    root.mkdir(parents=True)
     monkeypatch.setattr(
         _runner(),
-        "_TRUSTED_EVIDENCE_ROOT",
-        root.resolve(),
+        "_TRUSTED_REPOSITORY_ROOT",
+        trusted_repository.resolve(),
         raising=False,
     )
     return root
@@ -205,6 +207,114 @@ def test_prepare_confirmation_writes_only_provisional_evidence(
     assert response.run_directory is None
     assert response.audit_status is None
     assert response.report_summary_path is None
+
+
+def test_prepare_bootstraps_only_the_absent_trusted_default_root(
+    config_path: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A clean checkout must need no caller-created evidence directory."""
+    runner = _runner()
+    trusted_repository = tmp_path / "trusted-repository"
+    trusted_repository.mkdir()
+    trusted_root = trusted_repository / "reports" / "v2-runner-evidence"
+    attacker_root = tmp_path / "attacker-selected-evidence"
+    monkeypatch.setattr(
+        runner,
+        "_TRUSTED_REPOSITORY_ROOT",
+        trusted_repository.resolve(),
+        raising=False,
+    )
+
+    unprepared = runner.run_v2(
+        _request(
+            config_path,
+            runner.RunnerMode.GRANT_CONFIRMATION,
+            trusted_root,
+            confirmation_request_path=trusted_root / "unprepared-request.json",
+            approval_record_path=trusted_root / "unprepared-approval.json",
+        )
+    )
+    assert unprepared.status == "BLOCKED"
+    assert unprepared.blocker_code == "CONFIRMATION_INVALID"
+    assert not trusted_root.exists()
+
+    prepared = runner.run_v2(
+        _request(
+            config_path,
+            runner.RunnerMode.PREPARE_CONFIRMATION,
+            trusted_root,
+        )
+    )
+    rejected = runner.run_v2(
+        _request(
+            config_path,
+            runner.RunnerMode.PREPARE_CONFIRMATION,
+            attacker_root,
+        )
+    )
+
+    assert prepared.status == "SUCCESS"
+    assert trusted_root.is_dir()
+    assert (
+        trusted_root / prepared.run_id / "confirmation-request.json"
+    ).is_file()
+    assert rejected.status == "BLOCKED"
+    assert rejected.blocker_code == "CONFIG_VALIDATION_BLOCKER"
+    assert not attacker_root.exists()
+
+
+def test_prepare_does_not_bootstrap_through_reports_symlink_escape(
+    config_path: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A trusted reports link must not redirect root creation outside the repository."""
+    runner = _runner()
+    trusted_repository = tmp_path / "trusted-repository"
+    outside = tmp_path / "outside"
+    trusted_repository.mkdir()
+    outside.mkdir()
+    reports_link = trusted_repository / "reports"
+    try:
+        reports_link.symlink_to(outside, target_is_directory=True)
+    except OSError as exc:
+        if os.name != "nt":
+            pytest.skip(f"symlink creation is unavailable: {exc}")
+        junction = subprocess.run(
+            (
+                "cmd.exe",
+                "/d",
+                "/c",
+                "mklink",
+                "/J",
+                str(reports_link),
+                str(outside),
+            ),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if junction.returncode != 0:
+            pytest.skip(f"symlink and junction creation are unavailable: {exc}")
+    monkeypatch.setattr(
+        runner,
+        "_TRUSTED_REPOSITORY_ROOT",
+        trusted_repository.resolve(),
+    )
+
+    response = runner.run_v2(
+        _request(
+            config_path,
+            runner.RunnerMode.PREPARE_CONFIRMATION,
+            reports_link / "v2-runner-evidence",
+        )
+    )
+
+    assert response.status == "BLOCKED"
+    assert response.blocker_code == "CONFIG_VALIDATION_BLOCKER"
+    assert not (outside / "v2-runner-evidence").exists()
 
 
 def test_grant_confirmation_returns_token_once(
@@ -741,8 +851,8 @@ def test_runner_does_not_call_pipeline_backtest_or_provider(
     runner = _runner()
     monkeypatch.setattr(
         runner,
-        "_TRUSTED_EVIDENCE_ROOT",
-        evidence_root.resolve(),
+        "_TRUSTED_REPOSITORY_ROOT",
+        evidence_root.parents[1].resolve(),
         raising=False,
     )
     validated = runner.run_v2(

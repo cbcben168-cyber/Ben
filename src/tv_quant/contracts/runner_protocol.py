@@ -57,7 +57,8 @@ _DATA_PLAN_FILE = "data-plan.json"
 _STATE_FILE = "confirmation-state.json"
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 _REGISTRY_PATH = _REPOSITORY_ROOT / "config" / "capability-registry-v2.1.json"
-_TRUSTED_EVIDENCE_ROOT = _REPOSITORY_ROOT / "reports" / "v2-runner-evidence"
+_TRUSTED_REPOSITORY_ROOT = _REPOSITORY_ROOT
+_TRUSTED_EVIDENCE_RELATIVE = Path("reports") / "v2-runner-evidence"
 _PHASE1_GOLDEN_SCOPE = {
     "strategy_family": "ema_crossover",
     "market": "US_EQUITY",
@@ -347,15 +348,38 @@ def _read_object(path: Path) -> dict[str, object]:
     return payload
 
 
-def _evidence_root(request: RunnerRequest) -> Path:
+def _trusted_directory(path: Path, *, bootstrap: bool) -> Path:
+    try:
+        resolved = path.resolve(strict=True)
+    except FileNotFoundError:
+        if not bootstrap:
+            raise
+        path.mkdir()
+        resolved = path.resolve(strict=True)
+    if resolved != path or not resolved.is_dir():
+        raise ValueError("trusted directory boundary required")
+    return resolved
+
+
+def _evidence_root(request: RunnerRequest, *, bootstrap: bool = False) -> Path:
     if request.evidence_root is None:
         raise ValueError("evidence_root required")
     try:
+        repository_root = _TRUSTED_REPOSITORY_ROOT.resolve(strict=True)
+        if not repository_root.is_dir():
+            raise ValueError("trusted repository directory required")
+        reports_root = _trusted_directory(
+            repository_root / _TRUSTED_EVIDENCE_RELATIVE.parent,
+            bootstrap=bootstrap,
+        )
+        trusted_root = _trusted_directory(
+            reports_root / _TRUSTED_EVIDENCE_RELATIVE.name,
+            bootstrap=bootstrap,
+        )
         root = request.evidence_root.resolve(strict=True)
-        trusted_root = _TRUSTED_EVIDENCE_ROOT.resolve(strict=True)
-    except (OSError, RuntimeError) as exc:
+    except (OSError, RuntimeError, ValueError) as exc:
         raise ValueError("evidence_root: existing directory required") from exc
-    if not root.is_dir() or not trusted_root.is_dir() or root != trusted_root:
+    if not root.is_dir() or root != trusted_root:
         raise ValueError("evidence_root: existing directory required")
     return root
 
@@ -464,7 +488,7 @@ def _validate(contracts: _CompiledContracts) -> RunnerResponse:
 
 
 def _prepare(request: RunnerRequest, contracts: _CompiledContracts) -> RunnerResponse:
-    root = _evidence_root(request)
+    root = _evidence_root(request, bootstrap=True)
     run_directory = resolve_under_root(root, contracts.run_id)
     now = _utc_now()
     confirmation = create_confirmation_request(

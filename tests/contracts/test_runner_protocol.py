@@ -2,8 +2,15 @@
 
 from __future__ import annotations
 
+import builtins
+from copy import deepcopy
+import importlib
 import json
 from pathlib import Path
+import socket
+import subprocess
+import sys
+import types
 
 import pytest
 
@@ -47,7 +54,10 @@ def _strategy_mapping() -> dict[str, object]:
         "fill_timing": "next_bar_open",
         "data": {
             "source": "validated_local_cache_first",
-            "cost_profile": "cost.bps.v1",
+            "legacy_costs": {
+                "commission_bps": "5",
+                "slippage_bps": "5",
+            },
         },
         "benchmark": {"type": "buy_and_hold", "symbol": "same_as_strategy"},
         "plugin": None,
@@ -117,6 +127,11 @@ def _approval_path(request_path: Path) -> Path:
         ),
         encoding="utf-8",
     )
+    return path
+
+
+def _write_config(path: Path, payload: dict[str, object]) -> Path:
+    path.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
     return path
 
 
@@ -316,6 +331,233 @@ def test_execute_with_valid_token_consumes_once_and_returns_not_implemented(
     assert second.confirmation_token is None
 
 
+def test_copied_request_path_cannot_create_caller_controlled_grant_state(
+    config_path: Path,
+    evidence_root: Path,
+) -> None:
+    """A copied request must not move the trusted grant state into a caller directory."""
+    runner = _runner()
+    _, request_path = _prepare(config_path, evidence_root)
+    approval_path = _approval_path(request_path)
+    copied_directory = evidence_root / "copied-request"
+    copied_directory.mkdir()
+    copied_request = copied_directory / request_path.name
+    copied_request.write_bytes(request_path.read_bytes())
+
+    response = runner.run_v2(
+        _request(
+            config_path,
+            runner.RunnerMode.GRANT_CONFIRMATION,
+            evidence_root,
+            confirmation_request_path=copied_request,
+            approval_record_path=approval_path,
+        )
+    )
+
+    assert response.status == "BLOCKED"
+    assert response.blocker_code == "CONFIRMATION_INVALID"
+    assert response.confirmation_token is None
+    assert not copied_request.with_name("confirmation-state.json").exists()
+
+
+def test_tampered_request_identity_is_rejected_before_token_consumption(
+    config_path: Path,
+    evidence_root: Path,
+) -> None:
+    """A forged request ID must not consume authority bound to the genuine request."""
+    runner = _runner()
+    _, request_path, _, granted = _grant(config_path, evidence_root)
+    token = granted.confirmation_token
+    assert token is not None
+    genuine_request = request_path.read_bytes()
+    forged_payload = json.loads(genuine_request)
+    forged_payload["confirmation_request_id"] = "confirmation-request-forged"
+    request_path.write_text(json.dumps(forged_payload), encoding="utf-8")
+
+    forged = runner.run_v2(
+        _request(
+            config_path,
+            runner.RunnerMode.EXECUTE,
+            evidence_root,
+            confirmation_request_path=request_path,
+            confirmation_token=token,
+        )
+    )
+    request_path.write_bytes(genuine_request)
+    genuine = runner.run_v2(
+        _request(
+            config_path,
+            runner.RunnerMode.EXECUTE,
+            evidence_root,
+            confirmation_request_path=request_path,
+            confirmation_token=token,
+        )
+    )
+
+    assert forged.status == "BLOCKED"
+    assert forged.blocker_code == "CONFIRMATION_INVALID"
+    assert forged.confirmation_token is None
+    assert genuine.status == "NOT_IMPLEMENTED"
+    assert genuine.blocker_code == "EXECUTION_CAPABILITY_NOT_IMPLEMENTED"
+
+
+def test_tampered_state_identity_is_rejected_before_token_consumption(
+    config_path: Path,
+    evidence_root: Path,
+) -> None:
+    """Canonical state must retain the request ID before its token may be consumed."""
+    runner = _runner()
+    _, request_path, _, granted = _grant(config_path, evidence_root)
+    token = granted.confirmation_token
+    assert token is not None
+    state_path = request_path.with_name("confirmation-state.json")
+    genuine_state = state_path.read_bytes()
+    forged_state = json.loads(genuine_state)
+    forged_state["grant"]["confirmation_request_id"] = "confirmation-request-forged"
+    state_path.write_text(json.dumps(forged_state), encoding="utf-8")
+
+    forged = runner.run_v2(
+        _request(
+            config_path,
+            runner.RunnerMode.EXECUTE,
+            evidence_root,
+            confirmation_request_path=request_path,
+            confirmation_token=token,
+        )
+    )
+    state_path.write_bytes(genuine_state)
+    genuine = runner.run_v2(
+        _request(
+            config_path,
+            runner.RunnerMode.EXECUTE,
+            evidence_root,
+            confirmation_request_path=request_path,
+            confirmation_token=token,
+        )
+    )
+
+    assert forged.status == "BLOCKED"
+    assert forged.blocker_code == "CONFIRMATION_INVALID"
+    assert forged.confirmation_token is None
+    assert genuine.status == "NOT_IMPLEMENTED"
+    assert genuine.blocker_code == "EXECUTION_CAPABILITY_NOT_IMPLEMENTED"
+
+
+def test_grant_rejects_incomplete_canonical_provisional_evidence(
+    config_path: Path,
+    evidence_root: Path,
+) -> None:
+    """A request without its complete IR and DataPlan evidence must not be grantable."""
+    runner = _runner()
+    _, request_path = _prepare(config_path, evidence_root)
+    approval_path = _approval_path(request_path)
+    request_path.with_name("data-plan.json").unlink()
+
+    response = runner.run_v2(
+        _request(
+            config_path,
+            runner.RunnerMode.GRANT_CONFIRMATION,
+            evidence_root,
+            confirmation_request_path=request_path,
+            approval_record_path=approval_path,
+        )
+    )
+
+    assert response.status == "BLOCKED"
+    assert response.blocker_code == "CONFIRMATION_INVALID"
+    assert response.confirmation_token is None
+    assert not request_path.with_name("confirmation-state.json").exists()
+
+
+def test_prepare_failure_publishes_no_partial_grantable_request(
+    monkeypatch: pytest.MonkeyPatch,
+    config_path: Path,
+    evidence_root: Path,
+) -> None:
+    """A late evidence-write failure must leave no final confirmation request."""
+    runner = _runner()
+    real_open = Path.open
+
+    def fail_data_plan(path: Path, mode: str = "r", *args: object, **kwargs: object):
+        if path.name == "data-plan.json" and mode == "x":
+            raise OSError("injected provisional publication failure")
+        return real_open(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", fail_data_plan)
+
+    response = runner.run_v2(
+        _request(config_path, runner.RunnerMode.PREPARE_CONFIRMATION, evidence_root)
+    )
+
+    assert response.status == "BLOCKED"
+    assert response.blocker_code == "CONFIG_VALIDATION_BLOCKER"
+    assert response.confirmation_token is None
+    assert list(evidence_root.rglob("confirmation-request.json")) == []
+
+
+@pytest.mark.parametrize(
+    "variant",
+    ("ema-10-20", "unsupported-source", "unsupported-sizing"),
+)
+def test_validate_rejects_non_golden_phase1_semantics_before_evidence(
+    variant: str,
+    tmp_path: Path,
+    evidence_root: Path,
+) -> None:
+    """A broad EMA label must not authorize semantics absent from the golden capability."""
+    runner = _runner()
+    payload = deepcopy(_strategy_mapping())
+    if variant == "ema-10-20":
+        for rule_name in ("entry", "exit"):
+            rule = payload[rule_name]
+            assert isinstance(rule, dict)
+            left = rule["left"]
+            right = rule["right"]
+            assert isinstance(left, dict)
+            assert isinstance(right, dict)
+            left["parameters"] = {"period": 10}
+            right["parameters"] = {"period": 20}
+    elif variant == "unsupported-source":
+        payload["data"] = {
+            "source": "yfinance_smoke_only",
+            "legacy_costs": {"commission_bps": "5", "slippage_bps": "5"},
+        }
+    else:
+        payload["position_sizing"] = {
+            "type": "fixed_fraction",
+            "fraction": "0.5",
+        }
+    config = _write_config(tmp_path / f"{variant}.yaml", payload)
+
+    response = runner.run_v2(
+        _request(config, runner.RunnerMode.VALIDATE, evidence_root)
+    )
+
+    assert response.status == "BLOCKED"
+    assert response.blocker_code == "STRATEGY_CAPABILITY_BLOCKER"
+    assert response.confirmation_token is None
+    assert list(evidence_root.iterdir()) == []
+
+
+def test_malformed_yaml_returns_redacted_config_blocker(
+    tmp_path: Path,
+    evidence_root: Path,
+) -> None:
+    """Parser failures must remain short protocol responses rather than escaping details."""
+    runner = _runner()
+    malformed = tmp_path / "malformed.yaml"
+    malformed.write_text("entry: [unterminated", encoding="utf-8")
+
+    response = runner.run_v2(
+        _request(malformed, runner.RunnerMode.VALIDATE, evidence_root)
+    )
+
+    assert response.status == "BLOCKED"
+    assert response.blocker_code == "CONFIG_VALIDATION_BLOCKER"
+    assert response.confirmation_token is None
+    assert "unterminated" not in response.to_json()
+
+
 def test_runner_response_contains_required_short_json_fields() -> None:
     """Renaming, reordering, or expanding the protocol payload would break consumers."""
     runner = _runner()
@@ -363,6 +605,47 @@ def test_runner_does_not_call_pipeline_backtest_or_provider(
     monkeypatch.setattr(pipeline_cli, "_refresh_data", forbidden)
     monkeypatch.setattr(downloader, "download_daily", forbidden)
     monkeypatch.setattr(futu_downloader, "download_futu_daily", forbidden)
+    for name in ("run", "Popen", "check_call", "check_output"):
+        monkeypatch.setattr(subprocess, name, forbidden)
+    monkeypatch.setattr(socket, "socket", forbidden)
+    monkeypatch.setattr(socket, "create_connection", forbidden)
+
+    forbidden_import_roots = {
+        "requests",
+        "socket",
+        "subprocess",
+        "vectorbt",
+    }
+    real_import = builtins.__import__
+    real_import_module = importlib.import_module
+
+    def guarded_import(
+        name: str,
+        globals_: object = None,
+        locals_: object = None,
+        fromlist: object = (),
+        level: int = 0,
+    ):
+        root = name.split(".", 1)[0].lower()
+        if root in forbidden_import_roots or "plugin" in name.lower():
+            forbidden()
+        return real_import(name, globals_, locals_, fromlist, level)
+
+    def guarded_import_module(name: str, package: str | None = None):
+        root = name.split(".", 1)[0].lower()
+        if root in forbidden_import_roots or "plugin" in name.lower():
+            forbidden()
+        return real_import_module(name, package)
+
+    explosive_plugin = types.ModuleType("tv_quant.plugins")
+    explosive_plugin.run = forbidden  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "tv_quant.plugins", explosive_plugin)
+    monkeypatch.setattr(builtins, "__import__", guarded_import)
+    monkeypatch.setattr(importlib, "import_module", guarded_import_module)
+    import tv_quant.contracts as contracts_package
+
+    monkeypatch.delitem(sys.modules, "tv_quant.contracts.runner_protocol", raising=False)
+    monkeypatch.delattr(contracts_package, "runner_protocol", raising=False)
 
     runner = _runner()
     validated = runner.run_v2(

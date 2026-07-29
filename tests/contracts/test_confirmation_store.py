@@ -63,6 +63,7 @@ def _consume(
     config_hash: str = CONFIG_HASH,
     data_plan_hash: str = DATA_PLAN_HASH,
     assumptions_digest: str = ASSUMPTIONS_HASH,
+    request_id: str = REQUEST_ID,
 ):
     return validate_and_consume(
         token,
@@ -70,6 +71,7 @@ def _consume(
         data_plan_hash,
         assumptions_digest,
         store,
+        expected_confirmation_request_id=request_id,
     )
 
 
@@ -143,6 +145,27 @@ def test_missing_expired_mismatched_and_reused_token_are_rejected(tmp_path: Path
     assert reused.blocker_code is BlockerCode.CONFIRMATION_ALREADY_USED
     assert reused.consumed_at == NOW
     assert reused_path.read_bytes() == consumed_bytes
+
+
+def test_mismatched_expected_request_id_is_rejected_without_consuming_token(
+    tmp_path: Path,
+) -> None:
+    """Request identity must be checked inside the same transaction as consumption."""
+    state_path = tmp_path / "request-id.json"
+    store = _store(state_path)
+    assert store.persist_grant(_grant()).outcome == "SUCCESS"
+    issued_bytes = state_path.read_bytes()
+
+    mismatched = _consume(
+        store,
+        request_id="confirmation-request-different",
+    )
+
+    assert mismatched.outcome == "BLOCKED"
+    assert mismatched.blocker_code is BlockerCode.CONFIRMATION_INVALID
+    assert mismatched.consumed_at is None
+    assert state_path.read_bytes() == issued_bytes
+    assert _consume(store).outcome == "SUCCESS"
 
 
 def test_atomic_consume_allows_exactly_one_consumer(tmp_path: Path) -> None:
@@ -360,8 +383,9 @@ def test_all_three_binding_comparisons_execute_without_short_circuit(
     result = _consume(store, config_hash=config_hash)
 
     assert result.blocker_code is BlockerCode.CONFIRMATION_HASH_MISMATCH
-    assert len(compare_calls) == 4
-    assert [right for _left, right in compare_calls[1:]] == [
+    assert len(compare_calls) == 5
+    assert compare_calls[0] == (REQUEST_ID, REQUEST_ID)
+    assert [right for _left, right in compare_calls[2:]] == [
         CONFIG_HASH,
         DATA_PLAN_HASH,
         ASSUMPTIONS_HASH,

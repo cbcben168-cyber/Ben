@@ -291,6 +291,7 @@ class ConfirmationStore(Protocol):
         expected_config_hash: str,
         expected_data_plan_hash: str,
         expected_assumptions_hash: str,
+        expected_confirmation_request_id: str | None = None,
     ) -> ConfirmationAuditRecord:
         """Validate all bindings and atomically consume the official grant."""
         ...
@@ -452,6 +453,7 @@ class FileConfirmationStore:
         expected_config_hash: str,
         expected_data_plan_hash: str,
         expected_assumptions_hash: str,
+        expected_confirmation_request_id: str | None = None,
     ) -> ConfirmationAuditRecord:
         evaluated_at: str | None = None
         try:
@@ -466,6 +468,27 @@ class FileConfirmationStore:
                     )
 
                 request_id = grant_payload["confirmation_request_id"]
+                request_id_matches = (
+                    expected_confirmation_request_id is None
+                    or (
+                        type(expected_confirmation_request_id) is str
+                        and bool(
+                            _STABLE_IDENTIFIER.fullmatch(
+                                expected_confirmation_request_id
+                            )
+                        )
+                        and hmac.compare_digest(
+                            expected_confirmation_request_id,
+                            request_id,
+                        )
+                    )
+                )
+                if not request_id_matches:
+                    return self._blocked(
+                        BlockerCode.CONFIRMATION_INVALID,
+                        evaluated_at,
+                        request_id=request_id,
+                    )
                 consumed_at = grant_payload["consumed_at"]
                 if consumed_at is not None:
                     return self._blocked(
@@ -854,13 +877,23 @@ def validate_and_consume(
     expected_data_plan_hash: str,
     expected_assumptions_hash: str,
     store: ConfirmationStore,
+    *,
+    expected_confirmation_request_id: str | None = None,
 ) -> ConfirmationAuditRecord:
     """Delegate one-time validation and consumption to the configured store."""
+    if expected_confirmation_request_id is None:
+        return store.validate_and_consume(
+            confirmation_token,
+            expected_config_hash,
+            expected_data_plan_hash,
+            expected_assumptions_hash,
+        )
     return store.validate_and_consume(
         confirmation_token,
         expected_config_hash,
         expected_data_plan_hash,
         expected_assumptions_hash,
+        expected_confirmation_request_id=expected_confirmation_request_id,
     )
 
 

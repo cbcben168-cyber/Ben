@@ -7,7 +7,11 @@ from dataclasses import dataclass, field as dataclass_field, fields, is_dataclas
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 import json
+import os
 from pathlib import Path
+import tempfile
+
+import yaml
 
 from tv_quant.run_manifest import sha256_file
 
@@ -33,13 +37,14 @@ from .execution_assumptions import (
 )
 from .normalized_ir import (
     NormalizedStrategyIR,
+    ValidationIssue,
     normalize_strategy_spec,
     normalized_config_hash,
     normalized_config_payload,
 )
 from .path_safety import resolve_under_root
 from .status_codes import BlockerCode, PipelineStatus, status_definition
-from .strategy_v2 import StrategySpecV2, ValidationIssue, load_strategy_spec_v2
+from .strategy_v2 import StrategySpecV2, load_strategy_spec_v2
 
 
 _PROTOCOL_VERSION = "v2.1"
@@ -52,6 +57,64 @@ _DATA_PLAN_FILE = "data-plan.json"
 _STATE_FILE = "confirmation-state.json"
 _REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 _REGISTRY_PATH = _REPOSITORY_ROOT / "config" / "capability-registry-v2.1.json"
+_PHASE1_GOLDEN_SCOPE = {
+    "strategy_family": "ema_crossover",
+    "market": "US_EQUITY",
+    "timeframe": "1d",
+    "session": {
+        "timezone": "America/New_York",
+        "regular_hours_only": True,
+        "calendar_id": "XNYS",
+    },
+    "initial_capital": {"amount": 100000, "currency": "USD"},
+    "entry": {
+        "node_type": "cross_above",
+        "left": {
+            "node_type": "indicator_ref",
+            "name": "EMA",
+            "parameters": {"period": 50},
+            "output": "series",
+            "unit": "USD",
+        },
+        "right": {
+            "node_type": "indicator_ref",
+            "name": "EMA",
+            "parameters": {"period": 200},
+            "output": "series",
+            "unit": "USD",
+        },
+    },
+    "exit": {
+        "node_type": "cross_below",
+        "left": {
+            "node_type": "indicator_ref",
+            "name": "EMA",
+            "parameters": {"period": 50},
+            "output": "series",
+            "unit": "USD",
+        },
+        "right": {
+            "node_type": "indicator_ref",
+            "name": "EMA",
+            "parameters": {"period": 200},
+            "output": "series",
+            "unit": "USD",
+        },
+    },
+    "filters": [],
+    "position_sizing": {"type": "full_capital"},
+    "stop": {"enabled": False},
+    "target": {"enabled": False},
+    "fill_timing": "next_bar_open",
+    "data": {
+        "source": "validated_local_cache_first",
+        "legacy_costs": {"commission_bps": "5", "slippage_bps": "5"},
+    },
+    "benchmark": {"type": "buy_and_hold", "symbol": "same_as_strategy"},
+    "plugin": None,
+    "optimization_allowed": False,
+    "report_language": "zh-CN",
+}
 
 
 class RunnerMode(str, Enum):
@@ -146,23 +209,6 @@ class _CapabilityGate:
         self._expected_spec = expected_spec
 
     @staticmethod
-    def _indicator_names(value: object) -> tuple[str, ...]:
-        if isinstance(value, Mapping):
-            current = (
-                (str(value["name"]),)
-                if value.get("node_type") == "indicator_ref" and "name" in value
-                else ()
-            )
-            return current + tuple(
-                name for item in value.values() for name in _CapabilityGate._indicator_names(item)
-            )
-        if isinstance(value, tuple):
-            return tuple(
-                name for item in value for name in _CapabilityGate._indicator_names(item)
-            )
-        return ()
-
-    @staticmethod
     def _issue(message: str) -> ValidationIssue:
         return ValidationIssue(
             code=BlockerCode.STRATEGY_CAPABILITY_BLOCKER.value,
@@ -185,13 +231,28 @@ class _CapabilityGate:
         except ValueError:
             return (self._issue("required Phase 1 EMA capability is unavailable"),)
         payload = spec.payload
-        indicator_names = self._indicator_names(
-            (payload["entry"], payload["exit"], payload["filters"])
+        static_fields = (
+            "strategy_family",
+            "market",
+            "timeframe",
+            "session",
+            "initial_capital",
+            "entry",
+            "exit",
+            "filters",
+            "position_sizing",
+            "stop",
+            "target",
+            "fill_timing",
+            "data",
+            "benchmark",
+            "plugin",
+            "optimization_allowed",
+            "report_language",
         )
+        actual_scope = {name: _json_value(payload[name]) for name in static_fields}
         if (
-            payload["strategy_family"] != "ema_crossover"
-            or not indicator_names
-            or set(indicator_names) != {"EMA"}
+            actual_scope != _PHASE1_GOLDEN_SCOPE
             or spec.symbol not in capability.supported_market
             or payload["timeframe"] not in capability.supported_timeframes
         ):
@@ -310,27 +371,46 @@ def _contained_file(root: Path, path: Path | None) -> Path:
     return candidate
 
 
-def _state_path(root: Path, request_path: Path) -> Path:
-    relative = request_path.parent.relative_to(root) / _STATE_FILE
-    return resolve_under_root(root, relative.as_posix())
+def _run_file(root: Path, contracts: _CompiledContracts, filename: str) -> Path:
+    return resolve_under_root(root, f"{contracts.run_id}/{filename}")
 
 
-def _read_confirmation_request(root: Path, path: Path | None) -> tuple[ConfirmationRequest, Path]:
-    request_path = _contained_file(root, path)
-    if request_path.name != _REQUEST_FILE:
-        raise ValueError("confirmation request filename required")
-    return ConfirmationRequest(**_read_object(request_path)), request_path
+def _state_path(root: Path, contracts: _CompiledContracts) -> Path:
+    return _run_file(root, contracts, _STATE_FILE)
 
 
-def _bindings_match(
-    request: ConfirmationRequest,
+def _read_confirmation_request(
+    root: Path,
+    path: Path | None,
     contracts: _CompiledContracts,
-) -> bool:
-    return (
-        request.normalized_config_hash == normalized_config_hash(contracts.ir)
-        and request.data_plan_hash == data_plan_hash(contracts.data_plan)
-        and request.assumptions_hash == assumptions_hash(contracts.assumptions)
+) -> tuple[ConfirmationRequest, Path]:
+    request_path = _contained_file(root, path)
+    if request_path != _run_file(root, contracts, _REQUEST_FILE):
+        raise ValueError("canonical confirmation request path required")
+    confirmation = ConfirmationRequest(**_read_object(request_path))
+    expected = create_confirmation_request(
+        contracts.ir,
+        contracts.data_plan,
+        contracts.assumptions,
+        confirmation.generated_at,
+        confirmation.expires_at,
     )
+    if confirmation != expected:
+        raise ValueError("confirmation request does not match compiled contracts")
+    evidence_bindings = (
+        (
+            _run_file(root, contracts, _IR_FILE),
+            _json_value(normalized_config_payload(contracts.ir)),
+        ),
+        (
+            _run_file(root, contracts, _DATA_PLAN_FILE),
+            _json_value(contracts.data_plan),
+        ),
+    )
+    for evidence_path, expected_payload in evidence_bindings:
+        if _read_object(_contained_file(root, evidence_path)) != expected_payload:
+            raise ValueError("provisional evidence does not match compiled contracts")
+    return confirmation, request_path
 
 
 def _response(
@@ -384,7 +464,6 @@ def _validate(contracts: _CompiledContracts) -> RunnerResponse:
 def _prepare(request: RunnerRequest, contracts: _CompiledContracts) -> RunnerResponse:
     root = _evidence_root(request)
     run_directory = resolve_under_root(root, contracts.run_id)
-    run_directory.mkdir()
     now = _utc_now()
     confirmation = create_confirmation_request(
         contracts.ir,
@@ -413,10 +492,22 @@ def _prepare(request: RunnerRequest, contracts: _CompiledContracts) -> RunnerRes
         normalized_config_payload(contracts.ir),
         contracts.data_plan,
     )
-    for path, payload in zip(evidence.resolved_paths(root), payloads):
-        with path.open("x", encoding="utf-8", newline="\n") as handle:
-            handle.write(_serialize(payload))
-            handle.write("\n")
+    staging_directory = Path(
+        tempfile.mkdtemp(prefix=f".{contracts.run_id}.", dir=root)
+    )
+    staging_paths = tuple(staging_directory / Path(path).name for path in relative_paths)
+    try:
+        for path, payload in zip(staging_paths, payloads, strict=True):
+            with path.open("x", encoding="utf-8", newline="\n") as handle:
+                handle.write(_serialize(payload))
+                handle.write("\n")
+        os.replace(staging_directory, run_directory)
+    except Exception:
+        for path in staging_paths:
+            path.unlink(missing_ok=True)
+        staging_directory.rmdir()
+        raise
+    evidence.resolved_paths(root)
     return _response(
         status=PipelineStatus.SUCCESS,
         run_id=contracts.run_id,
@@ -427,16 +518,11 @@ def _prepare(request: RunnerRequest, contracts: _CompiledContracts) -> RunnerRes
 
 def _grant(request: RunnerRequest, contracts: _CompiledContracts) -> RunnerResponse:
     root = _evidence_root(request)
-    confirmation, request_path = _read_confirmation_request(
+    confirmation, _request_path = _read_confirmation_request(
         root,
         request.confirmation_request_path,
+        contracts,
     )
-    if not _bindings_match(confirmation, contracts):
-        return _blocked(
-            BlockerCode.CONFIRMATION_INVALID,
-            run_id=contracts.run_id,
-            confirmation_request_id=confirmation.confirmation_request_id,
-        )
     approval_path = _contained_file(root, request.approval_record_path)
     approval = ApprovalRecord(**_read_object(approval_path))
     handoff = issue_confirmation_grant(
@@ -444,7 +530,7 @@ def _grant(request: RunnerRequest, contracts: _CompiledContracts) -> RunnerRespo
         approval,
         _timestamp(_utc_now()),
     )
-    persisted = FileConfirmationStore(_state_path(root, request_path)).persist_grant(
+    persisted = FileConfirmationStore(_state_path(root, contracts)).persist_grant(
         handoff.grant
     )
     if persisted.outcome != "SUCCESS":
@@ -470,22 +556,19 @@ def _execute(request: RunnerRequest, contracts: _CompiledContracts) -> RunnerRes
             run_id=contracts.run_id,
         )
     root = _evidence_root(request)
-    confirmation, request_path = _read_confirmation_request(
+    confirmation, _request_path = _read_confirmation_request(
         root,
         request.confirmation_request_path,
+        contracts,
     )
-    if not _bindings_match(confirmation, contracts):
-        return _blocked(
-            BlockerCode.CONFIRMATION_INVALID,
-            run_id=contracts.run_id,
-            confirmation_request_id=confirmation.confirmation_request_id,
-        )
+    state_path = _state_path(root, contracts)
     audit = validate_and_consume(
         request.confirmation_token,
         normalized_config_hash(contracts.ir),
         data_plan_hash(contracts.data_plan),
         assumptions_hash(contracts.assumptions),
-        FileConfirmationStore(_state_path(root, request_path)),
+        FileConfirmationStore(state_path),
+        expected_confirmation_request_id=confirmation.confirmation_request_id,
     )
     if audit.outcome != "SUCCESS":
         assert audit.blocker_code is not None
@@ -496,6 +579,12 @@ def _execute(request: RunnerRequest, contracts: _CompiledContracts) -> RunnerRes
         )
         return _blocked(
             public_code,
+            run_id=contracts.run_id,
+            confirmation_request_id=confirmation.confirmation_request_id,
+        )
+    if audit.confirmation_request_id != confirmation.confirmation_request_id:
+        return _blocked(
+            BlockerCode.CONFIRMATION_INVALID,
             run_id=contracts.run_id,
             confirmation_request_id=confirmation.confirmation_request_id,
         )
@@ -528,7 +617,7 @@ def run_v2(request: RunnerRequest) -> RunnerResponse:
             run_id=blocker.run_id,
             confirmation_request_id=blocker.confirmation_request_id,
         )
-    except (OSError, TypeError, ValueError, json.JSONDecodeError):
+    except (OSError, TypeError, ValueError, json.JSONDecodeError, yaml.YAMLError):
         code = (
             BlockerCode.CONFIG_VALIDATION_BLOCKER
             if request.mode in {RunnerMode.VALIDATE, RunnerMode.PREPARE_CONFIRMATION}

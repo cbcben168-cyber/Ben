@@ -1,7 +1,9 @@
 import argparse
 from pathlib import Path
+import sys
 
 from . import cli as legacy_cli
+from .contracts.runner_protocol import RunnerMode, RunnerRequest, run_v2
 from .research_pipeline import (
     PipelineOptions,
     clear_data_provenance_pending,
@@ -70,7 +72,117 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _readable_config_path(value: str) -> Path:
+    path = Path(value)
+    try:
+        with path.open("rb") as handle:
+            handle.read(1)
+    except OSError as error:
+        raise argparse.ArgumentTypeError(
+            "config path must be a readable file"
+        ) from error
+    return path
+
+
+def _nonempty_confirmation_token(value: str) -> str:
+    if not value.strip():
+        raise argparse.ArgumentTypeError("non-empty token required")
+    return value
+
+
+def build_v2_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="tv_quant.pipeline v2",
+        allow_abbrev=False,
+    )
+    commands = parser.add_subparsers(dest="command", required=True)
+
+    validate = commands.add_parser("validate", allow_abbrev=False)
+    validate.add_argument(
+        "--config",
+        type=_readable_config_path,
+        required=True,
+    )
+    validate.set_defaults(mode=RunnerMode.VALIDATE)
+
+    prepare = commands.add_parser(
+        "prepare-confirmation",
+        allow_abbrev=False,
+    )
+    prepare.add_argument(
+        "--config",
+        type=_readable_config_path,
+        required=True,
+    )
+    prepare.add_argument("--evidence-root", type=Path, required=True)
+    prepare.set_defaults(mode=RunnerMode.PREPARE_CONFIRMATION)
+
+    grant = commands.add_parser(
+        "grant-confirmation",
+        allow_abbrev=False,
+    )
+    grant.add_argument(
+        "--config",
+        type=_readable_config_path,
+        required=True,
+    )
+    grant.add_argument("--request", type=Path, required=True)
+    grant.add_argument("--approval-record", type=Path, required=True)
+    grant.add_argument("--evidence-root", type=Path, required=True)
+    grant.set_defaults(mode=RunnerMode.GRANT_CONFIRMATION)
+
+    execute = commands.add_parser("execute", allow_abbrev=False)
+    execute.add_argument(
+        "--config",
+        type=_readable_config_path,
+        required=True,
+    )
+    execute.add_argument(
+        "--confirmation-token",
+        type=_nonempty_confirmation_token,
+        required=True,
+    )
+    execute.add_argument("--request", type=Path, required=True)
+    execute.add_argument("--evidence-root", type=Path, required=True)
+    execute.set_defaults(mode=RunnerMode.EXECUTE)
+    return parser
+
+
+def _v2_exit_code(status: str) -> int:
+    return {
+        "SUCCESS": 0,
+        "CONDITIONAL_SUCCESS": 0,
+        "BLOCKED": 3,
+        "FAILED": 4,
+        "NOT_IMPLEMENTED": 5,
+    }.get(status, 4)
+
+
+def main_v2(argv: list[str] | None = None) -> int:
+    args = build_v2_parser().parse_args(argv)
+    request = RunnerRequest(
+        config_path=args.config,
+        mode=args.mode,
+        confirmation_token=getattr(args, "confirmation_token", None),
+        confirmation_request_path=getattr(args, "request", None),
+        approval_record_path=getattr(args, "approval_record", None),
+        evidence_root=getattr(args, "evidence_root", None),
+    )
+    response = run_v2(request)
+    print(response.to_json())
+    exit_code = _v2_exit_code(response.status)
+    if exit_code != 0:
+        print(
+            f"status={response.status} blocker_code={response.blocker_code}",
+            file=sys.stderr,
+        )
+    return exit_code
+
+
 def main(argv: list[str] | None = None) -> int:
+    explicit_argv = sys.argv[1:] if argv is None else argv
+    if explicit_argv[:1] == ["v2"]:
+        return main_v2(explicit_argv[1:])
     args = build_parser().parse_args(argv)
     try:
         options = PipelineOptions(

@@ -32,6 +32,18 @@ _REQUEST_SUMMARY_FIELDS = frozenset(
     }
 )
 _DATA_PLAN_SUMMARY_FIELDS = frozenset({"primary", "auxiliary", "requested_range"})
+_REQUEST_ID_FIELDS = (
+    "schema_version",
+    "normalized_config_hash",
+    "data_plan_hash",
+    "assumptions_hash",
+    "config_summary",
+    "data_plan_summary",
+    "cost_profile_id",
+    "corporate_action_profile_id",
+    "generated_at",
+    "expires_at",
+)
 
 
 def _string(value: object, path: str) -> str:
@@ -89,6 +101,26 @@ def _frozen_summary(
     if not isinstance(frozen, Mapping) or set(frozen) != expected_fields:
         raise ValueError(f"{path}: exact summary fields required")
     return frozen
+
+
+def _plain_value(value: object) -> object:
+    if isinstance(value, Mapping):
+        return {key: _plain_value(value[key]) for key in sorted(value)}
+    if isinstance(value, tuple):
+        return [_plain_value(item) for item in value]
+    return value
+
+
+def _confirmation_request_id(fields: Mapping[str, object]) -> str:
+    if set(fields) != set(_REQUEST_ID_FIELDS):
+        raise ValueError("request ID fields are incomplete")
+    return "confirmation-request-" + canonical_hash(
+        {name: _plain_value(fields[name]) for name in _REQUEST_ID_FIELDS}
+    )
+
+
+def _request_id_fields(request: ConfirmationRequest) -> Mapping[str, object]:
+    return {name: getattr(request, name) for name in _REQUEST_ID_FIELDS}
 
 
 @dataclass(frozen=True, slots=True)
@@ -273,24 +305,12 @@ def create_confirmation_request(
     expires = _utc_datetime(expires_at, "expires_at")
     if expires <= generated:
         raise ValueError("expires_at: must be after generated_at")
-    request_id = "confirmation-request-" + canonical_hash(
-        {
-            "schema_version": ir.schema_version,
-            "normalized_config_hash": config_digest,
-            "data_plan_hash": plan_digest,
-            "assumptions_hash": assumptions_digest,
-            "generated_at": generated_at,
-            "expires_at": expires_at,
-        }
-    )
-
-    return ConfirmationRequest(
-        confirmation_request_id=request_id,
-        schema_version=ir.schema_version,
-        normalized_config_hash=config_digest,
-        data_plan_hash=plan_digest,
-        assumptions_hash=assumptions_digest,
-        config_summary={
+    request_fields = {
+        "schema_version": ir.schema_version,
+        "normalized_config_hash": config_digest,
+        "data_plan_hash": plan_digest,
+        "assumptions_hash": assumptions_digest,
+        "config_summary": {
             "strategy_id": ir.strategy_id,
             "strategy_family": ir.strategy_family,
             "strategy_name": ir.strategy_name,
@@ -301,15 +321,19 @@ def create_confirmation_request(
             "optimization_allowed": ir.optimization_allowed,
             "report_language": ir.report_language,
         },
-        data_plan_summary={
+        "data_plan_summary": {
             "primary": _dataset_summary(data_plan.primary),
             "auxiliary": tuple(_dataset_summary(item) for item in data_plan.auxiliary),
             "requested_range": data_plan.requested_range,
         },
-        cost_profile_id=assumptions.cost_profile_id,
-        corporate_action_profile_id=assumptions.corporate_action_profile_id,
-        generated_at=generated_at,
-        expires_at=expires_at,
+        "cost_profile_id": assumptions.cost_profile_id,
+        "corporate_action_profile_id": assumptions.corporate_action_profile_id,
+        "generated_at": generated_at,
+        "expires_at": expires_at,
+    }
+    return ConfirmationRequest(
+        confirmation_request_id=_confirmation_request_id(request_fields),
+        **request_fields,
     )
 
 
@@ -321,6 +345,8 @@ def issue_confirmation_grant(
     """Issue hash-only grant state plus one private, successful plaintext handoff."""
     if type(request) is not ConfirmationRequest:
         raise ValueError("ConfirmationRequest required")
+    if request.confirmation_request_id != _confirmation_request_id(_request_id_fields(request)):
+        raise ValueError("request integrity does not match confirmation_request_id")
     if type(approval) is not ApprovalRecord:
         raise ValueError("ApprovalRecord required")
     if approval.decision != "CONFIRMED_EXECUTE":

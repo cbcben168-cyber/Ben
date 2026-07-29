@@ -326,3 +326,52 @@ def test_request_rejects_data_plan_cost_profile_mismatch() -> None:
             GENERATED_AT,
             EXPIRES_AT,
         )
+
+
+@pytest.mark.parametrize(
+    "field",
+    (
+        "normalized_config_hash",
+        "data_plan_hash",
+        "assumptions_hash",
+        "config_summary",
+        "data_plan_summary",
+        "cost_profile_id",
+        "corporate_action_profile_id",
+        "generated_at",
+        "expires_at",
+    ),
+)
+def test_grant_rejects_tampered_typed_request_before_token_generation(
+    field: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Changing any approval-visible request field must invalidate its approved ID."""
+    request = _request()
+    changed_config_summary = dict(request.config_summary)
+    changed_config_summary["strategy_name"] = "Tampered strategy"
+    changed_data_plan_summary = dict(request.data_plan_summary)
+    changed_data_plan_summary["requested_range"] = {
+        "start": "2023-01-02",
+        "end": "2024-12-31",
+    }
+    replacements: dict[str, object] = {
+        "normalized_config_hash": "b" * 64,
+        "data_plan_hash": "c" * 64,
+        "assumptions_hash": "d" * 64,
+        "config_summary": changed_config_summary,
+        "data_plan_summary": changed_data_plan_summary,
+        "cost_profile_id": "different.cost.v1",
+        "corporate_action_profile_id": "different-actions.v1",
+        "generated_at": "2026-07-29T00:59:00+00:00",
+        "expires_at": "2026-07-29T01:30:00+00:00",
+    }
+    tampered = replace(request, **{field: replacements[field]})
+    approval = _approval(request)
+    monkeypatch.setattr(
+        "tv_quant.contracts.confirmation.secrets.token_urlsafe",
+        lambda _size: pytest.fail(f"token generation reached for tampered {field}"),
+    )
+
+    with pytest.raises(ValueError, match="request integrity"):
+        issue_confirmation_grant(tampered, approval, ISSUED_AT)

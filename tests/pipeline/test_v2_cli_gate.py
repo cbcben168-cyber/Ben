@@ -329,6 +329,7 @@ def test_v2_execute_with_mismatched_token_has_nonzero_exit(
     """Accepting an unbound token would bypass Task 14's grant validation."""
     _prepared, request_path = _prepare(config_path, evidence_root, capsys)
     _grant(config_path, evidence_root, request_path, capsys)
+    mismatched_token = "mismatched-token"
 
     exit_code = pipeline_cli.main_v2(
         [
@@ -336,7 +337,7 @@ def test_v2_execute_with_mismatched_token_has_nonzero_exit(
             "--config",
             str(config_path),
             "--confirmation-token",
-            "mismatched-token",
+            mismatched_token,
             "--request",
             str(request_path),
             "--evidence-root",
@@ -350,7 +351,8 @@ def test_v2_execute_with_mismatched_token_has_nonzero_exit(
     assert payload["status"] == "BLOCKED"
     assert payload["blocker_code"] == "CONFIRMATION_INVALID"
     assert payload["confirmation_token"] is None
-    assert "confirmation_token" not in captured.err
+    assert mismatched_token not in captured.out
+    assert mismatched_token not in captured.err
 
 
 def test_v2_execute_with_valid_token_returns_exit_5_not_implemented(
@@ -388,6 +390,8 @@ def test_v2_execute_with_valid_token_returns_exit_5_not_implemented(
     assert payload["blocker_code"] == "EXECUTION_CAPABILITY_NOT_IMPLEMENTED"
     assert payload["confirmation_token"] is None
     assert payload["formal_result_published"] is False
+    assert token not in captured.out
+    assert token not in captured.err
 
 
 def test_v2_stdout_has_one_json_object_and_diagnostics_are_stderr(
@@ -397,6 +401,7 @@ def test_v2_stdout_has_one_json_object_and_diagnostics_are_stderr(
 ) -> None:
     """A blocker diagnostic on stdout would corrupt the machine-readable response."""
     _prepared, request_path = _prepare(config_path, evidence_root, capsys)
+    unissued_token = "not-issued"
 
     exit_code = pipeline_cli.main_v2(
         [
@@ -404,7 +409,7 @@ def test_v2_stdout_has_one_json_object_and_diagnostics_are_stderr(
             "--config",
             str(config_path),
             "--confirmation-token",
-            "not-issued",
+            unissued_token,
             "--request",
             str(request_path),
             "--evidence-root",
@@ -419,6 +424,8 @@ def test_v2_stdout_has_one_json_object_and_diagnostics_are_stderr(
     assert payload["blocker_code"] == "CONFIRMATION_INVALID"
     assert "status=BLOCKED" in captured.err
     assert "blocker_code=CONFIRMATION_INVALID" in captured.err
+    assert unissued_token not in captured.out
+    assert unissued_token not in captured.err
 
 
 def test_v2_command_never_calls_legacy_run_pipeline_or_refresh(
@@ -465,3 +472,26 @@ def test_grant_confirmation_stdout_delivers_token_once_and_no_file_contains_plai
         for path in tmp_path.rglob("*")
         if path.is_file()
     )
+
+    approval_path = request_path.with_name("approval-record.json")
+    repeated_exit_code = pipeline_cli.main_v2(
+        [
+            "grant-confirmation",
+            "--config",
+            str(config_path),
+            "--request",
+            str(request_path),
+            "--approval-record",
+            str(approval_path),
+            "--evidence-root",
+            str(evidence_root),
+        ]
+    )
+
+    repeated = capsys.readouterr()
+    repeated_payload = _read_one_response(repeated.out)
+    assert repeated_exit_code == 3
+    assert repeated_payload["status"] == "BLOCKED"
+    assert repeated_payload["confirmation_token"] is None
+    assert token not in repeated.out
+    assert token not in repeated.err

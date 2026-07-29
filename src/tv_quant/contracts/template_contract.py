@@ -10,7 +10,7 @@ import re
 
 _SHA256_HEX = re.compile(r"[0-9a-f]{64}\Z")
 _SEMANTIC_VERSION = re.compile(
-    r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
+    r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
     r"(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?"
     r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?\Z"
 )
@@ -174,12 +174,25 @@ class TemplateRegistry:
     def _validate_integrity(self) -> None:
         by_id: dict[str, TemplateRecord] = {}
         active_keys: set[TemplateLookupKey] = set()
+        precedence_hashes: set[tuple[TemplateLookupKey, tuple[object, ...], str]] = (
+            set()
+        )
         for record in self._records:
             if type(record) is not TemplateRecord:
                 raise ValueError("records: TemplateRecord entries required")
             if record.template_id in by_id:
                 raise ValueError("template_id: duplicate record")
             by_id[record.template_id] = record
+            precedence_hash = (
+                record.lookup_key,
+                _semantic_version(record.immutable_version),
+                record.config_hash,
+            )
+            if precedence_hash in precedence_hashes:
+                raise ValueError(
+                    "ambiguous semantic version and config_hash for lookup key"
+                )
+            precedence_hashes.add(precedence_hash)
             if record.invalidation_reason is not None and record.active_version:
                 raise ValueError("invalidated record cannot be active")
             if record.active_version:

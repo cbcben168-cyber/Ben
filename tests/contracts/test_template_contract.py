@@ -135,6 +135,17 @@ def test_lookup_uses_key_not_file_mtime(tmp_path: Path) -> None:
     assert second is config_tie_breaker
 
 
+def test_equal_version_and_config_hash_records_are_rejected_independent_of_order(
+    tmp_path: Path,
+) -> None:
+    first = _record(template_id="equal-a", active_version=False)
+    second = _record(template_id="equal-b")
+
+    for records in ((first, second), (second, first)):
+        with pytest.raises(ValueError, match="ambiguous"):
+            TemplateRegistry(tmp_path / "registry.json", records)
+
+
 def test_only_one_active_version_exists_per_key(tmp_path: Path) -> None:
     first = _record()
     second = _record(
@@ -209,6 +220,11 @@ def test_supersedes_cycles_and_non_monotonic_versions_are_rejected(
             tmp_path / "non-monotonic.json",
             (newer, non_monotonic),
         )
+
+
+def test_semantic_versions_reject_unicode_digits() -> None:
+    with pytest.raises(ValueError, match="semantic version"):
+        _record(immutable_version="1\u0661.0.0")
 
 
 def test_invalidated_record_cannot_be_active(tmp_path: Path) -> None:

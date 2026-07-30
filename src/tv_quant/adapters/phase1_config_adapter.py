@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Mapping
 
 from tv_quant.contracts.normalized_ir import NormalizedStrategyIR, normalize_strategy_spec
+from tv_quant.contracts.numeric import canonical_decimal
 from tv_quant.contracts.strategy_v2 import StrategySpecV2, validate_strategy_mapping_v2
 from tv_quant.pipeline_models import CapabilityStatus
 from tv_quant.run_manifest import canonical_hash, sha256_file
@@ -56,7 +57,7 @@ class _SingleValidatedSpecRegistry:
 
 def _basis_points_text(value: float) -> str:
     """Keep legacy costs explicit without introducing binary floats into V2."""
-    return str(value)
+    return canonical_decimal(str(value), "legacy basis points")
 
 
 def _v2_payload(spec) -> dict[str, object]:

@@ -737,29 +737,34 @@ V2 只有同时满足以下条件，才能宣布完成：
 
 | Review item | Independent evidence | Status |
 |---|---|---|
-| P1 | `tests/adapters/test_phase1_config_adapter.py` and `tests/integration/test_v2_1_gate.py` | RESOLVED |
-| P2 | `tests/contracts/test_strategy_v2_semantics.py` and `tests/contracts/test_normalized_ir.py` | RESOLVED |
-| P3 | `tests/contracts/test_strategy_v2_semantics.py` and `tests/contracts/test_normalized_ir.py` | RESOLVED |
-| P4 | `tests/contracts/test_ast_contract.py` | RESOLVED |
-| P5 | `tests/contracts/test_execution_assumptions.py` and `tests/contracts/test_confirmation.py` | RESOLVED |
-| P6 | `tests/contracts/test_confirmation.py`, `tests/pipeline/test_v2_cli_gate.py`, and `tests/integration/test_v2_1_gate.py` | RESOLVED |
-| P7 | `tests/contracts/test_schema_contract.py` and `tests/contracts/test_normalized_ir.py` | RESOLVED |
-| P8 | `tests/contracts/test_strategy_v2_semantics.py`, `tests/adapters/test_phase1_config_adapter.py`, and `tests/contracts/test_capability_registry.py` | RESOLVED |
-| P9 | `tests/contracts/test_numeric_canonicalization.py` and `tests/contracts/test_normalized_ir.py` | RESOLVED |
-| P10 | `tests/contracts/test_confirmation.py` | RESOLVED |
-| P11 | `tests/contracts/test_artifact_contract.py` and `tests/integration/test_v2_1_security.py` | RESOLVED |
-| P12 | `tests/contracts/test_artifact_contract.py` and `tests/integration/test_v2_1_gate.py` | RESOLVED |
-| P13 | `tests/contracts/test_template_contract.py` | RESOLVED |
-| P14 | `tests/contracts/test_capability_registry.py` | RESOLVED |
-| P15 | `tests/contracts/test_status_codes.py` and `tests/integration/test_v2_1_security.py` | RESOLVED |
+| P1 | `tests/adapters/test_phase1_config_adapter.py::test_phase1_to_v2_result_preserves_source_and_generated_hashes`<br>`tests/adapters/test_phase1_config_adapter.py::test_v2_to_phase1_adapter_is_not_part_of_v21` | RESOLVED |
+| P2 | `tests/contracts/test_strategy_v2_schema.py::test_each_explicit_root_field_is_required_without_normalization_default`<br>`tests/contracts/test_normalized_ir.py::test_missing_explicit_fields_never_become_normalization_defaults` | RESOLVED |
+| P3 | `tests/contracts/test_strategy_v2_schema.py::test_disabled_stop_target_and_empty_filters_must_be_present`<br>`tests/contracts/test_normalized_ir.py::test_normalization_requires_position_sizing` | RESOLVED |
+| P4 | `tests/contracts/test_ast_contract.py::test_entry_exit_and_filter_roots_require_predicates`<br>`tests/contracts/test_ast_contract.py::test_node_id_depth_and_node_count_limits_are_deterministic` | RESOLVED |
+| P5 | `tests/contracts/test_execution_assumptions.py::test_assumptions_hash_accepts_only_execution_assumptions`<br>`tests/contracts/test_confirmation.py::test_request_binds_formal_execution_assumptions_hash` | RESOLVED |
+| P6 | `tests/contracts/test_runner_protocol.py::test_grant_confirmation_returns_token_once`<br>`tests/contracts/test_runner_protocol.py::test_non_grant_modes_never_return_plaintext_token` | RESOLVED |
+| P7 | `tests/contracts/test_schema_contract.py::test_python_contract_definitions_are_unique_source_of_truth`<br>`tests/contracts/test_strategy_v2_schema.py::test_python_contract_and_json_schema_required_fields_match` | RESOLVED |
+| P8 | `tests/contracts/test_strategy_v2_schema.py::test_symbol_schema_accepts_valid_us_equity_symbol_without_spy_qqq_cap`<br>`tests/contracts/test_capability_registry.py::test_require_formal_rejects_not_live_verified` | RESOLVED |
+| P9 | `tests/contracts/test_numeric_canonicalization.py::test_decimal_strings_normalize_1_1_00_to_one_semantic_hash`<br>`tests/contracts/test_normalized_ir.py::test_decimal_numeric_forms_produce_identical_hash` | RESOLVED |
+| P10 | `tests/contracts/test_confirmation_store.py::test_atomic_consume_allows_exactly_one_consumer`<br>`tests/contracts/test_confirmation_store.py::test_windows_lock_backend_uses_msvcrt_contract`<br>`tests/contracts/test_confirmation_store.py::test_posix_lock_backend_uses_fcntl_contract`<br>`tests/contracts/test_confirmation_store.py::test_crash_before_replace_leaves_grant_retryable` | RESOLVED |
+| P11 | `tests/contracts/test_path_safety.py::test_resolve_under_root_rejects_parent_traversal_absolute_and_root_escape`<br>`tests/contracts/test_path_safety.py::test_resolve_under_root_rejects_ntfs_ads_and_reserved_dos_devices` | RESOLVED |
+| P12 | `tests/contracts/test_artifact_contract.py::test_dependency_hash_payload_contains_all_components`<br>`tests/integration/test_v2_1_gate.py::test_evidence_paths_are_contained_and_dependency_hash_is_complete` | RESOLVED |
+| P13 | `tests/contracts/test_template_contract.py::test_only_one_active_version_exists_per_key`<br>`tests/contracts/test_template_contract.py::test_supersedes_points_to_same_key_older_record`<br>`tests/contracts/test_template_contract.py::test_supersedes_cycles_and_non_monotonic_versions_are_rejected` | RESOLVED |
+| P14 | `tests/contracts/test_capability_registry.py::test_symbol_structural_support_is_not_phase1_execution_support`<br>`tests/contracts/test_capability_registry.py::test_require_formal_rejects_not_live_verified` | RESOLVED |
+| P15 | `tests/contracts/test_status_codes.py::test_recoverable_retryable_terminal_semantics_are_consistent`<br>`tests/integration/test_v2_1_security.py::test_all_status_metadata_defines_recoverable_retryable_terminal` | RESOLVED |
 
 The acceptance commands are:
 
 ~~~powershell
 $env:PYTHONPATH = (Join-Path (Get-Location) 'src')
-py -3.14 -m pytest tests/contracts tests/adapters tests/pipeline/test_v2_cli_gate.py tests/integration -q
-py -3.14 -m pytest tests -q
-py -3.14 -m compileall -q src tests
+python -m pytest tests/contracts tests/adapters tests/pipeline/test_v2_cli_gate.py tests/integration -q
+python -m pytest tests/contracts -q
+python -m pytest tests/adapters -q
+python -m pytest tests/pipeline/test_v2_cli_gate.py -q
+python -m pytest tests/integration -q
+python -m pytest tests/pipeline -q
+python -m pytest tests -q
+python -m compileall -q src tests
 git diff --check
 ~~~
 
@@ -767,55 +772,58 @@ git diff --check
 
 | ID | Exit condition | Independent evidence | Status |
 |---|---|---|---|
-| E1 | Schema identity, version enforcement, and Python parity | `tests/contracts/test_schema_contract.py` and `tests/contracts/test_strategy_v2_schema.py` | PASS |
-| E2 | StrategySpecV2 valid load and legacy, unknown, unsafe rejection | `tests/contracts/test_strategy_v2_semantics.py` | PASS |
-| E3 | Explicit required root fields with no normalization defaults | `tests/contracts/test_strategy_v2_semantics.py` and `tests/contracts/test_normalized_ir.py` | PASS |
-| E4 | Typed AST root, type, unit, depth, and node-count rules | `tests/contracts/test_ast_contract.py` | PASS |
-| E5 | Immutable, deterministic, unit-explicit, float-free NormalizedStrategyIR | `tests/contracts/test_normalized_ir.py` | PASS |
-| E6 | Stable normalized hash through the Phase 1 hash owner | `tests/contracts/test_normalized_ir.py` and `tests/integration/test_v2_1_security.py` | PASS |
-| E7 | One-way Phase1ToV2Adapter evidence and unchanged source | `tests/adapters/test_phase1_config_adapter.py` and `tests/integration/test_v2_1_gate.py` | PASS |
-| E8 | ExecutionAssumptions is the only assumptions hash payload | `tests/contracts/test_execution_assumptions.py` | PASS |
-| E9 | ConfirmationRequest binds all frozen hashes, summaries, profiles, and expiry | `tests/contracts/test_confirmation.py` | PASS |
-| E10 | ConfirmationGrant is expiring, hash-bound, single-use, atomic, concurrent, and crash-safe | `tests/contracts/test_confirmation.py` and `tests/contracts/test_confirmation_store.py` | PASS |
-| E11 | Plaintext token is returned once and absent from persistent and later outputs | `tests/integration/test_v2_1_gate.py` and `tests/integration/test_v2_1_security.py` | PASS |
-| E12 | Missing, invalid, expired, mismatched, and reused tokens return frozen blockers | `tests/contracts/test_confirmation_store.py`, `tests/contracts/test_runner_protocol.py`, and `tests/pipeline/test_v2_cli_gate.py` | PASS |
-| E13 | Capability status separates structural, implementation, formal, and smoke-only states | `tests/contracts/test_capability_registry.py` | PASS |
-| E14 | Artifact ownership reuses Phase 1 owners and dependency hash is complete | `tests/contracts/test_artifact_contract.py` and `tests/integration/test_v2_1_security.py` | PASS |
-| E15 | Provisional and formal results are distinct and evidence paths are root-contained | `tests/contracts/test_artifact_contract.py` and `tests/integration/test_v2_1_gate.py` | PASS |
-| E16 | Four runner modes, compact JSON, stderr diagnostics, stable exits, and NOT_IMPLEMENTED execute | `tests/contracts/test_runner_protocol.py` | PASS |
-| E17 | Explicit V2 CLI namespace cannot route to Phase 1 execution or refresh | `tests/pipeline/test_v2_cli_gate.py` and `tests/integration/test_v2_1_security.py` | PASS |
-| E18 | Template contract has immutable version, deterministic lookup, eligibility, invalidation, and active fields | `tests/contracts/test_template_contract.py` | PASS |
-| E19 | Template registry enforces one active version, supersession, acyclic history, semantic version order, and no mtime lookup | `tests/contracts/test_template_contract.py` | PASS |
-| E20 | Contract, adapter, CLI, and integration suites pass together | focused Task 19 acceptance command | PASS |
-| E21 | Existing Phase 1 suite remains green | full `tests` acceptance command | PASS |
-| E22 | Static review finds no live, provider, network, VectorBT, plugin, or arbitrary Python execution path | `tests/integration/test_v2_1_security.py` and Task 19 static scans | PASS |
-| E23 | Acceptance performed no download, OpenD connection, formal backtest, or VectorBT installation | Task 19 command ledger and static review | PASS |
-| E24 | Every status defines recoverable, retryable, terminal, and user_action semantics | `tests/contracts/test_status_codes.py` and `tests/integration/test_v2_1_security.py` | PASS |
-| E25 | Final Task 19 tracked tree is clean after the acceptance commit | Task 19 `git status --short` review | PASS |
+| E1 | Schema identity, version enforcement, and Python parity | `tests/contracts/test_schema_contract.py::test_python_contract_definitions_are_unique_source_of_truth`<br>`tests/contracts/test_strategy_v2_schema.py::test_schema_id_and_version_are_quant_strategy_v2_v21` | PASS |
+| E2 | StrategySpecV2 valid load and legacy, unknown, unsafe rejection | `tests/contracts/test_strategy_v2_schema.py::test_valid_minimal_v2_config_loads`<br>`tests/contracts/test_strategy_v2_schema.py::test_invalid_enum_and_unknown_field_are_rejected`<br>`tests/contracts/test_strategy_v2_schema.py::test_legacy_phase1_mapping_requires_explicit_v2_loader` | PASS |
+| E3 | Explicit required root fields with no normalization defaults | `tests/contracts/test_strategy_v2_schema.py::test_each_explicit_root_field_is_required_without_normalization_default`<br>`tests/contracts/test_normalized_ir.py::test_missing_explicit_fields_never_become_normalization_defaults` | PASS |
+| E4 | Typed AST root, type, unit, depth, and node-count rules | `tests/contracts/test_ast_contract.py::test_entry_exit_and_filter_roots_require_predicates`<br>`tests/contracts/test_ast_contract.py::test_node_id_depth_and_node_count_limits_are_deterministic` | PASS |
+| E5 | Immutable, deterministic, unit-explicit, float-free NormalizedStrategyIR | `tests/contracts/test_normalized_ir.py::test_identical_semantics_produce_identical_ir_and_hash`<br>`tests/contracts/test_normalized_ir.py::test_ir_contains_no_float_callable_or_python_source` | PASS |
+| E6 | Stable normalized hash through the Phase 1 hash owner | `tests/contracts/test_normalized_ir.py::test_decimal_numeric_forms_produce_identical_hash`<br>`tests/integration/test_v2_1_security.py::test_v2_contracts_reference_existing_hash_owner` | PASS |
+| E7 | One-way Phase1ToV2Adapter evidence and unchanged source | `tests/adapters/test_phase1_config_adapter.py::test_phase1_to_v2_result_preserves_source_and_generated_hashes`<br>`tests/adapters/test_phase1_config_adapter.py::test_v2_to_phase1_adapter_is_not_part_of_v21` | PASS |
+| E8 | ExecutionAssumptions is the only assumptions hash payload | `tests/contracts/test_execution_assumptions.py::test_assumptions_contains_all_frozen_policy_and_version_fields`<br>`tests/contracts/test_execution_assumptions.py::test_assumptions_hash_accepts_only_execution_assumptions` | PASS |
+| E9 | ConfirmationRequest binds all frozen hashes, summaries, profiles, and expiry | `tests/contracts/test_confirmation.py::test_request_contains_three_binding_hashes_and_summaries`<br>`tests/contracts/test_confirmation.py::test_request_hashes_change_with_each_bound_contract` | PASS |
+| E10 | ConfirmationGrant is expiring, hash-bound, single-use, atomic, concurrent, and crash-safe | `tests/contracts/test_confirmation_store.py::test_atomic_consume_allows_exactly_one_consumer`<br>`tests/contracts/test_confirmation_store.py::test_windows_lock_backend_uses_msvcrt_contract`<br>`tests/contracts/test_confirmation_store.py::test_posix_lock_backend_uses_fcntl_contract`<br>`tests/contracts/test_confirmation_store.py::test_crash_before_replace_leaves_grant_retryable` | PASS |
+| E11 | Plaintext token is returned once and absent from persistent and later outputs | `tests/integration/test_v2_1_gate.py::test_confirmation_token_is_returned_only_by_grant_response`<br>`tests/integration/test_v2_1_security.py::test_plaintext_confirmation_token_is_absent_from_persistent_outputs` | PASS |
+| E12 | Missing, invalid, expired, mismatched, and reused tokens return frozen blockers | `tests/contracts/test_confirmation_store.py::test_missing_expired_mismatched_and_reused_token_are_rejected`<br>`tests/contracts/test_runner_protocol.py::test_execute_without_token_returns_confirmation_required`<br>`tests/contracts/test_runner_protocol.py::test_execute_with_invalid_token_returns_confirmation_invalid` | PASS |
+| E13 | Capability status separates structural, implementation, formal, and smoke-only states | `tests/contracts/test_capability_registry.py::test_symbol_structural_support_is_not_phase1_execution_support`<br>`tests/contracts/test_capability_registry.py::test_require_formal_rejects_not_live_verified` | PASS |
+| E14 | Artifact ownership reuses Phase 1 owners and dependency hash is complete | `tests/contracts/test_artifact_contract.py::test_existing_run_manifest_hash_owner_is_declared`<br>`tests/integration/test_v2_1_security.py::test_v2_contracts_reference_existing_hash_owner` | PASS |
+| E15 | Provisional and formal results are distinct and evidence paths are root-contained | `tests/contracts/test_artifact_contract.py::test_provisional_evidence_accepts_only_contained_paths`<br>`tests/contracts/test_artifact_contract.py::test_v21_execute_cannot_mark_formal_result_published` | PASS |
+| E16 | Four runner modes, compact JSON, stderr diagnostics, stable exits, and NOT_IMPLEMENTED execute | `tests/contracts/test_runner_protocol.py::test_runner_response_contains_required_short_json_fields`<br>`tests/contracts/test_runner_protocol.py::test_execute_with_valid_token_consumes_once_and_returns_not_implemented` | PASS |
+| E17 | Explicit V2 CLI namespace cannot route to Phase 1 execution or refresh | `tests/pipeline/test_v2_cli_gate.py::test_v2_command_never_calls_legacy_run_pipeline_or_refresh`<br>`tests/integration/test_v2_1_security.py::test_v2_runner_does_not_call_legacy_pipeline` | PASS |
+| E18 | Template contract has immutable version, deterministic lookup, eligibility, invalidation, and active fields | `tests/contracts/test_template_contract.py::test_template_record_contains_immutable_version_and_hashes`<br>`tests/contracts/test_template_contract.py::test_invalidated_record_cannot_be_active` | PASS |
+| E19 | Template registry enforces one active version, supersession, acyclic history, semantic version order, and no mtime lookup | `tests/contracts/test_template_contract.py::test_lookup_uses_key_not_file_mtime`<br>`tests/contracts/test_template_contract.py::test_only_one_active_version_exists_per_key`<br>`tests/contracts/test_template_contract.py::test_supersedes_cycles_and_non_monotonic_versions_are_rejected` | PASS |
+| E20 | Contract, adapter, CLI, and integration suites pass together | `tests/integration/test_v2_1_gate.py::test_final_plan_review_matrix_has_p1_through_p15_resolved`<br>`tests/integration/test_v2_1_gate.py::test_v21_exit_gate_checklist_is_complete`<br>`tests/integration/test_v2_1_gate.py::test_v22_entry_interfaces_match_public_exports` | PASS |
+| E21 | Existing Phase 1 suite remains green | `tests/integration/test_v2_1_security.py::test_phase1_suite_remains_unchanged` | PASS |
+| E22 | Static review finds no live, provider, network, VectorBT, plugin, or arbitrary Python execution path | `tests/integration/test_v2_1_security.py::test_v2_modules_have_no_network_provider_or_engine_import`<br>`tests/integration/test_v2_1_security.py::test_v2_modules_have_no_arbitrary_execution_construct` | PASS |
+| E23 | Acceptance performed no download, OpenD connection, formal backtest, or VectorBT installation | `tests/contracts/test_runner_protocol.py::test_runner_does_not_call_pipeline_backtest_or_provider`<br>`tests/contracts/test_confirmation_store.py::test_store_has_no_network_process_or_backtest_side_effects` | PASS |
+| E24 | Every status defines recoverable, retryable, terminal, and user_action semantics | `tests/contracts/test_status_codes.py::test_recoverable_retryable_terminal_semantics_are_consistent`<br>`tests/integration/test_v2_1_security.py::test_all_status_metadata_defines_recoverable_retryable_terminal` | PASS |
+| E25 | Final Task 19 tracked tree is clean after the acceptance commit | Task 19 post-commit `git status --short` review | PASS |
 
 ### 29.4 V2.2 frozen public interfaces
 
-V2.2 may import the following concrete public types without reinterpreting them. The contract types are exported by `src/tv_quant/contracts/__init__.py`; the adapter result is exported by `src/tv_quant/adapters/phase1_config_adapter.py`. This list records types, while the separately tested callable gate remains `run_v2(request)` with the four `RunnerMode` values.
+V2.2 must preserve all 19 names in the unchanged plan entry gate. Each frozen name below maps to its implemented V2.1 public symbol or, for the three contract-family labels, the complete concrete public boundary that carries that contract. The acceptance test derives the authoritative names from the frozen plan, checks this mapping independently, and resolves every symbol against the live modules.
 
-~~~text
-StrategySpecV2
-NormalizedStrategyIR
-DataPlan
-DatasetRequirement
-ExecutionAssumptions
-CapabilityRegistry
-ConfirmationRequest
-ConfirmationGrant
-RunnerRequest
-RunnerResponse
-DependencyFingerprint
-ProvisionalEvidence
-FormalResultContract
-TemplateLookupKey
-TemplateRecord
-Phase1ToV2AdapterResult
-~~~
+| Frozen interface | Actual public module | Concrete V2.1 symbols | Status |
+|---|---|---|---|
+| StrategySpecV2 | `tv_quant.contracts` | `StrategySpecV2` | FROZEN |
+| NormalizedStrategyIR | `tv_quant.contracts` | `NormalizedStrategyIR` | FROZEN |
+| DataPlan | `tv_quant.contracts` | `DataPlan` | FROZEN |
+| DatasetRequirement | `tv_quant.contracts` | `DatasetRequirement` | FROZEN |
+| ExecutionAssumptions | `tv_quant.contracts` | `ExecutionAssumptions` | FROZEN |
+| CapabilityRegistry | `tv_quant.contracts` | `CapabilityRegistry` | FROZEN |
+| ConfirmationRequest | `tv_quant.contracts` | `ConfirmationRequest` | FROZEN |
+| ConfirmationGrant | `tv_quant.contracts` | `ConfirmationGrant` | FROZEN |
+| AuthorizedExecutionContext | `tv_quant.contracts.confirmation` | `ConfirmationAuditRecord`<br>`validate_and_consume` | FROZEN_CONTRACT_FAMILY |
+| RunnerRequest | `tv_quant.contracts` | `RunnerRequest` | FROZEN |
+| RunnerResponse | `tv_quant.contracts` | `RunnerResponse` | FROZEN |
+| ArtifactContract | `tv_quant.contracts.artifact_contract` | `ARTIFACT_OWNERS`<br>`ArtifactOwner`<br>`DependencyFingerprint`<br>`ProvisionalEvidence`<br>`FormalResultContract`<br>`dependency_hash`<br>`formal_eligibility` | FROZEN_CONTRACT_FAMILY |
+| DependencyFingerprint | `tv_quant.contracts` | `DependencyFingerprint` | FROZEN |
+| ProvisionalEvidence | `tv_quant.contracts` | `ProvisionalEvidence` | FROZEN |
+| FormalResultContract | `tv_quant.contracts` | `FormalResultContract` | FROZEN |
+| StatusCodeRegistry | `tv_quant.contracts.status_codes` | `BlockerCode`<br>`PipelineStatus`<br>`StatusDefinition`<br>`STATUS_DEFINITIONS`<br>`status_definition`<br>`status_snapshot_hash` | FROZEN_CONTRACT_FAMILY |
+| Phase1ToV2AdapterResult | `tv_quant.adapters.phase1_config_adapter` | `Phase1ToV2AdapterResult` | FROZEN |
+| TemplateLookupKey | `tv_quant.contracts` | `TemplateLookupKey` | FROZEN |
+| TemplateRecord | `tv_quant.contracts` | `TemplateRecord` | FROZEN |
 
-The frozen plan's `AuthorizedExecutionContext`, `ArtifactContract`, and `StatusCodeRegistry` labels identify contract families, not additional root-exported classes. Their implemented V2.1 boundaries are respectively `ConfirmationStore.consume_once` plus redacted confirmation audit evidence, the concrete artifact exports listed above plus `ARTIFACT_OWNERS`, and `status_codes.py` metadata accessed through `status_definition`. V2.2 must not bypass or replace those owners.
+The `AuthorizedExecutionContext` mapping preserves the one-time validated-consumption boundary as `ConfirmationAuditRecord` returned by `validate_and_consume`; it does not authorize an engine. `ArtifactContract` preserves the Phase 1 ownership ledger plus dependency/provisional/formal gates. `StatusCodeRegistry` preserves the enum, immutable metadata ledger, lookup, and snapshot hash. V2.2 must not bypass, rename, narrow, or replace any of these boundaries.
 
 Nothing in this section marks VectorBT, OpenD/provider access, intraday aggregation, dividend handling, plugin execution, formal backtest publication, or formal template publication as available. Those remain gated by their later phase plans.

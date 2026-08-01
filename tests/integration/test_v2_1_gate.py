@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 from collections.abc import Mapping
 from dataclasses import asdict, replace
 import hashlib
@@ -18,6 +19,7 @@ from tv_quant.adapters.phase1_config_adapter import (
 )
 import tv_quant.adapters.phase1_config_adapter as phase1_adapter
 import tv_quant.contracts as contracts
+import tv_quant.contracts.artifact_contract as artifact_contract
 from tv_quant.contracts.artifact_contract import dependency_hash
 from tv_quant.contracts.capability_registry import (
     capability_snapshot_hash,
@@ -26,11 +28,13 @@ from tv_quant.contracts.capability_registry import (
 from tv_quant.contracts.confirmation import (
     ApprovalRecord,
 )
+import tv_quant.contracts.confirmation as confirmation_contract
 from tv_quant.contracts.data_plan import build_data_plan
 from tv_quant.contracts.execution_assumptions import (
     assumptions_hash,
     build_execution_assumptions,
 )
+import tv_quant.contracts.status_codes as status_codes
 from tv_quant.run_manifest import canonical_hash, sha256_file
 
 
@@ -44,26 +48,6 @@ _PLAN_PATH = _REPOSITORY_ROOT / "docs" / "superpowers" / "plans" / (
 _DESIGN_PATH = _REPOSITORY_ROOT / "docs" / "superpowers" / "specs" / (
     "2026-07-26-quant-research-automation-v2-design.md"
 )
-_PUBLIC_V22_TYPES = (
-    "StrategySpecV2",
-    "NormalizedStrategyIR",
-    "DataPlan",
-    "DatasetRequirement",
-    "ExecutionAssumptions",
-    "CapabilityRegistry",
-    "ConfirmationRequest",
-    "ConfirmationGrant",
-    "RunnerRequest",
-    "RunnerResponse",
-    "DependencyFingerprint",
-    "ProvisionalEvidence",
-    "FormalResultContract",
-    "TemplateLookupKey",
-    "TemplateRecord",
-    "Phase1ToV2AdapterResult",
-)
-
-
 def _section(document: str, heading: str) -> str:
     assert heading in document, f"missing acceptance section: {heading}"
     start = document.index(heading) + len(heading)
@@ -79,6 +63,32 @@ def _table_rows(section: str) -> list[list[str]]:
         for line in section.splitlines()
         if line.startswith("|") and not line.startswith("|---")
     ][1:]
+
+
+def _fenced_lines(section: str) -> tuple[str, ...]:
+    block = section.split("~~~text", 1)[1].split("~~~", 1)[0]
+    return tuple(line.strip() for line in block.splitlines() if line.strip())
+
+
+def _evidence_refs(cell: str) -> tuple[str, ...]:
+    return tuple(re.findall(r"`([^`]+)`", cell))
+
+
+def _assert_test_reference_exists(reference: str) -> None:
+    if not reference.startswith("tests/"):
+        return
+    path_text, separator, function_name = reference.partition("::")
+    path = _REPOSITORY_ROOT / path_text
+    assert path.is_file(), f"missing evidence path: {path_text}"
+    if not separator:
+        return
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=path_text)
+    functions = {
+        node.name
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+    assert function_name in functions, f"missing evidence function: {reference}"
 
 
 def _phase1_payload() -> dict[str, object]:
@@ -439,6 +449,71 @@ def test_final_plan_review_matrix_has_p1_through_p15_resolved() -> None:
         "P14": ("HIGH", (10, 18), "formal eligibility"),
         "P15": ("HIGH", (1, 18), "user_action"),
     }
+    expected_evidence = {
+        "P1": (
+            "tests/adapters/test_phase1_config_adapter.py::test_phase1_to_v2_result_preserves_source_and_generated_hashes",
+            "tests/adapters/test_phase1_config_adapter.py::test_v2_to_phase1_adapter_is_not_part_of_v21",
+        ),
+        "P2": (
+            "tests/contracts/test_strategy_v2_schema.py::test_each_explicit_root_field_is_required_without_normalization_default",
+            "tests/contracts/test_normalized_ir.py::test_missing_explicit_fields_never_become_normalization_defaults",
+        ),
+        "P3": (
+            "tests/contracts/test_strategy_v2_schema.py::test_disabled_stop_target_and_empty_filters_must_be_present",
+            "tests/contracts/test_normalized_ir.py::test_normalization_requires_position_sizing",
+        ),
+        "P4": (
+            "tests/contracts/test_ast_contract.py::test_entry_exit_and_filter_roots_require_predicates",
+            "tests/contracts/test_ast_contract.py::test_node_id_depth_and_node_count_limits_are_deterministic",
+        ),
+        "P5": (
+            "tests/contracts/test_execution_assumptions.py::test_assumptions_hash_accepts_only_execution_assumptions",
+            "tests/contracts/test_confirmation.py::test_request_binds_formal_execution_assumptions_hash",
+        ),
+        "P6": (
+            "tests/contracts/test_runner_protocol.py::test_grant_confirmation_returns_token_once",
+            "tests/contracts/test_runner_protocol.py::test_non_grant_modes_never_return_plaintext_token",
+        ),
+        "P7": (
+            "tests/contracts/test_schema_contract.py::test_python_contract_definitions_are_unique_source_of_truth",
+            "tests/contracts/test_strategy_v2_schema.py::test_python_contract_and_json_schema_required_fields_match",
+        ),
+        "P8": (
+            "tests/contracts/test_strategy_v2_schema.py::test_symbol_schema_accepts_valid_us_equity_symbol_without_spy_qqq_cap",
+            "tests/contracts/test_capability_registry.py::test_require_formal_rejects_not_live_verified",
+        ),
+        "P9": (
+            "tests/contracts/test_numeric_canonicalization.py::test_decimal_strings_normalize_1_1_00_to_one_semantic_hash",
+            "tests/contracts/test_normalized_ir.py::test_decimal_numeric_forms_produce_identical_hash",
+        ),
+        "P10": (
+            "tests/contracts/test_confirmation_store.py::test_atomic_consume_allows_exactly_one_consumer",
+            "tests/contracts/test_confirmation_store.py::test_windows_lock_backend_uses_msvcrt_contract",
+            "tests/contracts/test_confirmation_store.py::test_posix_lock_backend_uses_fcntl_contract",
+            "tests/contracts/test_confirmation_store.py::test_crash_before_replace_leaves_grant_retryable",
+        ),
+        "P11": (
+            "tests/contracts/test_path_safety.py::test_resolve_under_root_rejects_parent_traversal_absolute_and_root_escape",
+            "tests/contracts/test_path_safety.py::test_resolve_under_root_rejects_ntfs_ads_and_reserved_dos_devices",
+        ),
+        "P12": (
+            "tests/contracts/test_artifact_contract.py::test_dependency_hash_payload_contains_all_components",
+            "tests/integration/test_v2_1_gate.py::test_evidence_paths_are_contained_and_dependency_hash_is_complete",
+        ),
+        "P13": (
+            "tests/contracts/test_template_contract.py::test_only_one_active_version_exists_per_key",
+            "tests/contracts/test_template_contract.py::test_supersedes_points_to_same_key_older_record",
+            "tests/contracts/test_template_contract.py::test_supersedes_cycles_and_non_monotonic_versions_are_rejected",
+        ),
+        "P14": (
+            "tests/contracts/test_capability_registry.py::test_symbol_structural_support_is_not_phase1_execution_support",
+            "tests/contracts/test_capability_registry.py::test_require_formal_rejects_not_live_verified",
+        ),
+        "P15": (
+            "tests/contracts/test_status_codes.py::test_recoverable_retryable_terminal_semantics_are_consistent",
+            "tests/integration/test_v2_1_security.py::test_all_status_metadata_defines_recoverable_retryable_terminal",
+        ),
+    }
     design_rows = _table_rows(
         _section(
             _DESIGN_PATH.read_text(encoding="utf-8"),
@@ -456,6 +531,11 @@ def test_final_plan_review_matrix_has_p1_through_p15_resolved() -> None:
     assert {row[0]: row[2] for row in design_rows} == {
         review_id: "RESOLVED" for review_id in expected
     }
+    actual_evidence = {row[0]: _evidence_refs(row[1]) for row in design_rows}
+    assert actual_evidence == expected_evidence
+    for references in actual_evidence.values():
+        for reference in references:
+            _assert_test_reference_exists(reference)
 
 
 def test_v21_exit_gate_checklist_is_complete() -> None:
@@ -490,11 +570,120 @@ def test_v21_exit_gate_checklist_is_complete() -> None:
         "Every status defines",
         "Final Task 19 tracked tree",
     )
+    expected_evidence = {
+        "E1": (
+            "tests/contracts/test_schema_contract.py::test_python_contract_definitions_are_unique_source_of_truth",
+            "tests/contracts/test_strategy_v2_schema.py::test_schema_id_and_version_are_quant_strategy_v2_v21",
+        ),
+        "E2": (
+            "tests/contracts/test_strategy_v2_schema.py::test_valid_minimal_v2_config_loads",
+            "tests/contracts/test_strategy_v2_schema.py::test_invalid_enum_and_unknown_field_are_rejected",
+            "tests/contracts/test_strategy_v2_schema.py::test_legacy_phase1_mapping_requires_explicit_v2_loader",
+        ),
+        "E3": (
+            "tests/contracts/test_strategy_v2_schema.py::test_each_explicit_root_field_is_required_without_normalization_default",
+            "tests/contracts/test_normalized_ir.py::test_missing_explicit_fields_never_become_normalization_defaults",
+        ),
+        "E4": (
+            "tests/contracts/test_ast_contract.py::test_entry_exit_and_filter_roots_require_predicates",
+            "tests/contracts/test_ast_contract.py::test_node_id_depth_and_node_count_limits_are_deterministic",
+        ),
+        "E5": (
+            "tests/contracts/test_normalized_ir.py::test_identical_semantics_produce_identical_ir_and_hash",
+            "tests/contracts/test_normalized_ir.py::test_ir_contains_no_float_callable_or_python_source",
+        ),
+        "E6": (
+            "tests/contracts/test_normalized_ir.py::test_decimal_numeric_forms_produce_identical_hash",
+            "tests/integration/test_v2_1_security.py::test_v2_contracts_reference_existing_hash_owner",
+        ),
+        "E7": (
+            "tests/adapters/test_phase1_config_adapter.py::test_phase1_to_v2_result_preserves_source_and_generated_hashes",
+            "tests/adapters/test_phase1_config_adapter.py::test_v2_to_phase1_adapter_is_not_part_of_v21",
+        ),
+        "E8": (
+            "tests/contracts/test_execution_assumptions.py::test_assumptions_contains_all_frozen_policy_and_version_fields",
+            "tests/contracts/test_execution_assumptions.py::test_assumptions_hash_accepts_only_execution_assumptions",
+        ),
+        "E9": (
+            "tests/contracts/test_confirmation.py::test_request_contains_three_binding_hashes_and_summaries",
+            "tests/contracts/test_confirmation.py::test_request_hashes_change_with_each_bound_contract",
+        ),
+        "E10": (
+            "tests/contracts/test_confirmation_store.py::test_atomic_consume_allows_exactly_one_consumer",
+            "tests/contracts/test_confirmation_store.py::test_windows_lock_backend_uses_msvcrt_contract",
+            "tests/contracts/test_confirmation_store.py::test_posix_lock_backend_uses_fcntl_contract",
+            "tests/contracts/test_confirmation_store.py::test_crash_before_replace_leaves_grant_retryable",
+        ),
+        "E11": (
+            "tests/integration/test_v2_1_gate.py::test_confirmation_token_is_returned_only_by_grant_response",
+            "tests/integration/test_v2_1_security.py::test_plaintext_confirmation_token_is_absent_from_persistent_outputs",
+        ),
+        "E12": (
+            "tests/contracts/test_confirmation_store.py::test_missing_expired_mismatched_and_reused_token_are_rejected",
+            "tests/contracts/test_runner_protocol.py::test_execute_without_token_returns_confirmation_required",
+            "tests/contracts/test_runner_protocol.py::test_execute_with_invalid_token_returns_confirmation_invalid",
+        ),
+        "E13": (
+            "tests/contracts/test_capability_registry.py::test_symbol_structural_support_is_not_phase1_execution_support",
+            "tests/contracts/test_capability_registry.py::test_require_formal_rejects_not_live_verified",
+        ),
+        "E14": (
+            "tests/contracts/test_artifact_contract.py::test_existing_run_manifest_hash_owner_is_declared",
+            "tests/integration/test_v2_1_security.py::test_v2_contracts_reference_existing_hash_owner",
+        ),
+        "E15": (
+            "tests/contracts/test_artifact_contract.py::test_provisional_evidence_accepts_only_contained_paths",
+            "tests/contracts/test_artifact_contract.py::test_v21_execute_cannot_mark_formal_result_published",
+        ),
+        "E16": (
+            "tests/contracts/test_runner_protocol.py::test_runner_response_contains_required_short_json_fields",
+            "tests/contracts/test_runner_protocol.py::test_execute_with_valid_token_consumes_once_and_returns_not_implemented",
+        ),
+        "E17": (
+            "tests/pipeline/test_v2_cli_gate.py::test_v2_command_never_calls_legacy_run_pipeline_or_refresh",
+            "tests/integration/test_v2_1_security.py::test_v2_runner_does_not_call_legacy_pipeline",
+        ),
+        "E18": (
+            "tests/contracts/test_template_contract.py::test_template_record_contains_immutable_version_and_hashes",
+            "tests/contracts/test_template_contract.py::test_invalidated_record_cannot_be_active",
+        ),
+        "E19": (
+            "tests/contracts/test_template_contract.py::test_lookup_uses_key_not_file_mtime",
+            "tests/contracts/test_template_contract.py::test_only_one_active_version_exists_per_key",
+            "tests/contracts/test_template_contract.py::test_supersedes_cycles_and_non_monotonic_versions_are_rejected",
+        ),
+        "E20": (
+            "tests/integration/test_v2_1_gate.py::test_final_plan_review_matrix_has_p1_through_p15_resolved",
+            "tests/integration/test_v2_1_gate.py::test_v21_exit_gate_checklist_is_complete",
+            "tests/integration/test_v2_1_gate.py::test_v22_entry_interfaces_match_public_exports",
+        ),
+        "E21": (
+            "tests/integration/test_v2_1_security.py::test_phase1_suite_remains_unchanged",
+        ),
+        "E22": (
+            "tests/integration/test_v2_1_security.py::test_v2_modules_have_no_network_provider_or_engine_import",
+            "tests/integration/test_v2_1_security.py::test_v2_modules_have_no_arbitrary_execution_construct",
+        ),
+        "E23": (
+            "tests/contracts/test_runner_protocol.py::test_runner_does_not_call_pipeline_backtest_or_provider",
+            "tests/contracts/test_confirmation_store.py::test_store_has_no_network_process_or_backtest_side_effects",
+        ),
+        "E24": (
+            "tests/contracts/test_status_codes.py::test_recoverable_retryable_terminal_semantics_are_consistent",
+            "tests/integration/test_v2_1_security.py::test_all_status_metadata_defines_recoverable_retryable_terminal",
+        ),
+        "E25": ("git status --short",),
+    }
     required_commands = (
-        "py -3.14 -m pytest tests/contracts tests/adapters "
+        "python -m pytest tests/contracts tests/adapters "
         "tests/pipeline/test_v2_cli_gate.py tests/integration -q",
-        "py -3.14 -m pytest tests -q",
-        "py -3.14 -m compileall -q src tests",
+        "python -m pytest tests/contracts -q",
+        "python -m pytest tests/adapters -q",
+        "python -m pytest tests/pipeline/test_v2_cli_gate.py -q",
+        "python -m pytest tests/integration -q",
+        "python -m pytest tests/pipeline -q",
+        "python -m pytest tests -q",
+        "python -m compileall -q src tests",
         "git diff --check",
     )
 
@@ -503,7 +692,13 @@ def test_v21_exit_gate_checklist_is_complete() -> None:
         fragment in row[1]
         for fragment, row in zip(expected_condition_fragments, exit_rows, strict=True)
     )
-    assert all(row[2] and row[3] == "PASS" for row in exit_rows)
+    actual_evidence = {row[0]: _evidence_refs(row[2]) for row in exit_rows}
+    assert actual_evidence == expected_evidence
+    assert exit_rows[-1][2] == "Task 19 post-commit `git status --short` review"
+    assert all(row[3] == "PASS" for row in exit_rows)
+    for references in actual_evidence.values():
+        for reference in references:
+            _assert_test_reference_exists(reference)
     assert all(command in design for command in required_commands)
     assert "V2.1_CONTRACT_GATE_ACCEPTED" in design
     assert "570c518ed1429d3b84f6fe9151bd18ea621f1150" in design
@@ -512,30 +707,111 @@ def test_v21_exit_gate_checklist_is_complete() -> None:
 
 def test_v22_entry_interfaces_match_public_exports() -> None:
     """Documented V2.2 inputs must be concrete, independently exported types."""
-    design = _section(
-        _DESIGN_PATH.read_text(encoding="utf-8"),
-        "### 29.4 V2.2 frozen public interfaces",
-    )
-    interface_block = design.split("~~~text", 1)[1].split("~~~", 1)[0]
-    documented = tuple(
-        line.strip() for line in interface_block.splitlines() if line.strip()
-    )
-    contract_names = set(contracts.__all__)
-    adapter_names = set(phase1_adapter.__all__)
-    public_types = {
-        name: (
-            getattr(contracts, name)
-            if name in contract_names
-            else getattr(phase1_adapter, name)
+    plan_interfaces = _fenced_lines(
+        _section(
+            _PLAN_PATH.read_text(encoding="utf-8"),
+            "## 22. V2.2 Entry Gate",
         )
-        for name in _PUBLIC_V22_TYPES
+    )
+    design_rows = _table_rows(
+        _section(
+            _DESIGN_PATH.read_text(encoding="utf-8"),
+            "### 29.4 V2.2 frozen public interfaces",
+        )
+    )
+    expected_mappings = {
+        "StrategySpecV2": ("tv_quant.contracts", ("StrategySpecV2",)),
+        "NormalizedStrategyIR": ("tv_quant.contracts", ("NormalizedStrategyIR",)),
+        "DataPlan": ("tv_quant.contracts", ("DataPlan",)),
+        "DatasetRequirement": ("tv_quant.contracts", ("DatasetRequirement",)),
+        "ExecutionAssumptions": ("tv_quant.contracts", ("ExecutionAssumptions",)),
+        "CapabilityRegistry": ("tv_quant.contracts", ("CapabilityRegistry",)),
+        "ConfirmationRequest": ("tv_quant.contracts", ("ConfirmationRequest",)),
+        "ConfirmationGrant": ("tv_quant.contracts", ("ConfirmationGrant",)),
+        "AuthorizedExecutionContext": (
+            "tv_quant.contracts.confirmation",
+            ("ConfirmationAuditRecord", "validate_and_consume"),
+        ),
+        "RunnerRequest": ("tv_quant.contracts", ("RunnerRequest",)),
+        "RunnerResponse": ("tv_quant.contracts", ("RunnerResponse",)),
+        "ArtifactContract": (
+            "tv_quant.contracts.artifact_contract",
+            (
+                "ARTIFACT_OWNERS",
+                "ArtifactOwner",
+                "DependencyFingerprint",
+                "ProvisionalEvidence",
+                "FormalResultContract",
+                "dependency_hash",
+                "formal_eligibility",
+            ),
+        ),
+        "DependencyFingerprint": ("tv_quant.contracts", ("DependencyFingerprint",)),
+        "ProvisionalEvidence": ("tv_quant.contracts", ("ProvisionalEvidence",)),
+        "FormalResultContract": ("tv_quant.contracts", ("FormalResultContract",)),
+        "StatusCodeRegistry": (
+            "tv_quant.contracts.status_codes",
+            (
+                "BlockerCode",
+                "PipelineStatus",
+                "StatusDefinition",
+                "STATUS_DEFINITIONS",
+                "status_definition",
+                "status_snapshot_hash",
+            ),
+        ),
+        "Phase1ToV2AdapterResult": (
+            "tv_quant.adapters.phase1_config_adapter",
+            ("Phase1ToV2AdapterResult",),
+        ),
+        "TemplateLookupKey": ("tv_quant.contracts", ("TemplateLookupKey",)),
+        "TemplateRecord": ("tv_quant.contracts", ("TemplateRecord",)),
+    }
+    modules = {
+        "tv_quant.contracts": contracts,
+        "tv_quant.contracts.confirmation": confirmation_contract,
+        "tv_quant.contracts.artifact_contract": artifact_contract,
+        "tv_quant.contracts.status_codes": status_codes,
+        "tv_quant.adapters.phase1_config_adapter": phase1_adapter,
+    }
+    documented_mappings = {
+        row[0]: (row[1].strip("`"), _evidence_refs(row[2])) for row in design_rows
     }
 
-    assert documented == _PUBLIC_V22_TYPES
-    assert all(
-        name in contract_names or name in adapter_names for name in documented
-    )
-    assert all(isinstance(value, type) for value in public_types.values())
+    assert plan_interfaces == tuple(expected_mappings)
+    assert tuple(documented_mappings) == plan_interfaces
+    assert documented_mappings == expected_mappings
+    for module_name, symbols in documented_mappings.values():
+        module = modules[module_name]
+        for symbol in symbols:
+            assert hasattr(
+                module, symbol
+            ), f"missing concrete interface: {module_name}.{symbol}"
+            if hasattr(module, "__all__"):
+                assert symbol in module.__all__
+    for frozen_name, (module_name, symbols) in documented_mappings.items():
+        if frozen_name not in {
+            "AuthorizedExecutionContext",
+            "ArtifactContract",
+            "StatusCodeRegistry",
+        }:
+            assert len(symbols) == 1
+            assert isinstance(getattr(modules[module_name], symbols[0]), type)
+    assert isinstance(confirmation_contract.ConfirmationAuditRecord, type)
+    assert callable(confirmation_contract.validate_and_consume)
+    assert isinstance(artifact_contract.ARTIFACT_OWNERS, tuple)
+    assert isinstance(artifact_contract.ArtifactOwner, type)
+    assert isinstance(artifact_contract.DependencyFingerprint, type)
+    assert isinstance(artifact_contract.ProvisionalEvidence, type)
+    assert isinstance(artifact_contract.FormalResultContract, type)
+    assert callable(artifact_contract.dependency_hash)
+    assert callable(artifact_contract.formal_eligibility)
+    assert isinstance(status_codes.BlockerCode, type)
+    assert isinstance(status_codes.PipelineStatus, type)
+    assert isinstance(status_codes.StatusDefinition, type)
+    assert isinstance(status_codes.STATUS_DEFINITIONS, tuple)
+    assert callable(status_codes.status_definition)
+    assert callable(status_codes.status_snapshot_hash)
     assert tuple(mode.value for mode in contracts.RunnerMode) == (
         "validate",
         "prepare_confirmation",
@@ -543,9 +819,6 @@ def test_v22_entry_interfaces_match_public_exports() -> None:
         "execute",
     )
     assert tuple(inspect.signature(contracts.run_v2).parameters) == ("request",)
-    assert contracts.RunnerRequest is public_types["RunnerRequest"]
-    assert contracts.RunnerResponse is public_types["RunnerResponse"]
-    assert Phase1ToV2AdapterResult is public_types["Phase1ToV2AdapterResult"]
 
 
 def test_confirmation_token_is_returned_only_by_grant_response(

@@ -8,6 +8,7 @@ import hashlib
 import inspect
 import json
 from pathlib import Path
+import re
 
 import pytest
 
@@ -15,6 +16,7 @@ from tv_quant.adapters.phase1_config_adapter import (
     Phase1ToV2AdapterResult,
     adapt_phase1_to_v2,
 )
+import tv_quant.adapters.phase1_config_adapter as phase1_adapter
 import tv_quant.contracts as contracts
 from tv_quant.contracts.artifact_contract import dependency_hash
 from tv_quant.contracts.capability_registry import (
@@ -32,8 +34,15 @@ from tv_quant.contracts.execution_assumptions import (
 from tv_quant.run_manifest import canonical_hash, sha256_file
 
 
-_REGISTRY_PATH = Path(__file__).resolve().parents[2] / "config" / (
+_REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+_REGISTRY_PATH = _REPOSITORY_ROOT / "config" / (
     "capability-registry-v2.1.json"
+)
+_PLAN_PATH = _REPOSITORY_ROOT / "docs" / "superpowers" / "plans" / (
+    "2026-07-27-v2-1-contract-gate-implementation-plan.md"
+)
+_DESIGN_PATH = _REPOSITORY_ROOT / "docs" / "superpowers" / "specs" / (
+    "2026-07-26-quant-research-automation-v2-design.md"
 )
 _PUBLIC_V22_TYPES = (
     "StrategySpecV2",
@@ -51,7 +60,25 @@ _PUBLIC_V22_TYPES = (
     "FormalResultContract",
     "TemplateLookupKey",
     "TemplateRecord",
+    "Phase1ToV2AdapterResult",
 )
+
+
+def _section(document: str, heading: str) -> str:
+    assert heading in document, f"missing acceptance section: {heading}"
+    start = document.index(heading) + len(heading)
+    remainder = document[start:]
+    heading_level = len(heading) - len(heading.lstrip("#"))
+    next_heading = re.search(rf"\n#{{1,{heading_level}}} ", remainder)
+    return remainder if next_heading is None else remainder[: next_heading.start()]
+
+
+def _table_rows(section: str) -> list[list[str]]:
+    return [
+        [cell.strip() for cell in line.strip().strip("|").split("|")]
+        for line in section.splitlines()
+        if line.startswith("|") and not line.startswith("|---")
+    ][1:]
 
 
 def _phase1_payload() -> dict[str, object]:
@@ -388,10 +415,127 @@ def test_v21_runner_response_is_serializable_and_versioned(
     assert "\n" not in serialized
 
 
-def test_v22_entry_interfaces_are_stable() -> None:
-    """Removing a concrete V2.2 input type would break the next phase entry gate."""
-    public_types = {name: _public_type(name) for name in _PUBLIC_V22_TYPES}
+def test_final_plan_review_matrix_has_p1_through_p15_resolved() -> None:
+    """An omitted review resolution or task assignment would reopen the plan."""
+    plan = _PLAN_PATH.read_text(encoding="utf-8")
+    matrix = {
+        row[0]: row
+        for row in _table_rows(_section(plan, "## Final Plan Review Resolution Matrix"))
+    }
+    expected = {
+        "P1": ("BLOCKER", (4, 6, 7, 18, 19), "Phase1ToV2Adapter"),
+        "P2": ("BLOCKER", (3, 4, 6), "根级显式必填"),
+        "P3": ("HIGH", (3, 4, 6), "position_sizing"),
+        "P4": ("BLOCKER", (5, 6), "PredicateExpression"),
+        "P5": ("BLOCKER", (9, 11, 12, 18), "ExecutionAssumptions"),
+        "P6": ("BLOCKER", (11, 12, 15, 18), "confirmation_token"),
+        "P7": ("HIGH", (2, 3, 5, 6, 18), "唯一事实来源"),
+        "P8": ("BLOCKER", (3, 7, 10, 18), "not_live_verified"),
+        "P9": ("HIGH", (2, 6), "canonical decimal string"),
+        "P10": ("BLOCKER", (12, 18), "msvcrt"),
+        "P11": ("HIGH", (13, 18), "resolve_under_root"),
+        "P12": ("HIGH", (13, 14, 17, 18), "dependency_hash"),
+        "P13": ("HIGH", (16, 17, 18), "one active version"),
+        "P14": ("HIGH", (10, 18), "formal eligibility"),
+        "P15": ("HIGH", (1, 18), "user_action"),
+    }
+    design_rows = _table_rows(
+        _section(
+            _DESIGN_PATH.read_text(encoding="utf-8"),
+            "### 29.2 Final plan review evidence",
+        )
+    )
 
+    assert tuple(matrix) == tuple(expected)
+    for review_id, (severity, task_numbers, resolution_fragment) in expected.items():
+        row = matrix[review_id]
+        assert row[1] == severity
+        assert resolution_fragment in row[2]
+        assert tuple(int(value) for value in re.findall(r"\d+", row[3])) == task_numbers
+        assert row[4]
+    assert {row[0]: row[2] for row in design_rows} == {
+        review_id: "RESOLVED" for review_id in expected
+    }
+
+
+def test_v21_exit_gate_checklist_is_complete() -> None:
+    """Missing exit evidence or acceptance commands must keep V2.1 unaccepted."""
+    design = _DESIGN_PATH.read_text(encoding="utf-8")
+    exit_rows = _table_rows(_section(design, "### 29.3 V2.1 exit evidence"))
+    expected_ids = tuple(f"E{index}" for index in range(1, 26))
+    expected_condition_fragments = (
+        "Schema identity",
+        "StrategySpecV2 valid load",
+        "Explicit required root fields",
+        "Typed AST root",
+        "NormalizedStrategyIR",
+        "Stable normalized hash",
+        "Phase1ToV2Adapter",
+        "ExecutionAssumptions",
+        "ConfirmationRequest",
+        "ConfirmationGrant",
+        "Plaintext token",
+        "Missing, invalid, expired, mismatched, and reused tokens",
+        "Capability status",
+        "Artifact ownership",
+        "Provisional and formal results",
+        "Four runner modes",
+        "Explicit V2 CLI namespace",
+        "Template contract",
+        "Template registry",
+        "Contract, adapter, CLI, and integration suites",
+        "Existing Phase 1 suite",
+        "Static review",
+        "Acceptance performed no download",
+        "Every status defines",
+        "Final Task 19 tracked tree",
+    )
+    required_commands = (
+        "py -3.14 -m pytest tests/contracts tests/adapters "
+        "tests/pipeline/test_v2_cli_gate.py tests/integration -q",
+        "py -3.14 -m pytest tests -q",
+        "py -3.14 -m compileall -q src tests",
+        "git diff --check",
+    )
+
+    assert tuple(row[0] for row in exit_rows) == expected_ids
+    assert all(
+        fragment in row[1]
+        for fragment, row in zip(expected_condition_fragments, exit_rows, strict=True)
+    )
+    assert all(row[2] and row[3] == "PASS" for row in exit_rows)
+    assert all(command in design for command in required_commands)
+    assert "V2.1_CONTRACT_GATE_ACCEPTED" in design
+    assert "570c518ed1429d3b84f6fe9151bd18ea621f1150" in design
+    assert "36ac03d7" in design
+
+
+def test_v22_entry_interfaces_match_public_exports() -> None:
+    """Documented V2.2 inputs must be concrete, independently exported types."""
+    design = _section(
+        _DESIGN_PATH.read_text(encoding="utf-8"),
+        "### 29.4 V2.2 frozen public interfaces",
+    )
+    interface_block = design.split("~~~text", 1)[1].split("~~~", 1)[0]
+    documented = tuple(
+        line.strip() for line in interface_block.splitlines() if line.strip()
+    )
+    contract_names = set(contracts.__all__)
+    adapter_names = set(phase1_adapter.__all__)
+    public_types = {
+        name: (
+            getattr(contracts, name)
+            if name in contract_names
+            else getattr(phase1_adapter, name)
+        )
+        for name in _PUBLIC_V22_TYPES
+    }
+
+    assert documented == _PUBLIC_V22_TYPES
+    assert all(
+        name in contract_names or name in adapter_names for name in documented
+    )
+    assert all(isinstance(value, type) for value in public_types.values())
     assert tuple(mode.value for mode in contracts.RunnerMode) == (
         "validate",
         "prepare_confirmation",
@@ -401,7 +545,7 @@ def test_v22_entry_interfaces_are_stable() -> None:
     assert tuple(inspect.signature(contracts.run_v2).parameters) == ("request",)
     assert contracts.RunnerRequest is public_types["RunnerRequest"]
     assert contracts.RunnerResponse is public_types["RunnerResponse"]
-    assert Phase1ToV2AdapterResult.__name__ == "Phase1ToV2AdapterResult"
+    assert Phase1ToV2AdapterResult is public_types["Phase1ToV2AdapterResult"]
 
 
 def test_confirmation_token_is_returned_only_by_grant_response(

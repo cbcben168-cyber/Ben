@@ -1,6 +1,6 @@
 # Quant Research Automation V2 Design
 
-状态：V2 权威设计基线
+状态：V2 权威设计基线；V2.1 Contract & Gate 已验收
 
 日期：2026-07-26
 
@@ -8,7 +8,7 @@
 
 目标分支：`codex/quant-research-automation-v2`
 
-本文件使用中文描述产品边界和行为，代码、状态码、文件路径与接口名称保留英文。本文档只定义 V2，不授权本次任务开始实现 V2。
+本文件使用中文描述产品边界和行为，代码、状态码、文件路径与接口名称保留英文。第 1-28 节定义完整 V2 目标；第 29 节只记录已经实现并验收的 V2.1 Contract & Gate，不授权 V2.2/V2.3 执行能力。
 
 ## 1. 背景与方向纠偏
 
@@ -716,3 +716,106 @@ V2 只有同时满足以下条件，才能宣布完成：
 8. 实施范围已经冻结为五个计划；没有遗留未决占位项或被推迟到实现阶段的关键行为。
 
 在五个计划全部完成并通过其出口门禁前，`IMPLEMENTATION_READINESS` 只能解释为“可按冻结计划开始实现”，不能解释为“V2 已完成”。
+
+## 29. V2.1 implementation acceptance evidence
+
+本节是 V2.1 的实现证据索引，不改变第 1-28 节的完整 V2 目标。V2.1 状态为 `V2.1_CONTRACT_GATE_ACCEPTED`：schema、contracts、Phase 1 adapter、confirmation、local runner gate、template contract 和 CLI gate 已实现；provider、数据下载、intraday、VectorBT、plugin、正式回测、正式报告和正式模板发布仍不可用。
+
+### 29.1 Frozen references and implementation snapshot
+
+| Evidence | Actual path or interface | Commit | V2.1 status |
+|---|---|---|---|
+| Frozen implementation plan | `docs/superpowers/plans/2026-07-27-v2-1-contract-gate-implementation-plan.md` | `36ac03d7` | FROZEN |
+| Implemented contract exports | `src/tv_quant/contracts/__init__.py` | `570c518ed1429d3b84f6fe9151bd18ea621f1150` | IMPLEMENTED_CONTRACT_ONLY |
+| Phase 1 to V2 adapter export | `src/tv_quant/adapters/phase1_config_adapter.py::Phase1ToV2AdapterResult` | `570c518ed1429d3b84f6fe9151bd18ea621f1150` | IMPLEMENTED_CONTRACT_ONLY |
+| Local runner and CLI gate | `src/tv_quant/contracts/runner_protocol.py::run_v2` and `src/tv_quant/pipeline_cli.py` | `570c518ed1429d3b84f6fe9151bd18ea621f1150` | IMPLEMENTED_GATE_ONLY |
+| Contract and gate acceptance | `tests/contracts`, `tests/adapters`, `tests/pipeline/test_v2_cli_gate.py`, `tests/integration` | `570c518ed1429d3b84f6fe9151bd18ea621f1150` plus Task 19 acceptance commit | VERIFIED |
+
+`IMPLEMENTED_CONTRACT_ONLY` 和 `IMPLEMENTED_GATE_ONLY` 都不表示执行引擎可用。V2.1 的合法 `execute` 请求仍确定性返回 `NOT_IMPLEMENTED` / `EXECUTION_CAPABILITY_NOT_IMPLEMENTED`，且 `formal_result_published=false`。
+
+### 29.2 Final plan review evidence
+
+| Review item | Independent evidence | Status |
+|---|---|---|
+| P1 | `tests/adapters/test_phase1_config_adapter.py` and `tests/integration/test_v2_1_gate.py` | RESOLVED |
+| P2 | `tests/contracts/test_strategy_v2_semantics.py` and `tests/contracts/test_normalized_ir.py` | RESOLVED |
+| P3 | `tests/contracts/test_strategy_v2_semantics.py` and `tests/contracts/test_normalized_ir.py` | RESOLVED |
+| P4 | `tests/contracts/test_ast_contract.py` | RESOLVED |
+| P5 | `tests/contracts/test_execution_assumptions.py` and `tests/contracts/test_confirmation.py` | RESOLVED |
+| P6 | `tests/contracts/test_confirmation.py`, `tests/pipeline/test_v2_cli_gate.py`, and `tests/integration/test_v2_1_gate.py` | RESOLVED |
+| P7 | `tests/contracts/test_schema_contract.py` and `tests/contracts/test_normalized_ir.py` | RESOLVED |
+| P8 | `tests/contracts/test_strategy_v2_semantics.py`, `tests/adapters/test_phase1_config_adapter.py`, and `tests/contracts/test_capability_registry.py` | RESOLVED |
+| P9 | `tests/contracts/test_numeric_canonicalization.py` and `tests/contracts/test_normalized_ir.py` | RESOLVED |
+| P10 | `tests/contracts/test_confirmation.py` | RESOLVED |
+| P11 | `tests/contracts/test_artifact_contract.py` and `tests/integration/test_v2_1_security.py` | RESOLVED |
+| P12 | `tests/contracts/test_artifact_contract.py` and `tests/integration/test_v2_1_gate.py` | RESOLVED |
+| P13 | `tests/contracts/test_template_contract.py` | RESOLVED |
+| P14 | `tests/contracts/test_capability_registry.py` | RESOLVED |
+| P15 | `tests/contracts/test_status_codes.py` and `tests/integration/test_v2_1_security.py` | RESOLVED |
+
+The acceptance commands are:
+
+~~~powershell
+$env:PYTHONPATH = (Join-Path (Get-Location) 'src')
+py -3.14 -m pytest tests/contracts tests/adapters tests/pipeline/test_v2_cli_gate.py tests/integration -q
+py -3.14 -m pytest tests -q
+py -3.14 -m compileall -q src tests
+git diff --check
+~~~
+
+### 29.3 V2.1 exit evidence
+
+| ID | Exit condition | Independent evidence | Status |
+|---|---|---|---|
+| E1 | Schema identity, version enforcement, and Python parity | `tests/contracts/test_schema_contract.py` and `tests/contracts/test_strategy_v2_schema.py` | PASS |
+| E2 | StrategySpecV2 valid load and legacy, unknown, unsafe rejection | `tests/contracts/test_strategy_v2_semantics.py` | PASS |
+| E3 | Explicit required root fields with no normalization defaults | `tests/contracts/test_strategy_v2_semantics.py` and `tests/contracts/test_normalized_ir.py` | PASS |
+| E4 | Typed AST root, type, unit, depth, and node-count rules | `tests/contracts/test_ast_contract.py` | PASS |
+| E5 | Immutable, deterministic, unit-explicit, float-free NormalizedStrategyIR | `tests/contracts/test_normalized_ir.py` | PASS |
+| E6 | Stable normalized hash through the Phase 1 hash owner | `tests/contracts/test_normalized_ir.py` and `tests/integration/test_v2_1_security.py` | PASS |
+| E7 | One-way Phase1ToV2Adapter evidence and unchanged source | `tests/adapters/test_phase1_config_adapter.py` and `tests/integration/test_v2_1_gate.py` | PASS |
+| E8 | ExecutionAssumptions is the only assumptions hash payload | `tests/contracts/test_execution_assumptions.py` | PASS |
+| E9 | ConfirmationRequest binds all frozen hashes, summaries, profiles, and expiry | `tests/contracts/test_confirmation.py` | PASS |
+| E10 | ConfirmationGrant is expiring, hash-bound, single-use, atomic, concurrent, and crash-safe | `tests/contracts/test_confirmation.py` and `tests/contracts/test_confirmation_store.py` | PASS |
+| E11 | Plaintext token is returned once and absent from persistent and later outputs | `tests/integration/test_v2_1_gate.py` and `tests/integration/test_v2_1_security.py` | PASS |
+| E12 | Missing, invalid, expired, mismatched, and reused tokens return frozen blockers | `tests/contracts/test_confirmation_store.py`, `tests/contracts/test_runner_protocol.py`, and `tests/pipeline/test_v2_cli_gate.py` | PASS |
+| E13 | Capability status separates structural, implementation, formal, and smoke-only states | `tests/contracts/test_capability_registry.py` | PASS |
+| E14 | Artifact ownership reuses Phase 1 owners and dependency hash is complete | `tests/contracts/test_artifact_contract.py` and `tests/integration/test_v2_1_security.py` | PASS |
+| E15 | Provisional and formal results are distinct and evidence paths are root-contained | `tests/contracts/test_artifact_contract.py` and `tests/integration/test_v2_1_gate.py` | PASS |
+| E16 | Four runner modes, compact JSON, stderr diagnostics, stable exits, and NOT_IMPLEMENTED execute | `tests/contracts/test_runner_protocol.py` | PASS |
+| E17 | Explicit V2 CLI namespace cannot route to Phase 1 execution or refresh | `tests/pipeline/test_v2_cli_gate.py` and `tests/integration/test_v2_1_security.py` | PASS |
+| E18 | Template contract has immutable version, deterministic lookup, eligibility, invalidation, and active fields | `tests/contracts/test_template_contract.py` | PASS |
+| E19 | Template registry enforces one active version, supersession, acyclic history, semantic version order, and no mtime lookup | `tests/contracts/test_template_contract.py` | PASS |
+| E20 | Contract, adapter, CLI, and integration suites pass together | focused Task 19 acceptance command | PASS |
+| E21 | Existing Phase 1 suite remains green | full `tests` acceptance command | PASS |
+| E22 | Static review finds no live, provider, network, VectorBT, plugin, or arbitrary Python execution path | `tests/integration/test_v2_1_security.py` and Task 19 static scans | PASS |
+| E23 | Acceptance performed no download, OpenD connection, formal backtest, or VectorBT installation | Task 19 command ledger and static review | PASS |
+| E24 | Every status defines recoverable, retryable, terminal, and user_action semantics | `tests/contracts/test_status_codes.py` and `tests/integration/test_v2_1_security.py` | PASS |
+| E25 | Final Task 19 tracked tree is clean after the acceptance commit | Task 19 `git status --short` review | PASS |
+
+### 29.4 V2.2 frozen public interfaces
+
+V2.2 may import the following concrete public types without reinterpreting them. The contract types are exported by `src/tv_quant/contracts/__init__.py`; the adapter result is exported by `src/tv_quant/adapters/phase1_config_adapter.py`. This list records types, while the separately tested callable gate remains `run_v2(request)` with the four `RunnerMode` values.
+
+~~~text
+StrategySpecV2
+NormalizedStrategyIR
+DataPlan
+DatasetRequirement
+ExecutionAssumptions
+CapabilityRegistry
+ConfirmationRequest
+ConfirmationGrant
+RunnerRequest
+RunnerResponse
+DependencyFingerprint
+ProvisionalEvidence
+FormalResultContract
+TemplateLookupKey
+TemplateRecord
+Phase1ToV2AdapterResult
+~~~
+
+The frozen plan's `AuthorizedExecutionContext`, `ArtifactContract`, and `StatusCodeRegistry` labels identify contract families, not additional root-exported classes. Their implemented V2.1 boundaries are respectively `ConfirmationStore.consume_once` plus redacted confirmation audit evidence, the concrete artifact exports listed above plus `ARTIFACT_OWNERS`, and `status_codes.py` metadata accessed through `status_definition`. V2.2 must not bypass or replace those owners.
+
+Nothing in this section marks VectorBT, OpenD/provider access, intraday aggregation, dividend handling, plugin execution, formal backtest publication, or formal template publication as available. Those remain gated by their later phase plans.

@@ -29,7 +29,6 @@ from tv_quant.contracts.execution_assumptions import (
     assumptions_hash,
     build_execution_assumptions,
 )
-from tv_quant.contracts.runner_protocol import RunnerMode, RunnerRequest, run_v2
 from tv_quant.run_manifest import canonical_hash, sha256_file
 
 
@@ -130,22 +129,26 @@ def _evidence_root(
 
 def _request(
     config_path: Path,
-    mode: RunnerMode,
+    mode: contracts.RunnerMode,
     evidence_root: Path,
     **changes: object,
-) -> RunnerRequest:
+) -> contracts.RunnerRequest:
     values: dict[str, object] = {
         "config_path": config_path,
         "mode": mode,
         "evidence_root": evidence_root,
     }
     values.update(changes)
-    return RunnerRequest(**values)
+    return contracts.RunnerRequest(**values)
 
 
 def _prepare(config_path: Path, evidence_root: Path):
-    response = run_v2(
-        _request(config_path, RunnerMode.PREPARE_CONFIRMATION, evidence_root)
+    response = contracts.run_v2(
+        _request(
+            config_path,
+            contracts.RunnerMode.PREPARE_CONFIRMATION,
+            evidence_root,
+        )
     )
     request_path = evidence_root / response.run_id / "confirmation-request.json"
     assert response.status == "SUCCESS", response.to_json()
@@ -167,16 +170,20 @@ def _approval_path(request_path: Path) -> Path:
     return path
 
 
-def _grant(config_path: Path, evidence_root: Path, request_path: Path):
-    response = run_v2(
+def _grant_request(config_path: Path, evidence_root: Path, request_path: Path):
+    return contracts.run_v2(
         _request(
             config_path,
-            RunnerMode.GRANT_CONFIRMATION,
+            contracts.RunnerMode.GRANT_CONFIRMATION,
             evidence_root,
             confirmation_request_path=request_path,
             approval_record_path=_approval_path(request_path),
         )
     )
+
+
+def _grant(config_path: Path, evidence_root: Path, request_path: Path):
+    response = _grant_request(config_path, evidence_root, request_path)
     assert response.status == "SUCCESS"
     assert response.confirmation_token
     return response
@@ -213,21 +220,21 @@ def _build_assumptions(ir, plan):
     )
 
 
-def _provisional_evidence(response, request, assumptions):
+def _provisional_evidence(granted, grant, executed, assumptions):
     evidence_type = _public_type("ProvisionalEvidence")
     return evidence_type(
-        run_id=response.run_id,
-        evidence_kind="confirmation",
+        run_id=granted.run_id,
+        evidence_kind="execution-blocker",
         paths=(
-            f"{response.run_id}/confirmation-request.json",
-            f"{response.run_id}/normalized-ir.json",
-            f"{response.run_id}/data-plan.json",
+            f"{granted.run_id}/confirmation-request.json",
+            f"{granted.run_id}/normalized-ir.json",
+            f"{granted.run_id}/data-plan.json",
         ),
-        config_hash=request.normalized_config_hash,
-        data_plan_hash=request.data_plan_hash,
+        config_hash=grant.bound_config_hash,
+        data_plan_hash=grant.bound_data_plan_hash,
         capability_snapshot_hash=assumptions.capability_snapshot_hash,
-        status="PROVISIONAL",
-        formal_result_published=False,
+        status=executed.status,
+        formal_result_published=executed.formal_result_published,
     )
 
 
@@ -235,7 +242,7 @@ def test_end_to_end_validate_prepare_grant_execute_stops_before_engine(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Crossing the typed gate or reversing the adapter would permit execution."""
+    """Internal runner calls or broken grant/response/evidence bindings must fail."""
     phase1_path, v2_path, adapted = _write_gate_configs(tmp_path)
     evidence_root = _evidence_root(tmp_path, monkeypatch)
     source_bytes = phase1_path.read_bytes()
@@ -244,7 +251,9 @@ def test_end_to_end_validate_prepare_grant_execute_stops_before_engine(
         "commission_bps": "5",
         "slippage_bps": "5",
     }
-    validated = run_v2(_request(v2_path, RunnerMode.VALIDATE, evidence_root))
+    validated = contracts.run_v2(
+        _request(v2_path, contracts.RunnerMode.VALIDATE, evidence_root)
+    )
     prepared, request_path = _prepare(v2_path, evidence_root)
     plan = _load_data_plan(request_path.with_name("data-plan.json"))
     assumptions = _build_assumptions(adapted.normalized_ir, plan)
@@ -257,18 +266,18 @@ def test_end_to_end_validate_prepare_grant_execute_stops_before_engine(
         request_path.with_name("confirmation-state.json").read_text(encoding="utf-8")
     )
     grant = _public_type("ConfirmationGrant")(**state["grant"])
-    evidence = _provisional_evidence(prepared, confirmation, assumptions)
     token = granted.confirmation_token
     assert isinstance(token, str)
     execute_request = _request(
         v2_path,
-        RunnerMode.EXECUTE,
+        contracts.RunnerMode.EXECUTE,
         evidence_root,
         confirmation_request_path=request_path,
         confirmation_token=token,
     )
-    executed = run_v2(execute_request)
-    replayed = run_v2(execute_request)
+    executed = contracts.run_v2(execute_request)
+    replayed = contracts.run_v2(execute_request)
+    evidence = _provisional_evidence(granted, grant, executed, assumptions)
 
     assert isinstance(adapted, Phase1ToV2AdapterResult)
     assert isinstance(adapted.strategy_spec_v2, _public_type("StrategySpecV2"))
@@ -289,6 +298,19 @@ def test_end_to_end_validate_prepare_grant_execute_stops_before_engine(
     assert confirmation.data_plan_hash == plan.data_plan_hash
     assert confirmation.assumptions_hash == assumptions_hash(assumptions)
     assert grant.bound_assumptions_hash == confirmation.assumptions_hash
+    assert (
+        confirmation.confirmation_request_id
+        == grant.confirmation_request_id
+        == granted.confirmation_request_id
+        == executed.confirmation_request_id
+    )
+    assert evidence.run_id == granted.run_id == executed.run_id
+    assert evidence.config_hash == grant.bound_config_hash
+    assert grant.bound_config_hash == confirmation.normalized_config_hash
+    assert evidence.data_plan_hash == grant.bound_data_plan_hash
+    assert grant.bound_data_plan_hash == confirmation.data_plan_hash
+    assert evidence.status == executed.status
+    assert evidence.formal_result_published is executed.formal_result_published
     assert validated.status == prepared.status == granted.status == "SUCCESS"
     assert executed.status == "NOT_IMPLEMENTED"
     assert executed.blocker_code == "EXECUTION_CAPABILITY_NOT_IMPLEMENTED"
@@ -306,10 +328,10 @@ def test_blocker_prevents_data_backtest_formal_artifact_and_template(
     _prepared, request_path = _prepare(v2_path, evidence_root)
     granted = _grant(v2_path, evidence_root, request_path)
 
-    executed = run_v2(
+    executed = contracts.run_v2(
         _request(
             v2_path,
-            RunnerMode.EXECUTE,
+            contracts.RunnerMode.EXECUTE,
             evidence_root,
             confirmation_request_path=request_path,
             confirmation_token=granted.confirmation_token,
@@ -340,7 +362,9 @@ def test_v21_runner_response_is_serializable_and_versioned(
     _phase1_path, v2_path, _adapted = _write_gate_configs(tmp_path)
     evidence_root = _evidence_root(tmp_path, monkeypatch)
 
-    response = run_v2(_request(v2_path, RunnerMode.VALIDATE, evidence_root))
+    response = contracts.run_v2(
+        _request(v2_path, contracts.RunnerMode.VALIDATE, evidence_root)
+    )
     serialized = response.to_json()
     payload = json.loads(serialized)
 
@@ -384,31 +408,37 @@ def test_confirmation_token_is_returned_only_by_grant_response(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Persisting or replaying plaintext authority would violate one-time handoff."""
+    """A second grant or any later response returning plaintext must fail."""
     _phase1_path, v2_path, _adapted = _write_gate_configs(tmp_path)
     evidence_root = _evidence_root(tmp_path, monkeypatch)
-    validated = run_v2(_request(v2_path, RunnerMode.VALIDATE, evidence_root))
+    validated = contracts.run_v2(
+        _request(v2_path, contracts.RunnerMode.VALIDATE, evidence_root)
+    )
     prepared, request_path = _prepare(v2_path, evidence_root)
     granted = _grant(v2_path, evidence_root, request_path)
+    grant_replayed = _grant_request(v2_path, evidence_root, request_path)
     token = granted.confirmation_token
     assert isinstance(token, str)
     execute_request = _request(
         v2_path,
-        RunnerMode.EXECUTE,
+        contracts.RunnerMode.EXECUTE,
         evidence_root,
         confirmation_request_path=request_path,
         confirmation_token=token,
     )
-    executed = run_v2(execute_request)
-    replayed = run_v2(execute_request)
+    executed = contracts.run_v2(execute_request)
+    replayed = contracts.run_v2(execute_request)
 
     assert (
         validated.confirmation_token,
         prepared.confirmation_token,
+        grant_replayed.confirmation_token,
         executed.confirmation_token,
         replayed.confirmation_token,
-    ) == (None, None, None, None)
+    ) == (None, None, None, None, None)
     assert granted.to_json().count(token) == 1
+    assert grant_replayed.status == "BLOCKED"
+    assert grant_replayed.confirmation_token is None
     assert all(
         token not in path.read_text(encoding="utf-8")
         for path in evidence_root.rglob("*.json")
@@ -428,18 +458,34 @@ def test_evidence_paths_are_contained_and_dependency_hash_is_complete(
     """Traversal or an omitted dependency field would make evidence unauditable."""
     phase1_path, v2_path, adapted = _write_gate_configs(tmp_path)
     evidence_root = _evidence_root(tmp_path, monkeypatch)
-    prepared, request_path = _prepare(v2_path, evidence_root)
+    _prepared, request_path = _prepare(v2_path, evidence_root)
     plan = _load_data_plan(request_path.with_name("data-plan.json"))
     assumptions = _build_assumptions(adapted.normalized_ir, plan)
     confirmation = _public_type("ConfirmationRequest")(
         **json.loads(request_path.read_text(encoding="utf-8"))
     )
-    evidence = _provisional_evidence(prepared, confirmation, assumptions)
+    granted = _grant(v2_path, evidence_root, request_path)
+    grant_state = json.loads(
+        request_path.with_name("confirmation-state.json").read_text(encoding="utf-8")
+    )
+    grant = _public_type("ConfirmationGrant")(**grant_state["grant"])
+    executed = contracts.run_v2(
+        _request(
+            v2_path,
+            contracts.RunnerMode.EXECUTE,
+            evidence_root,
+            confirmation_request_path=request_path,
+            confirmation_token=granted.confirmation_token,
+        )
+    )
+    evidence = _provisional_evidence(granted, grant, executed, assumptions)
 
     resolved = evidence.resolved_paths(evidence_root)
     assert all(path.is_file() for path in resolved)
     assert all(path.relative_to(evidence_root) for path in resolved)
     assert evidence.formal_result_published is False
+    assert confirmation.confirmation_request_id == grant.confirmation_request_id
+    assert executed.confirmation_request_id == grant.confirmation_request_id
 
     fingerprint_type = _public_type("DependencyFingerprint")
     fingerprint = fingerprint_type(

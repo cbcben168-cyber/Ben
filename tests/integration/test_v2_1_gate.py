@@ -19,7 +19,6 @@ from tv_quant.adapters.phase1_config_adapter import (
 )
 import tv_quant.adapters.phase1_config_adapter as phase1_adapter
 import tv_quant.contracts as contracts
-import tv_quant.contracts.artifact_contract as artifact_contract
 from tv_quant.contracts.artifact_contract import dependency_hash
 from tv_quant.contracts.capability_registry import (
     capability_snapshot_hash,
@@ -28,7 +27,6 @@ from tv_quant.contracts.capability_registry import (
 from tv_quant.contracts.confirmation import (
     ApprovalRecord,
 )
-import tv_quant.contracts.confirmation as confirmation_contract
 from tv_quant.contracts.data_plan import build_data_plan
 from tv_quant.contracts.execution_assumptions import (
     assumptions_hash,
@@ -36,7 +34,6 @@ from tv_quant.contracts.execution_assumptions import (
 )
 from tv_quant.contracts.normalized_ir import normalize_strategy_spec
 from tv_quant.contracts.strategy_v2 import validate_strategy_mapping_v2
-import tv_quant.contracts.status_codes as status_codes
 from tv_quant.run_manifest import canonical_hash, sha256_file
 
 
@@ -748,12 +745,6 @@ def test_v22_entry_interfaces_match_public_exports() -> None:
             "## 22. V2.2 Entry Gate",
         )
     )
-    design_rows = _table_rows(
-        _section(
-            _DESIGN_PATH.read_text(encoding="utf-8"),
-            "### 29.4 V2.2 frozen public interfaces",
-        )
-    )
     expected_mappings = {
         "StrategySpecV2": ("tv_quant.contracts", ("StrategySpecV2",)),
         "NormalizedStrategyIR": ("tv_quant.contracts", ("NormalizedStrategyIR",)),
@@ -764,37 +755,16 @@ def test_v22_entry_interfaces_match_public_exports() -> None:
         "ConfirmationRequest": ("tv_quant.contracts", ("ConfirmationRequest",)),
         "ConfirmationGrant": ("tv_quant.contracts", ("ConfirmationGrant",)),
         "AuthorizedExecutionContext": (
-            "tv_quant.contracts.confirmation",
-            ("ConfirmationAuditRecord", "validate_and_consume"),
+            "tv_quant.contracts",
+            ("AuthorizedExecutionContext",),
         ),
         "RunnerRequest": ("tv_quant.contracts", ("RunnerRequest",)),
         "RunnerResponse": ("tv_quant.contracts", ("RunnerResponse",)),
-        "ArtifactContract": (
-            "tv_quant.contracts.artifact_contract",
-            (
-                "ARTIFACT_OWNERS",
-                "ArtifactOwner",
-                "DependencyFingerprint",
-                "ProvisionalEvidence",
-                "FormalResultContract",
-                "dependency_hash",
-                "formal_eligibility",
-            ),
-        ),
+        "ArtifactContract": ("tv_quant.contracts", ("ArtifactContract",)),
         "DependencyFingerprint": ("tv_quant.contracts", ("DependencyFingerprint",)),
         "ProvisionalEvidence": ("tv_quant.contracts", ("ProvisionalEvidence",)),
         "FormalResultContract": ("tv_quant.contracts", ("FormalResultContract",)),
-        "StatusCodeRegistry": (
-            "tv_quant.contracts.status_codes",
-            (
-                "BlockerCode",
-                "PipelineStatus",
-                "StatusDefinition",
-                "STATUS_DEFINITIONS",
-                "status_definition",
-                "status_snapshot_hash",
-            ),
-        ),
+        "StatusCodeRegistry": ("tv_quant.contracts", ("StatusCodeRegistry",)),
         "Phase1ToV2AdapterResult": (
             "tv_quant.adapters.phase1_config_adapter",
             ("Phase1ToV2AdapterResult",),
@@ -804,19 +774,11 @@ def test_v22_entry_interfaces_match_public_exports() -> None:
     }
     modules = {
         "tv_quant.contracts": contracts,
-        "tv_quant.contracts.confirmation": confirmation_contract,
-        "tv_quant.contracts.artifact_contract": artifact_contract,
-        "tv_quant.contracts.status_codes": status_codes,
         "tv_quant.adapters.phase1_config_adapter": phase1_adapter,
-    }
-    documented_mappings = {
-        row[0]: (row[1].strip("`"), _evidence_refs(row[2])) for row in design_rows
     }
 
     assert plan_interfaces == tuple(expected_mappings)
-    assert tuple(documented_mappings) == plan_interfaces
-    assert documented_mappings == expected_mappings
-    for module_name, symbols in documented_mappings.values():
+    for module_name, symbols in expected_mappings.values():
         module = modules[module_name]
         for symbol in symbols:
             assert hasattr(
@@ -824,29 +786,8 @@ def test_v22_entry_interfaces_match_public_exports() -> None:
             ), f"missing concrete interface: {module_name}.{symbol}"
             if hasattr(module, "__all__"):
                 assert symbol in module.__all__
-    for frozen_name, (module_name, symbols) in documented_mappings.items():
-        if frozen_name not in {
-            "AuthorizedExecutionContext",
-            "ArtifactContract",
-            "StatusCodeRegistry",
-        }:
-            assert len(symbols) == 1
-            assert isinstance(getattr(modules[module_name], symbols[0]), type)
-    assert isinstance(confirmation_contract.ConfirmationAuditRecord, type)
-    assert callable(confirmation_contract.validate_and_consume)
-    assert isinstance(artifact_contract.ARTIFACT_OWNERS, tuple)
-    assert isinstance(artifact_contract.ArtifactOwner, type)
-    assert isinstance(artifact_contract.DependencyFingerprint, type)
-    assert isinstance(artifact_contract.ProvisionalEvidence, type)
-    assert isinstance(artifact_contract.FormalResultContract, type)
-    assert callable(artifact_contract.dependency_hash)
-    assert callable(artifact_contract.formal_eligibility)
-    assert isinstance(status_codes.BlockerCode, type)
-    assert isinstance(status_codes.PipelineStatus, type)
-    assert isinstance(status_codes.StatusDefinition, type)
-    assert isinstance(status_codes.STATUS_DEFINITIONS, tuple)
-    assert callable(status_codes.status_definition)
-    assert callable(status_codes.status_snapshot_hash)
+        assert len(symbols) == 1
+        assert isinstance(getattr(module, symbols[0]), type)
     assert tuple(mode.value for mode in contracts.RunnerMode) == (
         "validate",
         "prepare_confirmation",

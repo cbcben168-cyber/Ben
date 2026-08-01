@@ -73,15 +73,24 @@ def test_frozen_public_types_are_concrete_root_exports_with_exact_fields() -> No
         "consumed_at",
     )
 
-    for name in (
-        "AuthorizedExecutionContext",
-        "ArtifactContract",
-        "StatusCodeRegistry",
-    ):
+    exact_fields = {
+        "AuthorizedExecutionContext": (
+            "confirmation_request_id",
+            "bound_config_hash",
+            "bound_data_plan_hash",
+            "bound_assumptions_hash",
+            "authorized_at",
+            "consumed_at",
+        ),
+        "ArtifactContract": ("owners",),
+        "StatusCodeRegistry": ("definitions",),
+    }
+    for name, expected_fields in exact_fields.items():
         interface = getattr(contracts, name)
         assert name in contracts.__all__
         assert isinstance(interface, type)
         assert is_dataclass(interface)
+        assert _field_names(interface) == expected_fields
 
 
 def test_frozen_confirmation_and_adapter_signatures_are_exact() -> None:

@@ -339,12 +339,14 @@ def _phase1_full_ast_snapshot(sources: Mapping[str, str]) -> tuple[int, str]:
 def _relevant_phase1_conftests(test_files: tuple[Path, ...]) -> tuple[Path, ...]:
     conftests: set[Path] = set()
     for test_file in test_files:
+        reached_tests_directory = False
         for parent in test_file.parents:
             candidate = parent / "conftest.py"
             if candidate.is_file():
                 conftests.add(candidate)
-            if parent.name == "tests":
+            if reached_tests_directory:
                 break
+            reached_tests_directory = parent.name == "tests"
     return tuple(sorted(conftests))
 
 
@@ -748,4 +750,8 @@ def test_phase1_suite_remains_unchanged(tmp_path: Path) -> None:
     conftest.write_text("pytest_plugins = []\n", encoding="utf-8")
     if conftest not in _relevant_phase1_conftests((test_file,)):
         support_failures.append("relevant conftest omitted")
+    root_conftest = test_file.parents[2] / "conftest.py"
+    root_conftest.write_text("pytest_plugins = []\n", encoding="utf-8")
+    if root_conftest not in _relevant_phase1_conftests((test_file,)):
+        support_failures.append("repository-root conftest omitted")
     assert support_failures == []

@@ -1,12 +1,13 @@
 """Stable public contracts for pipeline integrations."""
 
 from .artifact_contract import (
+    ArtifactContract,
     DependencyFingerprint,
     FormalResultContract,
     ProvisionalEvidence,
 )
 from .capability_registry import CapabilityRegistry
-from .confirmation import ConfirmationGrant, ConfirmationRequest
+from .confirmation import AuthorizedExecutionContext, ConfirmationGrant, ConfirmationRequest
 from .data_plan import DataPlan, DatasetRequirement
 from .execution_assumptions import ExecutionAssumptions
 from .normalized_ir import NormalizedStrategyIR
@@ -20,10 +21,13 @@ from .schema_contract import (
     schema_contract_snapshot,
 )
 from .strategy_v2 import StrategySpecV2
+from .status_codes import StatusCodeRegistry
 from .template_contract import TemplateLookupKey, TemplateRecord
 
 __all__ = (
     "AST_NODE_DEFINITIONS",
+    "ArtifactContract",
+    "AuthorizedExecutionContext",
     "CapabilityRegistry",
     "ConfirmationGrant",
     "ConfirmationRequest",
@@ -40,6 +44,7 @@ __all__ = (
     "RunnerRequest",
     "RunnerResponse",
     "StrategySpecV2",
+    "StatusCodeRegistry",
     "TemplateLookupKey",
     "TemplateRecord",
     "canonical_decimal",

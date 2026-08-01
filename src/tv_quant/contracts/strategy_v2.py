@@ -31,11 +31,30 @@ class ValidationIssue:
 
 @dataclass(frozen=True, slots=True)
 class StrategySpecV2:
-    """Minimal immutable V2 configuration after contract-equivalent validation."""
+    """Frozen V2 user semantics before compiler-derived metadata."""
 
-    payload: Mapping[str, Any]
-    source_payload: Mapping[str, Any]
+    schema_version: str
+    strategy_id: str
+    strategy_family: str
+    strategy_name: str
     symbol: str
+    market: str
+    timeframe: str
+    session: Mapping[str, object]
+    backtest_range: Mapping[str, str]
+    initial_capital: Mapping[str, object]
+    entry: Mapping[str, object]
+    exit: Mapping[str, object]
+    filters: tuple[Mapping[str, object], ...]
+    position_sizing: Mapping[str, object]
+    stop: Mapping[str, object]
+    target: Mapping[str, object]
+    data: Mapping[str, object]
+    benchmark: Mapping[str, object]
+    plugin: Mapping[str, object] | None
+    optimization_allowed: bool
+    report_language: str
+    source_payload: Mapping[str, object]
 
 
 def _error(path: str, message: str) -> ValueError:
@@ -76,7 +95,7 @@ def _safe_value(value: object, path: str) -> None:
                 raise _error(path, "object keys must be strings")
             _safe_value(item, f"{path}.{key}")
         return
-    if isinstance(value, list):
+    if isinstance(value, (list, tuple)):
         for index, item in enumerate(value):
             _safe_value(item, f"{path}[{index}]")
         return
@@ -90,7 +109,7 @@ def _safe_value(value: object, path: str) -> None:
 def _freeze(value: object) -> object:
     if isinstance(value, Mapping):
         return MappingProxyType({str(key): _freeze(item) for key, item in value.items()})
-    if isinstance(value, list):
+    if isinstance(value, (list, tuple)):
         return tuple(_freeze(item) for item in value)
     return value
 
@@ -149,7 +168,16 @@ def _validate_ast(value: object, path: str, category: str) -> None:
     if node_type == "indicator_ref":
         _enum("indicator_name", node["name"], f"{path}.name")
     elif node_type == "constant":
-        canonical_decimal(node["value"], f"{path}.value")
+        unit = node["unit"]
+        value = node["value"]
+        if unit == "string":
+            if type(value) is not str:
+                raise _error(f"{path}.value", "string constant required")
+        elif unit == "boolean":
+            if type(value) is not bool:
+                raise _error(f"{path}.value", "boolean constant required")
+        else:
+            canonical_decimal(value, f"{path}.value")
     if node_type in {"compare", "cross_above", "cross_below"}:
         if node_type == "compare":
             _enum("comparison_operator", node["operator"], f"{path}.operator")
@@ -157,7 +185,7 @@ def _validate_ast(value: object, path: str, category: str) -> None:
         _validate_ast(node["right"], f"{path}.right", "ValueExpression")
     elif node_type in {"all", "any"}:
         children = node["children"]
-        if not isinstance(children, list) or not children:
+        if not isinstance(children, (list, tuple)) or not children:
             raise _error(f"{path}.children", "non-empty array required")
         for index, child in enumerate(children):
             _validate_ast(child, f"{path}.children[{index}]", "PredicateExpression")
@@ -189,7 +217,9 @@ def _validate_position_sizing(value: object) -> None:
         raise _error("position_sizing.type", "unsupported position sizing type")
     _exact_fields(sizing, "position_sizing", fields_by_type[sizing_type])
     for field in fields_by_type[sizing_type] - {"type"}:
-        canonical_decimal(sizing[field], f"position_sizing.{field}")
+        canonical = canonical_decimal(sizing[field], f"position_sizing.{field}")
+        if field == "fraction" and not (Decimal("0") < Decimal(canonical) <= Decimal("1")):
+            raise _error("position_sizing.fraction", "must be greater than 0 and at most 1")
 
 
 def _validate_benchmark(value: object) -> None:
@@ -236,7 +266,7 @@ def validate_strategy_mapping_v2(payload: Mapping[str, Any]) -> StrategySpecV2:
     _validate_ast(payload["entry"], "entry", "PredicateExpression")
     _validate_ast(payload["exit"], "exit", "PredicateExpression")
     filters = payload["filters"]
-    if not isinstance(filters, list):
+    if not isinstance(filters, (list, tuple)):
         raise _error("filters", "array required")
     for index, item in enumerate(filters):
         _validate_ast(item, f"filters[{index}]", "PredicateExpression")
@@ -250,12 +280,33 @@ def validate_strategy_mapping_v2(payload: Mapping[str, Any]) -> StrategySpecV2:
     if payload["optimization_allowed"] is not False:
         raise _error("optimization_allowed", "must equal false")
 
+    source_payload = _freeze(dict(payload))
     semantic_payload = dict(payload)
     semantic_payload["symbol"] = symbol
+    frozen = _freeze(semantic_payload)
     return StrategySpecV2(
-        payload=_freeze(semantic_payload),
-        source_payload=_freeze(dict(payload)),
+        schema_version=frozen["schema_version"],
+        strategy_id=frozen["strategy_id"],
+        strategy_family=frozen["strategy_family"],
+        strategy_name=frozen["strategy_name"],
         symbol=symbol,
+        market=frozen["market"],
+        timeframe=frozen["timeframe"],
+        session=frozen["session"],
+        backtest_range=frozen["backtest_range"],
+        initial_capital=frozen["initial_capital"],
+        entry=frozen["entry"],
+        exit=frozen["exit"],
+        filters=frozen["filters"],
+        position_sizing=frozen["position_sizing"],
+        stop=frozen["stop"],
+        target=frozen["target"],
+        data=frozen["data"],
+        benchmark=frozen["benchmark"],
+        plugin=frozen["plugin"],
+        optimization_allowed=frozen["optimization_allowed"],
+        report_language=frozen["report_language"],
+        source_payload=source_payload,
     )
 
 

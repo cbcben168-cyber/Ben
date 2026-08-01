@@ -37,6 +37,12 @@
         {"type": "string", "pattern": "^[+-]?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$"}
       ]
     },
+    "positive_fraction": {
+      "oneOf": [
+        {"type": "integer", "minimum": 1, "maximum": 1},
+        {"type": "string", "pattern": "^(?:0\\.(?:0*[1-9][0-9]*)|1(?:\\.0+)?)$"}
+      ]
+    },
     "session": {
       "type": "object",
       "additionalProperties": false,
@@ -85,9 +91,23 @@
       "required": ["node_type", "value", "unit"],
       "properties": {
         "node_type": {"const": "constant"},
-        "value": {"$ref": "#/$defs/decimal_value"},
+        "value": {},
         "unit": {"type": "string", "minLength": 1}
       },
+      "allOf": [
+        {
+          "if": {"properties": {"unit": {"const": "string"}}},
+          "then": {"properties": {"value": {"type": "string"}}}
+        },
+        {
+          "if": {"properties": {"unit": {"const": "boolean"}}},
+          "then": {"properties": {"value": {"type": "boolean"}}}
+        },
+        {
+          "if": {"properties": {"unit": {"not": {"enum": ["string", "boolean"]}}}},
+          "then": {"properties": {"value": {"$ref": "#/$defs/decimal_value"}}}
+        }
+      ],
       "x-contract-category": "ValueExpression",
       "x-contract-output-type": "value"
     },
@@ -237,7 +257,7 @@
           "required": ["type", "fraction"],
           "properties": {
             "type": {"const": "fixed_fraction"},
-            "fraction": {"$ref": "#/$defs/decimal_value"}
+            "fraction": {"$ref": "#/$defs/positive_fraction"}
           }
         },
         {

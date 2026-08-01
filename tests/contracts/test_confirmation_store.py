@@ -15,11 +15,7 @@ from types import SimpleNamespace
 import pytest
 
 import tv_quant.contracts.confirmation as confirmation
-from tv_quant.contracts.confirmation import (
-    ConfirmationGrant,
-    FileConfirmationStore,
-    validate_and_consume,
-)
+from tv_quant.contracts.confirmation import FileConfirmationStore
 from tv_quant.contracts.status_codes import BlockerCode
 from tv_quant.run_manifest import sha256_bytes
 
@@ -38,8 +34,8 @@ def _clock() -> datetime:
     return datetime.fromisoformat(NOW)
 
 
-def _grant(**changes: object) -> ConfirmationGrant:
-    grant = ConfirmationGrant(
+def _grant(**changes: object):
+    grant = confirmation._StoredConfirmationGrant(
         confirmation_request_id=REQUEST_ID,
         confirmation_token_hash=sha256_bytes(TOKEN.encode("utf-8")),
         bound_config_hash=CONFIG_HASH,
@@ -65,12 +61,11 @@ def _consume(
     assumptions_digest: str = ASSUMPTIONS_HASH,
     request_id: str = REQUEST_ID,
 ):
-    return validate_and_consume(
+    return store.validate_and_consume(
         token,
         config_hash,
         data_plan_hash,
         assumptions_digest,
-        store,
         expected_confirmation_request_id=request_id,
     )
 
@@ -536,14 +531,13 @@ def test_caller_cannot_inject_replacement_token_hash(tmp_path: Path) -> None:
     assert store.persist_grant(_grant()).outcome == "SUCCESS"
     before = state_path.read_bytes()
 
-    assert "confirmation_token_hash" not in inspect.signature(validate_and_consume).parameters
+    assert "confirmation_token_hash" not in inspect.signature(store.validate_and_consume).parameters
     with pytest.raises(TypeError):
-        validate_and_consume(
+        store.validate_and_consume(
             TOKEN,
             CONFIG_HASH,
             DATA_PLAN_HASH,
             ASSUMPTIONS_HASH,
-            store,
             confirmation_token_hash="f" * 64,  # type: ignore[call-arg]
         )
     assert state_path.read_bytes() == before

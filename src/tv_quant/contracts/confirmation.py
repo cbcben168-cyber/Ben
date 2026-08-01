@@ -223,8 +223,8 @@ class ConfirmationRequest:
 
 
 @dataclass(frozen=True, slots=True)
-class ConfirmationGrant:
-    """Serializable single-use grant state containing only the token hash."""
+class _StoredConfirmationGrant:
+    """Private serializable state containing only a token hash."""
 
     confirmation_request_id: str
     confirmation_token_hash: str
@@ -255,6 +255,34 @@ class ConfirmationGrant:
 
 
 @dataclass(frozen=True, slots=True)
+class ConfirmationGrant:
+    """Transient one-time grant handed to the runner; never serialized by the store."""
+
+    confirmation_request_id: str
+    confirmation_token: str = field(repr=False)
+    bound_config_hash: str
+    bound_data_plan_hash: str
+    bound_assumptions_hash: str
+    issued_at: str
+    expires_at: str
+    single_use: bool
+    consumed_at: str | None
+
+    def __post_init__(self) -> None:
+        _stable_identifier(self.confirmation_request_id, "confirmation_request_id")
+        _string(self.confirmation_token, "confirmation_token")
+        _sha256(self.bound_config_hash, "bound_config_hash")
+        _sha256(self.bound_data_plan_hash, "bound_data_plan_hash")
+        _sha256(self.bound_assumptions_hash, "bound_assumptions_hash")
+        issued = _utc_datetime(self.issued_at, "issued_at")
+        expires = _utc_datetime(self.expires_at, "expires_at")
+        if expires <= issued:
+            raise ValueError("expires_at: must be after issued_at")
+        if self.single_use is not True or self.consumed_at is not None:
+            raise ValueError("new ConfirmationGrant must be unconsumed and single-use")
+
+
+@dataclass(frozen=True, slots=True)
 class ConfirmationAuditRecord:
     """Minimal caller-visible confirmation decision with no token or digest data."""
 
@@ -278,10 +306,38 @@ class ConfirmationAuditRecord:
             _utc_datetime(self.consumed_at, "consumed_at")
 
 
+@dataclass(frozen=True, slots=True)
+class AuthorizedExecutionContext:
+    """Concrete hash-bound authority created only by successful atomic consumption."""
+
+    confirmation_request_id: str
+    bound_config_hash: str
+    bound_data_plan_hash: str
+    bound_assumptions_hash: str
+    authorized_at: str
+    consumed_at: str
+
+    def __post_init__(self) -> None:
+        _stable_identifier(self.confirmation_request_id, "confirmation_request_id")
+        _sha256(self.bound_config_hash, "bound_config_hash")
+        _sha256(self.bound_data_plan_hash, "bound_data_plan_hash")
+        _sha256(self.bound_assumptions_hash, "bound_assumptions_hash")
+        _utc_datetime(self.authorized_at, "authorized_at")
+        _utc_datetime(self.consumed_at, "consumed_at")
+
+    @property
+    def outcome(self) -> str:
+        return "SUCCESS"
+
+    @property
+    def blocker_code(self) -> None:
+        return None
+
+
 class ConfirmationStore(Protocol):
     """Minimal persistence boundary for issued grants and atomic consumption."""
 
-    def persist_grant(self, grant: ConfirmationGrant) -> ConfirmationAuditRecord:
+    def persist_grant(self, grant: _StoredConfirmationGrant) -> ConfirmationAuditRecord:
         """Persist a newly issued grant without replacing official state."""
         ...
 
@@ -413,12 +469,12 @@ class FileConfirmationStore:
         self._lock_backend = _lock_backend or _platform_lock_backend()
         self._thread_lock = threading.Lock()
 
-    def persist_grant(self, grant: ConfirmationGrant) -> ConfirmationAuditRecord:
+    def persist_grant(self, grant: _StoredConfirmationGrant) -> ConfirmationAuditRecord:
         evaluated_at = self._now()
         request_id = (
-            grant.confirmation_request_id if type(grant) is ConfirmationGrant else None
+            grant.confirmation_request_id if type(grant) is _StoredConfirmationGrant else None
         )
-        if type(grant) is not ConfirmationGrant or grant.consumed_at is not None:
+        if type(grant) is not _StoredConfirmationGrant or grant.consumed_at is not None:
             return self._blocked(
                 BlockerCode.CONFIRMATION_INVALID,
                 evaluated_at,
@@ -503,7 +559,7 @@ class FileConfirmationStore:
                         evaluated_at,
                         request_id=request_id,
                     )
-                grant = ConfirmationGrant(**grant_payload)
+                grant = _StoredConfirmationGrant(**grant_payload)
 
                 now = _utc_datetime(evaluated_at, "evaluated_at")
                 expires = _utc_datetime(grant.expires_at, "grant.expires_at")
@@ -652,7 +708,7 @@ class FileConfirmationStore:
             raise _InvalidState from exc
         return grant_payload
 
-    def _state_payload(self, grant: ConfirmationGrant) -> dict[str, object]:
+    def _state_payload(self, grant: _StoredConfirmationGrant) -> dict[str, object]:
         return {
             "schema_version": _CONFIRMATION_STATE_SCHEMA,
             "state_version": _CONFIRMATION_STATE_VERSION,
@@ -718,15 +774,12 @@ class FileConfirmationStore:
         )
 
 
-@dataclass(frozen=True, slots=True)
-class _ConfirmationHandoff:
-    grant: ConfirmationGrant
-    confirmation_token: str = field(repr=False)
+class ConfirmationPersistenceError(ValueError):
+    """Expose the redacted persistence blocker without returning an unusable token."""
 
-    def __post_init__(self) -> None:
-        if type(self.grant) is not ConfirmationGrant:
-            raise ValueError("ConfirmationGrant required")
-        _string(self.confirmation_token, "confirmation_token")
+    def __init__(self, audit: ConfirmationAuditRecord) -> None:
+        self.audit = audit
+        super().__init__(audit.blocker_code.value if audit.blocker_code else "confirmation persistence failed")
 
 
 def _dataset_summary(requirement: DatasetRequirement) -> Mapping[str, object]:
@@ -833,8 +886,9 @@ def create_confirmation_request(
 def issue_confirmation_grant(
     request: ConfirmationRequest,
     approval: ApprovalRecord,
+    store: ConfirmationStore,
     issued_at: str,
-) -> _ConfirmationHandoff:
+) -> ConfirmationGrant:
     """Issue hash-only grant state plus one private, successful plaintext handoff."""
     if type(request) is not ConfirmationRequest:
         raise ValueError("ConfirmationRequest required")
@@ -857,7 +911,7 @@ def issue_confirmation_grant(
         raise ValueError("issued_at must be before request expiry")
 
     token = secrets.token_urlsafe(32)
-    grant = ConfirmationGrant(
+    stored = _StoredConfirmationGrant(
         confirmation_request_id=request.confirmation_request_id,
         confirmation_token_hash=sha256_bytes(token.encode("utf-8")),
         bound_config_hash=request.normalized_config_hash,
@@ -868,40 +922,81 @@ def issue_confirmation_grant(
         single_use=True,
         consumed_at=None,
     )
-    return _ConfirmationHandoff(grant=grant, confirmation_token=token)
+    persisted = store.persist_grant(stored)
+    if persisted.outcome != "SUCCESS":
+        raise ConfirmationPersistenceError(persisted)
+    return ConfirmationGrant(
+        confirmation_request_id=request.confirmation_request_id,
+        confirmation_token=token,
+        bound_config_hash=request.normalized_config_hash,
+        bound_data_plan_hash=request.data_plan_hash,
+        bound_assumptions_hash=request.assumptions_hash,
+        issued_at=issued_at,
+        expires_at=request.expires_at,
+        single_use=True,
+        consumed_at=None,
+    )
 
 
 def validate_and_consume(
-    confirmation_token: str,
-    expected_config_hash: str,
-    expected_data_plan_hash: str,
-    expected_assumptions_hash: str,
+    grant_token: str,
+    request: ConfirmationRequest,
+    ir: NormalizedStrategyIR,
+    data_plan: DataPlan,
+    assumptions: ExecutionAssumptions,
     store: ConfirmationStore,
-    *,
-    expected_confirmation_request_id: str | None = None,
-) -> ConfirmationAuditRecord:
-    """Delegate one-time validation and consumption to the configured store."""
-    if expected_confirmation_request_id is None:
-        return store.validate_and_consume(
-            confirmation_token,
-            expected_config_hash,
-            expected_data_plan_hash,
-            expected_assumptions_hash,
-        )
-    return store.validate_and_consume(
-        confirmation_token,
-        expected_config_hash,
-        expected_data_plan_hash,
-        expected_assumptions_hash,
-        expected_confirmation_request_id=expected_confirmation_request_id,
+    now: str,
+) -> AuthorizedExecutionContext | ConfirmationAuditRecord:
+    """Validate the frozen contracts and atomically consume one bound token."""
+    if type(request) is not ConfirmationRequest:
+        raise ValueError("ConfirmationRequest required")
+    if type(ir) is not NormalizedStrategyIR:
+        raise ValueError("NormalizedStrategyIR required")
+    if type(data_plan) is not DataPlan:
+        raise ValueError("DataPlan required")
+    if type(assumptions) is not ExecutionAssumptions:
+        raise ValueError("ExecutionAssumptions required")
+    _utc_datetime(now, "now")
+    _validate_contract_binding(ir, data_plan, assumptions)
+    expected_request = create_confirmation_request(
+        ir,
+        data_plan,
+        assumptions,
+        request.generated_at,
+        request.expires_at,
+    )
+    if request != expected_request:
+        raise ValueError("confirmation request does not match frozen contracts")
+    config_digest = normalized_config_hash(ir)
+    plan_digest = compute_data_plan_hash(data_plan)
+    assumption_digest = assumptions_hash(assumptions)
+    audit = store.validate_and_consume(
+        grant_token,
+        config_digest,
+        plan_digest,
+        assumption_digest,
+        expected_confirmation_request_id=request.confirmation_request_id,
+    )
+    if audit.outcome != "SUCCESS":
+        return audit
+    consumed_at = audit.consumed_at or audit.evaluated_at
+    return AuthorizedExecutionContext(
+        confirmation_request_id=request.confirmation_request_id,
+        bound_config_hash=config_digest,
+        bound_data_plan_hash=plan_digest,
+        bound_assumptions_hash=assumption_digest,
+        authorized_at=now,
+        consumed_at=consumed_at,
     )
 
 
 __all__ = (
     "ApprovalRecord",
+    "AuthorizedExecutionContext",
     "ConfirmationAuditRecord",
     "ConfirmationGrant",
     "ConfirmationRequest",
+    "ConfirmationPersistenceError",
     "ConfirmationStore",
     "FileConfirmationStore",
     "create_confirmation_request",

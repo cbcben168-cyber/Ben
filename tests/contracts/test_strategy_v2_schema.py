@@ -82,8 +82,8 @@ def test_valid_minimal_v2_config_loads(tmp_path):
     """A complete explicit V2 mapping loads without network or Phase 1 parsing."""
     spec = load_strategy_spec_v2(_write_payload(tmp_path, _minimal_v2_mapping()))
 
-    assert spec.payload["symbol"] == "AAPL"
-    assert spec.payload["filters"] == ()
+    assert spec.symbol == "AAPL"
+    assert spec.filters == ()
 
 
 def test_schema_id_and_version_are_quant_strategy_v2_v21():
@@ -116,7 +116,7 @@ def test_symbol_schema_accepts_valid_us_equity_symbol_without_spy_qqq_cap():
     payload = _minimal_v2_mapping()
     payload["symbol"] = "MSFT"
 
-    assert validate_strategy_mapping_v2(payload).payload["symbol"] == "MSFT"
+    assert validate_strategy_mapping_v2(payload).symbol == "MSFT"
 
 
 def test_initial_capital_must_equal_100000_usd():
@@ -163,7 +163,7 @@ def test_invalid_enum_and_unknown_field_are_rejected():
 def test_disabled_stop_target_and_empty_filters_must_be_present():
     """Disabled states are input, not omitted or extensible implicit defaults."""
     valid = _minimal_v2_mapping()
-    assert validate_strategy_mapping_v2(valid).payload["filters"] == ()
+    assert validate_strategy_mapping_v2(valid).filters == ()
 
     extra_disabled_field = _minimal_v2_mapping()
     extra_disabled_field["stop"] = {"enabled": False, "rule": "atr"}
@@ -235,6 +235,62 @@ def test_constant_nodes_require_task2_numeric_values(value):
 
     with pytest.raises(ValueError, match=r"entry\.right\.value"):
         validate_strategy_mapping_v2(payload)
+
+
+@pytest.mark.parametrize("fraction", ["0", "-0.01", "1.01", 0, 2])
+def test_fixed_fraction_is_strictly_greater_than_zero_and_at_most_one(fraction):
+    """Zero, negative, or leveraged fractions violate the frozen sizing policy."""
+    payload = _minimal_v2_mapping()
+    payload["position_sizing"] = {"type": "fixed_fraction", "fraction": fraction}
+
+    with pytest.raises(ValueError, match=r"position_sizing\.fraction"):
+        validate_strategy_mapping_v2(payload)
+
+
+@pytest.mark.parametrize(
+    ("value", "unit"),
+    [("007", "string"), (True, "boolean"), (False, "boolean")],
+)
+def test_constant_value_kind_is_selected_by_declared_unit(value, unit):
+    """String and boolean constants must not pass through numeric canonicalization."""
+    payload = _minimal_v2_mapping()
+    payload["entry"] = {
+        "node_type": "compare",
+        "operator": "eq",
+        "left": {"node_type": "constant", "value": value, "unit": unit},
+        "right": {"node_type": "constant", "value": value, "unit": unit},
+    }
+
+    spec = validate_strategy_mapping_v2(payload)
+
+    assert spec.entry["left"]["value"] is value
+
+
+def test_checked_schema_distinguishes_constant_kinds_and_bounds_fraction():
+    """External schema consumers must enforce the same constant and sizing semantics."""
+    schema = _schema()
+    constant = schema["$defs"]["constant"]
+    fraction = schema["$defs"]["position_sizing"]["oneOf"][1]["properties"]["fraction"]
+
+    assert constant["allOf"] == [
+        {
+            "if": {"properties": {"unit": {"const": "string"}}},
+            "then": {"properties": {"value": {"type": "string"}}},
+        },
+        {
+            "if": {"properties": {"unit": {"const": "boolean"}}},
+            "then": {"properties": {"value": {"type": "boolean"}}},
+        },
+        {
+            "if": {
+                "properties": {
+                    "unit": {"not": {"enum": ["string", "boolean"]}}
+                }
+            },
+            "then": {"properties": {"value": {"$ref": "#/$defs/decimal_value"}}},
+        },
+    ]
+    assert fraction == {"$ref": "#/$defs/positive_fraction"}
 
 
 def test_json_schema_uses_operative_ast_and_disabled_state_definitions():

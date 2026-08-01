@@ -1,4 +1,6 @@
 from collections.abc import Mapping
+import json
+from pathlib import Path
 
 import pytest
 
@@ -47,7 +49,13 @@ def test_python_contract_definitions_are_unique_source_of_truth():
     assert schema["properties"]["schema_version"]["enum"] == list(
         ENUMS["schema_version"]
     )
-    assert schema["$defs"] == snapshot["ast_node_definitions"]
+    assert schema["$defs"] == snapshot["schema_definitions"]
+    checked_in = json.loads(
+        (Path(__file__).parents[2] / "schemas" / "quant-strategy-v2.schema.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert checked_in == schema
 
     with pytest.raises(TypeError):
         ENUMS["schema_version"] = ("v2.2",)

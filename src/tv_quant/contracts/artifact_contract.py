@@ -87,6 +87,17 @@ ARTIFACT_OWNERS = (
 
 
 @dataclass(frozen=True, slots=True)
+class ArtifactContract:
+    """Concrete public ownership boundary over the existing Phase 1 owners."""
+
+    owners: tuple[ArtifactOwner, ...] = ARTIFACT_OWNERS
+
+    def __post_init__(self) -> None:
+        if tuple(self.owners) != ARTIFACT_OWNERS:
+            raise ValueError("owners: complete frozen Phase 1 owner ledger required")
+
+
+@dataclass(frozen=True, slots=True)
 class ProvisionalEvidence:
     run_id: str
     evidence_kind: str
@@ -199,6 +210,7 @@ def formal_eligibility(contract: FormalResultContract) -> bool:
 
 __all__ = (
     "ARTIFACT_OWNERS",
+    "ArtifactContract",
     "ArtifactOwner",
     "DependencyFingerprint",
     "FormalResultContract",

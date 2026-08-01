@@ -203,6 +203,36 @@ def _thaw(value: object) -> object:
     return value
 
 
+def _strategy_spec_payload(spec: StrategySpecV2) -> Mapping[str, object]:
+    """Reconstruct the frozen schema payload from the exact public fields."""
+    return MappingProxyType(
+        {
+            "schema_version": spec.schema_version,
+            "strategy_id": spec.strategy_id,
+            "strategy_family": spec.strategy_family,
+            "strategy_name": spec.strategy_name,
+            "symbol": spec.symbol,
+            "market": spec.market,
+            "timeframe": spec.timeframe,
+            "session": spec.session,
+            "backtest_range": spec.backtest_range,
+            "initial_capital": spec.initial_capital,
+            "entry": spec.entry,
+            "exit": spec.exit,
+            "filters": spec.filters,
+            "position_sizing": spec.position_sizing,
+            "stop": spec.stop,
+            "target": spec.target,
+            "fill_timing": spec.source_payload.get("fill_timing"),
+            "data": spec.data,
+            "benchmark": spec.benchmark,
+            "plugin": spec.plugin,
+            "optimization_allowed": spec.optimization_allowed,
+            "report_language": spec.report_language,
+        }
+    )
+
+
 def normalize_strategy_spec(
     spec: StrategySpecV2,
     *,
@@ -221,7 +251,7 @@ def normalize_strategy_spec(
             issues=(_issue("CONFIG_VALIDATION_BLOCKER", "source_config_hash", "non-empty string required"),),
         )
 
-    payload = spec.payload
+    payload = _strategy_spec_payload(spec)
     required_issue = _explicit_fields(payload)
     if required_issue is not None:
         return NormalizationResult(ir=None, issues=(required_issue,))
@@ -234,7 +264,7 @@ def normalize_strategy_spec(
             ir=None,
             issues=(_issue("CONFIG_VALIDATION_BLOCKER", path or "$", message or str(error)),),
         )
-    payload = validated_spec.payload
+    payload = _strategy_spec_payload(validated_spec)
 
     try:
         initial_capital = _normalized_mapping(

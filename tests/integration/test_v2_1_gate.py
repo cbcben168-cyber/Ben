@@ -34,6 +34,8 @@ from tv_quant.contracts.execution_assumptions import (
     assumptions_hash,
     build_execution_assumptions,
 )
+from tv_quant.contracts.normalized_ir import normalize_strategy_spec
+from tv_quant.contracts.strategy_v2 import validate_strategy_mapping_v2
 import tv_quant.contracts.status_codes as status_codes
 from tv_quant.run_manifest import canonical_hash, sha256_file
 
@@ -132,16 +134,48 @@ def _public_type(name: str) -> type:
     return value
 
 
+class _AcceptedAdapterRegistry:
+    def validate_strategy(self, _spec: object) -> tuple[object, ...]:
+        return ()
+
+
+def _adapter_contracts(adapted: Phase1ToV2AdapterResult):
+    spec = validate_strategy_mapping_v2(adapted.generated_v2_payload)
+    normalized = normalize_strategy_spec(
+        spec,
+        capability_registry=_AcceptedAdapterRegistry(),
+        source_config_hash=adapted.source_phase1_config_hash,
+    )
+    assert normalized.ir is not None
+    return spec, normalized.ir
+
+
+def _transient_grant(granted, persisted: Mapping[str, object]):
+    token = granted.confirmation_token
+    assert isinstance(token, str)
+    return _public_type("ConfirmationGrant")(
+        confirmation_request_id=persisted["confirmation_request_id"],
+        confirmation_token=token,
+        bound_config_hash=persisted["bound_config_hash"],
+        bound_data_plan_hash=persisted["bound_data_plan_hash"],
+        bound_assumptions_hash=persisted["bound_assumptions_hash"],
+        issued_at=persisted["issued_at"],
+        expires_at=persisted["expires_at"],
+        single_use=persisted["single_use"],
+        consumed_at=None,
+    )
+
+
 def _write_gate_configs(tmp_path: Path) -> tuple[Path, Path, Phase1ToV2AdapterResult]:
     config_root = tmp_path / "config"
     config_root.mkdir()
     phase1_path = config_root / "phase1.json"
     source = json.dumps(_phase1_payload(), sort_keys=True, indent=2) + "\n"
     phase1_path.write_text(source, encoding="utf-8")
-    result = adapt_phase1_to_v2(phase1_path, "phase1-to-v2/1")
+    result = adapt_phase1_to_v2(phase1_path, adapter_version="phase1-to-v2/1")
     v2_path = config_root / "strategy-v2.json"
     v2_path.write_text(
-        json.dumps(_plain(result.v2_payload), sort_keys=True),
+        json.dumps(_plain(result.generated_v2_payload), sort_keys=True),
         encoding="utf-8",
     )
     return phase1_path, v2_path, result
@@ -284,7 +318,8 @@ def test_end_to_end_validate_prepare_grant_execute_stops_before_engine(
     evidence_root = _evidence_root(tmp_path, monkeypatch)
     source_bytes = phase1_path.read_bytes()
 
-    assert adapted.v2_payload["data"]["legacy_costs"] == {
+    spec, adapted_ir = _adapter_contracts(adapted)
+    assert adapted.generated_v2_payload["data"]["legacy_costs"] == {
         "commission_bps": "5",
         "slippage_bps": "5",
     }
@@ -293,7 +328,7 @@ def test_end_to_end_validate_prepare_grant_execute_stops_before_engine(
     )
     prepared, request_path = _prepare(v2_path, evidence_root)
     plan = _load_data_plan(request_path.with_name("data-plan.json"))
-    assumptions = _build_assumptions(adapted.normalized_ir, plan)
+    assumptions = _build_assumptions(adapted_ir, plan)
     request_type = _public_type("ConfirmationRequest")
     confirmation = request_type(
         **json.loads(request_path.read_text(encoding="utf-8"))
@@ -302,7 +337,7 @@ def test_end_to_end_validate_prepare_grant_execute_stops_before_engine(
     state = json.loads(
         request_path.with_name("confirmation-state.json").read_text(encoding="utf-8")
     )
-    grant = _public_type("ConfirmationGrant")(**state["grant"])
+    grant = _transient_grant(granted, state["grant"])
     token = granted.confirmation_token
     assert isinstance(token, str)
     execute_request = _request(
@@ -317,8 +352,8 @@ def test_end_to_end_validate_prepare_grant_execute_stops_before_engine(
     evidence = _provisional_evidence(granted, grant, executed, assumptions)
 
     assert isinstance(adapted, Phase1ToV2AdapterResult)
-    assert isinstance(adapted.strategy_spec_v2, _public_type("StrategySpecV2"))
-    assert isinstance(adapted.normalized_ir, _public_type("NormalizedStrategyIR"))
+    assert isinstance(spec, _public_type("StrategySpecV2"))
+    assert isinstance(adapted_ir, _public_type("NormalizedStrategyIR"))
     assert isinstance(plan, _public_type("DataPlan"))
     assert isinstance(assumptions, _public_type("ExecutionAssumptions"))
     assert isinstance(confirmation, _public_type("ConfirmationRequest"))
@@ -329,9 +364,9 @@ def test_end_to_end_validate_prepare_grant_execute_stops_before_engine(
     )
     assert isinstance(evidence, _public_type("ProvisionalEvidence"))
     assert phase1_path.read_bytes() == source_bytes
-    assert adapted.source_bytes_unchanged is True
-    assert adapted.v2_payload["fill_timing"] == "next_bar_open"
-    assert adapted.normalized_ir.fill_timing == assumptions.fill_timing
+    assert adapted.original_file_unchanged is True
+    assert adapted.generated_v2_payload["fill_timing"] == "next_bar_open"
+    assert adapted_ir.fill_timing == assumptions.fill_timing
     assert confirmation.data_plan_hash == plan.data_plan_hash
     assert confirmation.assumptions_hash == assumptions_hash(assumptions)
     assert grant.bound_assumptions_hash == confirmation.assumptions_hash
@@ -877,7 +912,8 @@ def test_evidence_paths_are_contained_and_dependency_hash_is_complete(
     evidence_root = _evidence_root(tmp_path, monkeypatch)
     _prepared, request_path = _prepare(v2_path, evidence_root)
     plan = _load_data_plan(request_path.with_name("data-plan.json"))
-    assumptions = _build_assumptions(adapted.normalized_ir, plan)
+    _spec, adapted_ir = _adapter_contracts(adapted)
+    assumptions = _build_assumptions(adapted_ir, plan)
     confirmation = _public_type("ConfirmationRequest")(
         **json.loads(request_path.read_text(encoding="utf-8"))
     )
@@ -885,7 +921,7 @@ def test_evidence_paths_are_contained_and_dependency_hash_is_complete(
     grant_state = json.loads(
         request_path.with_name("confirmation-state.json").read_text(encoding="utf-8")
     )
-    grant = _public_type("ConfirmationGrant")(**grant_state["grant"])
+    grant = _transient_grant(granted, grant_state["grant"])
     executed = contracts.run_v2(
         _request(
             v2_path,

@@ -163,6 +163,71 @@ def _grant(config_path: Path, evidence_root: Path):
     return prepared, request_path, approval_path, granted
 
 
+def test_same_config_can_prepare_again_without_mutating_consumed_evidence(
+    config_path: Path,
+    evidence_root: Path,
+) -> None:
+    """A consumed run must remain immutable while a fresh request gets a new run root."""
+    runner = _runner()
+    first, first_request, _approval, granted = _grant(config_path, evidence_root)
+    executed = runner.run_v2(
+        _request(
+            config_path,
+            runner.RunnerMode.EXECUTE,
+            evidence_root,
+            confirmation_token=granted.confirmation_token,
+            confirmation_request_path=first_request,
+        )
+    )
+    assert executed.status == "NOT_IMPLEMENTED"
+    old_evidence = {
+        path.relative_to(evidence_root).as_posix(): path.read_bytes()
+        for path in (evidence_root / first.run_id).iterdir()
+        if path.is_file()
+    }
+
+    renewed, renewed_request = _prepare(config_path, evidence_root)
+
+    assert renewed.status == "SUCCESS"
+    assert renewed.run_id != first.run_id
+    assert renewed_request.is_file()
+    assert {
+        path.relative_to(evidence_root).as_posix(): path.read_bytes()
+        for path in (evidence_root / first.run_id).iterdir()
+        if path.is_file()
+    } == old_evidence
+
+
+def test_runner_reports_unavailable_auxiliary_data_capability(
+    tmp_path: Path,
+    evidence_root: Path,
+) -> None:
+    """An unavailable auxiliary dataset must reach the runner as a data blocker."""
+    runner = _runner()
+    payload = _strategy_mapping()
+    payload["data"] = {
+        **payload["data"],
+        "auxiliary": [
+            {
+                "dataset_role": "higher_timeframe",
+                "symbol": "SPY",
+                "timeframe": "60m",
+                "capability_id": "intraday.15m.30m.60m",
+                "capability_version": "v2.1",
+            }
+        ],
+    }
+    config = _write_config(tmp_path / "auxiliary-blocked.yaml", payload)
+
+    response = runner.run_v2(
+        _request(config, runner.RunnerMode.PREPARE_CONFIRMATION, evidence_root)
+    )
+
+    assert response.status == "BLOCKED"
+    assert response.blocker_code == "DATA_CAPABILITY_BLOCKER"
+    assert list(evidence_root.iterdir()) == []
+
+
 def test_validate_mode_returns_compact_success_json(
     config_path: Path,
     evidence_root: Path,

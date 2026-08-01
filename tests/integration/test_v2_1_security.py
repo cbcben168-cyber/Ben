@@ -364,10 +364,10 @@ def _plain(value: object) -> object:
 
 def _write_v2_config(tmp_path: Path) -> Path:
     phase1_path = _REPOSITORY_ROOT / "config" / "strategies" / "ema_baseline.yaml"
-    adapted = adapt_phase1_to_v2(phase1_path, "phase1-to-v2/1")
+    adapted = adapt_phase1_to_v2(phase1_path, adapter_version="phase1-to-v2/1")
     path = tmp_path / "strategy-v2.json"
     path.write_text(
-        json.dumps(_plain(adapted.v2_payload), sort_keys=True),
+        json.dumps(_plain(adapted.generated_v2_payload), sort_keys=True),
         encoding="utf-8",
     )
     return path

@@ -138,7 +138,9 @@ def _primary_requirement(ir: NormalizedStrategyIR) -> DatasetRequirement:
 
 
 def _auxiliary_requirements(
-    ir: NormalizedStrategyIR, primary: DatasetRequirement
+    ir: NormalizedStrategyIR,
+    primary: DatasetRequirement,
+    capability_registry: object,
 ) -> tuple[DatasetRequirement, ...]:
     auxiliary = ir.data.get("auxiliary", ())
     if auxiliary in (None, ()):
@@ -149,6 +151,31 @@ def _auxiliary_requirements(
     for index, raw in enumerate(auxiliary):
         item = _frozen_mapping(raw, f"ir.data.auxiliary[{index}]")
         role = _require_string(item.get("dataset_role"), f"ir.data.auxiliary[{index}].dataset_role")
+        capability_id = _require_string(
+            item.get("capability_id", f"auxiliary.{role}"),
+            f"ir.data.auxiliary[{index}].capability_id",
+        )
+        capability_version = _require_string(
+            item.get("capability_version", "v2.1"),
+            f"ir.data.auxiliary[{index}].capability_version",
+        )
+        lookup = getattr(capability_registry, "get", None)
+        if not callable(lookup):
+            raise ValueError("capability_registry.get required for auxiliary datasets")
+        record = lookup(capability_id, capability_version)
+        blocker = "FILTER_DATA_CAPABILITY_BLOCKER"
+        if record is not None:
+            record_blocker = getattr(record, "blocker_code", None)
+            if record_blocker is not None:
+                blocker = getattr(record_blocker, "value", record_blocker)
+            elif (
+                getattr(record, "implementation_availability", None) == "available"
+                and getattr(record, "formal_eligibility", None) == "eligible"
+            ):
+                blocker = "AVAILABLE"
+        capability_status = (
+            "AVAILABLE" if blocker == "AVAILABLE" else f"BLOCKED:{blocker}"
+        )
         requirements.append(
             DatasetRequirement(
                 dataset_role=role,
@@ -164,7 +191,10 @@ def _auxiliary_requirements(
                 adjustment_requirement=primary.adjustment_requirement,
                 corporate_action_requirement=primary.corporate_action_requirement,
                 cost_profile_requirement=primary.cost_profile_requirement,
-                capability_requirements=(f"auxiliary.{role}", "STRUCTURAL_ONLY"),
+                capability_requirements=(
+                    f"{capability_id}@{capability_version}",
+                    capability_status,
+                ),
             )
         )
     return tuple(requirements)
@@ -202,7 +232,7 @@ def build_data_plan(ir: NormalizedStrategyIR, capability_registry: object) -> Da
     plan = DataPlan(
         schema_version=ir.schema_version,
         primary=primary,
-        auxiliary=_auxiliary_requirements(ir, primary),
+        auxiliary=_auxiliary_requirements(ir, primary, capability_registry),
         requested_range=_frozen_mapping(ir.backtest_range, "ir.backtest_range"),
         data_plan_hash="",
     )

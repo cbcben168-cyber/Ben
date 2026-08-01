@@ -10,14 +10,15 @@ import pytest
 
 from tv_quant.contracts.normalized_ir import normalize_strategy_spec
 from tv_quant.contracts.strategy_v2 import validate_strategy_mapping_v2
+from tv_quant.contracts.capability_registry import load_capability_registry
 
 
 class _Registry:
     def validate_strategy(self, _spec: object) -> tuple[object, ...]:
         return ()
 
-    def __getattr__(self, _name: str) -> object:
-        raise AssertionError("DataPlan must not inspect a provider or registry implementation")
+    def get(self, _capability_id: str, _version: str) -> None:
+        return None
 
 
 def _payload() -> dict[str, object]:
@@ -109,7 +110,10 @@ def test_auxiliary_requirements_are_structural() -> None:
     assert len(plan.auxiliary) == 1
     assert plan.auxiliary[0].dataset_role == "vix"
     assert plan.auxiliary[0].symbol == "^VIX"
-    assert "STRUCTURAL_ONLY" in plan.auxiliary[0].capability_requirements
+    assert plan.auxiliary[0].capability_requirements == (
+        "auxiliary.vix@v2.1",
+        "BLOCKED:FILTER_DATA_CAPABILITY_BLOCKER",
+    )
 
 
 def test_provider_preference_and_range_change_hash() -> None:
@@ -194,3 +198,34 @@ def test_unimplemented_capability_does_not_call_provider(monkeypatch: pytest.Mon
     plan = build_data_plan(_ir(), _Registry())
 
     assert "STRUCTURAL_ONLY" in plan.primary.capability_requirements
+
+
+def test_auxiliary_capability_uses_honest_registry_status_without_discarding_requirement() -> None:
+    """An unavailable auxiliary capability must remain visible and never say available."""
+    from pathlib import Path
+
+    from tv_quant.contracts.data_plan import build_data_plan
+
+    payload = _payload()
+    payload["data"] = {
+        "source": "validated_local_cache_first",
+        "auxiliary": [
+            {
+                "dataset_role": "higher_timeframe",
+                "symbol": "AAPL",
+                "timeframe": "60m",
+                "capability_id": "intraday.15m.30m.60m",
+                "capability_version": "v2.1",
+            }
+        ],
+    }
+    registry_path = Path(__file__).parents[2] / "config" / "capability-registry-v2.1.json"
+    registry = load_capability_registry(registry_path)
+
+    plan = build_data_plan(_ir(payload), registry)
+
+    assert len(plan.auxiliary) == 1
+    assert plan.auxiliary[0].capability_requirements == (
+        "intraday.15m.30m.60m@v2.1",
+        "BLOCKED:DATA_CAPABILITY_BLOCKER",
+    )

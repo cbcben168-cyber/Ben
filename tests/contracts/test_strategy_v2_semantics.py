@@ -89,25 +89,24 @@ def test_semantic_dataclasses_reject_attribute_reassignment():
         issue.path = "market"  # type: ignore[misc]
 
 
-def test_semantic_payload_is_complete_immutable_copy_except_symbol_case():
-    """Only ticker case changes between immutable source and semantic payloads."""
+def test_semantic_fields_are_immutable_and_source_payload_is_preserved():
+    """Exact public fields are immutable while source input remains audit evidence."""
     payload = _minimal_v2_mapping()
     payload["symbol"] = "aapl"
 
     spec = validate_strategy_mapping_v2(payload)
 
-    assert set(spec.payload) == set(payload)
-    assert spec.payload == {**spec.source_payload, "symbol": "AAPL"}
+    assert spec.symbol == "AAPL"
     assert spec.source_payload["symbol"] == "aapl"
-    assert spec.payload["position_sizing"]["fraction"] == "0.2500"
-    assert isinstance(spec.payload["position_sizing"]["fraction"], str)
+    assert spec.position_sizing["fraction"] == "0.2500"
+    assert isinstance(spec.position_sizing["fraction"], str)
 
     payload["data"]["source"] = "mutated-after-validation"  # type: ignore[index]
     payload["position_sizing"]["fraction"] = "0.5000"  # type: ignore[index]
-    assert spec.payload["data"]["source"] == "validated_local_cache_first"
-    assert spec.payload["position_sizing"]["fraction"] == "0.2500"
+    assert spec.data["source"] == "validated_local_cache_first"
+    assert spec.position_sizing["fraction"] == "0.2500"
     with pytest.raises(TypeError):
-        spec.payload["position_sizing"]["fraction"] = "0.5000"
+        spec.position_sizing["fraction"] = "0.5000"
 
 
 def test_semantic_model_validates_iso_range():
@@ -127,7 +126,6 @@ def test_semantic_model_normalizes_symbol_case_only():
     spec = validate_strategy_mapping_v2(payload)
 
     assert spec.symbol == "AAPL"
-    assert spec.payload["symbol"] == "AAPL"
     assert spec.source_payload["symbol"] == "aapl"
 
 

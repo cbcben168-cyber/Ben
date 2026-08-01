@@ -12,8 +12,8 @@ from tv_quant.adapters.phase1_config_adapter import (
     Phase1ToV2AdapterResult,
     adapt_phase1_to_v2,
 )
-from tv_quant.contracts.normalized_ir import NormalizedStrategyIR
-from tv_quant.contracts.strategy_v2 import StrategySpecV2
+from tv_quant.contracts.normalized_ir import NormalizedStrategyIR, normalize_strategy_spec
+from tv_quant.contracts.strategy_v2 import StrategySpecV2, validate_strategy_mapping_v2
 from tv_quant.run_manifest import canonical_hash
 
 
@@ -59,16 +59,27 @@ def _jsonable(value: object) -> object:
     return value
 
 
+class _AcceptedRegistry:
+    def validate_strategy(self, _spec: StrategySpecV2) -> tuple[object, ...]:
+        return ()
+
+
 def test_phase1_config_flows_to_v2_spec_then_ir(tmp_path: Path) -> None:
     """Removing the V2 validation or normalization step must break the adapter result."""
-    result = adapt_phase1_to_v2(_write_phase1_config(tmp_path), "phase1-to-v2/1")
+    result = adapt_phase1_to_v2(_write_phase1_config(tmp_path), adapter_version="phase1-to-v2/1")
 
     assert isinstance(result, Phase1ToV2AdapterResult)
-    assert isinstance(result.strategy_spec_v2, StrategySpecV2)
-    assert isinstance(result.normalized_ir, NormalizedStrategyIR)
-    assert result.normalized_ir.symbol == "SPY"
-    assert result.normalized_ir.entry.node_type == "cross_above"
-    assert result.normalized_ir.exit.node_type == "cross_below"
+    spec = validate_strategy_mapping_v2(result.generated_v2_payload)
+    normalized = normalize_strategy_spec(
+        spec,
+        capability_registry=_AcceptedRegistry(),
+        source_config_hash=result.source_phase1_config_hash,
+    )
+    assert isinstance(spec, StrategySpecV2)
+    assert isinstance(normalized.ir, NormalizedStrategyIR)
+    assert normalized.ir.symbol == "SPY"
+    assert normalized.ir.entry.node_type == "cross_above"
+    assert normalized.ir.exit.node_type == "cross_below"
 
 
 def test_phase1_to_v2_result_preserves_source_and_generated_hashes(tmp_path: Path) -> None:
@@ -76,40 +87,45 @@ def test_phase1_to_v2_result_preserves_source_and_generated_hashes(tmp_path: Pat
     path = _write_phase1_config(tmp_path)
     source_bytes = path.read_bytes()
 
-    result = adapt_phase1_to_v2(path, "phase1-to-v2/1")
+    result = adapt_phase1_to_v2(path, adapter_version="phase1-to-v2/1")
 
-    assert result.source_hash == hashlib.sha256(source_bytes).hexdigest()
-    assert result.generated_v2_hash == canonical_hash(_jsonable(result.v2_payload))
-    assert result.source_hash_after == result.source_hash
+    assert result.source_phase1_config_hash == hashlib.sha256(source_bytes).hexdigest()
+    assert result.generated_v2_config_hash == canonical_hash(
+        _jsonable(result.generated_v2_payload)
+    )
+    assert result.original_file_hash_after == result.original_file_hash_before
 
 
 def test_adapter_records_version_warnings_unsupported_fields_and_unchanged_evidence(
     tmp_path: Path,
 ) -> None:
     """Omitting compatibility evidence would hide Phase 1 fields with no V2 equivalent."""
-    result = adapt_phase1_to_v2(_write_phase1_config(tmp_path), "phase1-to-v2/1.2.3")
+    result = adapt_phase1_to_v2(_write_phase1_config(tmp_path), adapter_version="phase1-to-v2/1.2.3")
 
     assert result.adapter_version == "phase1-to-v2/1.2.3"
     assert result.unsupported_fields == ("in_sample_period", "out_of_sample_period")
-    assert result.warnings
-    assert result.source_bytes_unchanged is True
+    assert result.conversion_warnings
+    assert result.original_file_unchanged is True
 
 
 def test_adapter_emits_explicit_filters_stop_target_fill_and_session(tmp_path: Path) -> None:
     """Dropping explicit V2 controls would permit dangerous implicit execution semantics."""
-    result = adapt_phase1_to_v2(_write_phase1_config(tmp_path), "phase1-to-v2/1")
+    result = adapt_phase1_to_v2(_write_phase1_config(tmp_path), adapter_version="phase1-to-v2/1")
 
-    assert result.v2_payload["filters"] == ()
-    assert result.v2_payload["stop"] == {"enabled": False}
-    assert result.v2_payload["target"] == {"enabled": False}
-    assert result.v2_payload["fill_timing"] == "next_bar_open"
-    assert result.v2_payload["session"] == {
+    assert result.generated_v2_payload["filters"] == ()
+    assert result.generated_v2_payload["stop"] == {"enabled": False}
+    assert result.generated_v2_payload["target"] == {"enabled": False}
+    assert result.generated_v2_payload["fill_timing"] == "next_bar_open"
+    assert result.generated_v2_payload["session"] == {
         "timezone": "America/New_York",
         "regular_hours_only": True,
         "calendar_id": "XNYS",
     }
-    assert result.v2_payload["initial_capital"] == {"amount": 100000, "currency": "USD"}
-    assert result.v2_payload["position_sizing"] == {"type": "full_capital"}
+    assert result.generated_v2_payload["initial_capital"] == {
+        "amount": 100000,
+        "currency": "USD",
+    }
+    assert result.generated_v2_payload["position_sizing"] == {"type": "full_capital"}
 
 
 def test_adapter_preserves_distinct_accepted_legacy_cost_values(tmp_path: Path) -> None:
@@ -119,10 +135,10 @@ def test_adapter_preserves_distinct_accepted_legacy_cost_values(tmp_path: Path) 
             tmp_path,
             commission_model={"type": "basis_points", "value": 5.000000000000001},
         ),
-        "phase1-to-v2/1",
+        adapter_version="phase1-to-v2/1",
     )
 
-    assert result.v2_payload["data"]["legacy_costs"]["commission_bps"] == "5.000000000000001"
+    assert result.generated_v2_payload["data"]["legacy_costs"]["commission_bps"] == "5.000000000000001"
 
 
 @pytest.mark.parametrize(
@@ -139,7 +155,10 @@ def test_adapter_rejects_non_ema_or_non_spy_qqq_capability(
 ) -> None:
     """Collapsing Phase 1 blocker identities would hide the failed pipeline stage."""
     with pytest.raises(Phase1AdapterCapabilityBlocker) as raised:
-        adapt_phase1_to_v2(_write_phase1_config(tmp_path, **{field: value}), "phase1-to-v2/1")
+        adapt_phase1_to_v2(
+            _write_phase1_config(tmp_path, **{field: value}),
+            adapter_version="phase1-to-v2/1",
+        )
     assert raised.value.status.value == status
 
 
@@ -155,6 +174,6 @@ def test_original_phase1_file_bytes_remain_unchanged(tmp_path: Path) -> None:
     path = _write_phase1_config(tmp_path)
     original = path.read_bytes()
 
-    adapt_phase1_to_v2(path, "phase1-to-v2/1")
+    adapt_phase1_to_v2(path, adapter_version="phase1-to-v2/1")
 
     assert path.read_bytes() == original

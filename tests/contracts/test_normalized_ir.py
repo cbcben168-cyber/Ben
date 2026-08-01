@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
 from decimal import Decimal
 from types import MappingProxyType
 from typing import Any
@@ -100,39 +100,22 @@ def _result(spec: StrategySpecV2, registry: _FixedRegistry) -> NormalizationResu
     ("fill_timing", "optimization_allowed", "report_language", "session", "filters", "stop", "target"),
 )
 def test_missing_explicit_fields_never_become_normalization_defaults(
-    spec: StrategySpecV2, registry: _FixedRegistry, field: str
+    field: str,
 ) -> None:
-    payload = dict(spec.payload)
+    payload = _mapping()
     payload.pop(field)
-    incomplete = StrategySpecV2(
-        payload=MappingProxyType(payload),
-        source_payload=MappingProxyType(payload),
-        symbol=spec.symbol,
-    )
 
-    result = _result(incomplete, registry)
-
-    assert result.ir is None
-    assert result.issues[0].code == "CONFIG_VALIDATION_BLOCKER"
-    assert result.issues[0].path == field
+    with pytest.raises(ValueError, match=field):
+        validate_strategy_mapping_v2(payload)
 
 
 def test_normalization_requires_position_sizing(
-    spec: StrategySpecV2, registry: _FixedRegistry
 ) -> None:
-    payload = dict(spec.payload)
+    payload = _mapping()
     payload.pop("position_sizing")
-    incomplete = StrategySpecV2(
-        payload=MappingProxyType(payload),
-        source_payload=MappingProxyType(payload),
-        symbol=spec.symbol,
-    )
 
-    result = _result(incomplete, registry)
-
-    assert result.ir is None
-    assert result.issues[0].code == "POSITION_SIZING_INPUT_BLOCKER"
-    assert result.issues[0].path == "position_sizing"
+    with pytest.raises(ValueError, match="position_sizing"):
+        validate_strategy_mapping_v2(payload)
 
 
 def test_identical_semantics_produce_identical_ir_and_hash(registry: _FixedRegistry) -> None:
@@ -284,13 +267,13 @@ def test_registry_without_capability_validator_blocks_normalization(
 def test_directly_constructed_invalid_spec_is_not_coerced(
     spec: StrategySpecV2, registry: _FixedRegistry, field: str, value: object
 ) -> None:
-    payload = dict(spec.payload)
-    payload[field] = value
-    invalid = StrategySpecV2(
-        payload=MappingProxyType(payload),
-        source_payload=MappingProxyType(payload),
-        symbol=spec.symbol,
-    )
+    if field == "fill_timing":
+        invalid = replace(
+            spec,
+            source_payload=MappingProxyType({**spec.source_payload, field: value}),
+        )
+    else:
+        invalid = replace(spec, optimization_allowed=value)
 
     result = _result(invalid, registry)
 

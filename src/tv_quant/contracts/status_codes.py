@@ -1,6 +1,6 @@
 """Deterministic V2 pipeline-status and blocker-code metadata."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 from tv_quant.run_manifest import canonical_hash
@@ -119,6 +119,25 @@ STATUS_DEFINITIONS = (
     _blocked(BlockerCode.AST_COMPLEXITY_BLOCKER, "simplify strategy AST", "Stage 0"),
     _blocked(BlockerCode.NUMERIC_CANONICALIZATION_BLOCKER, "correct numeric values", "Stage 0"),
 )
+
+
+@dataclass(frozen=True, slots=True)
+class StatusCodeRegistry:
+    """Concrete immutable public registry for V2 status metadata."""
+
+    definitions: tuple[StatusDefinition, ...] = field(
+        default=STATUS_DEFINITIONS,
+    )
+
+    def __post_init__(self) -> None:
+        if tuple(self.definitions) != STATUS_DEFINITIONS:
+            raise ValueError("definitions: complete frozen status registry required")
+
+    def get(self, code: BlockerCode | str) -> StatusDefinition:
+        return status_definition(code)
+
+    def snapshot_hash(self) -> str:
+        return status_snapshot_hash()
 
 _STATUS_BY_CODE = {definition.code.value: definition for definition in STATUS_DEFINITIONS}
 

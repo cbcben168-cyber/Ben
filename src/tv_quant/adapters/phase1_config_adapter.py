@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
 
-from tv_quant.contracts.normalized_ir import NormalizedStrategyIR, normalize_strategy_spec
+from tv_quant.contracts.normalized_ir import normalize_strategy_spec
 from tv_quant.contracts.numeric import canonical_decimal
 from tv_quant.contracts.strategy_v2 import StrategySpecV2, validate_strategy_mapping_v2
 from tv_quant.pipeline_models import CapabilityStatus
@@ -19,19 +19,19 @@ _UNSUPPORTED_NULL_FIELDS = ("in_sample_period", "out_of_sample_period")
 
 @dataclass(frozen=True, slots=True)
 class Phase1ToV2AdapterResult:
-    """Immutable translation evidence and the validated V2/IR representations."""
+    """Frozen one-way translation and unchanged-source evidence."""
 
-    source_path: Path
-    source_hash: str
-    source_hash_after: str
+    generated_v2_payload: Mapping[str, object]
+    source_phase1_config_hash: str
     adapter_version: str
-    v2_payload: Mapping[str, object]
-    generated_v2_hash: str
-    strategy_spec_v2: StrategySpecV2
-    normalized_ir: NormalizedStrategyIR
-    warnings: tuple[str, ...]
+    generated_v2_config_hash: str
+    conversion_warnings: tuple[str, ...]
     unsupported_fields: tuple[str, ...]
-    source_bytes_unchanged: bool
+    original_file_hash_before: str
+    original_file_hash_after: str
+    original_file_unchanged: bool
+    source_schema_version: str
+    target_schema_version: str
 
 
 class Phase1AdapterCapabilityBlocker(ValueError):
@@ -119,6 +119,7 @@ def _v2_payload(spec) -> dict[str, object]:
 
 def adapt_phase1_to_v2(
     phase1_config_path: Path,
+    *,
     adapter_version: str,
 ) -> Phase1ToV2AdapterResult:
     """Translate one supported Phase 1 YAML configuration without modifying it."""
@@ -163,17 +164,17 @@ def adapt_phase1_to_v2(
         *(f"{field} is null and has no V2 representation." for field in unsupported_fields),
     )
     return Phase1ToV2AdapterResult(
-        source_path=source_path,
-        source_hash=source_hash,
-        source_hash_after=source_hash_after,
+        generated_v2_payload=v2_spec.source_payload,
+        source_phase1_config_hash=source_hash,
         adapter_version=adapter_version,
-        v2_payload=v2_spec.payload,
-        generated_v2_hash=canonical_hash(generated_payload),
-        strategy_spec_v2=v2_spec,
-        normalized_ir=normalized.ir,
-        warnings=warnings,
+        generated_v2_config_hash=canonical_hash(generated_payload),
+        conversion_warnings=warnings,
         unsupported_fields=unsupported_fields,
-        source_bytes_unchanged=source_bytes_unchanged,
+        original_file_hash_before=source_hash,
+        original_file_hash_after=source_hash_after,
+        original_file_unchanged=source_bytes_unchanged,
+        source_schema_version="phase1",
+        target_schema_version="v2.1",
     )
 
 

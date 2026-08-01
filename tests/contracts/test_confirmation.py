@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import FrozenInstanceError, asdict, replace
+from datetime import datetime
 import inspect
 import json
+from pathlib import Path
 
 import pytest
 
@@ -12,6 +14,7 @@ from tv_quant.contracts.confirmation import (
     ApprovalRecord,
     ConfirmationGrant,
     ConfirmationRequest,
+    FileConfirmationStore,
     create_confirmation_request,
     issue_confirmation_grant,
 )
@@ -22,7 +25,6 @@ from tv_quant.contracts.execution_assumptions import (
 )
 from tv_quant.contracts.normalized_ir import normalize_strategy_spec, normalized_config_hash
 from tv_quant.contracts.strategy_v2 import validate_strategy_mapping_v2
-from tv_quant.run_manifest import sha256_bytes
 
 
 GENERATED_AT = "2026-07-29T01:00:00+00:00"
@@ -113,6 +115,13 @@ def _approval(request: ConfirmationRequest) -> ApprovalRecord:
     )
 
 
+def _store(tmp_path: Path, name: str = "confirmation.json") -> FileConfirmationStore:
+    return FileConfirmationStore(
+        tmp_path / name,
+        _clock=lambda: datetime.fromisoformat(ISSUED_AT),
+    )
+
+
 def test_request_contains_three_binding_hashes_and_summaries() -> None:
     ir, plan, assumptions = _contracts()
     request = create_confirmation_request(ir, plan, assumptions, GENERATED_AT, EXPIRES_AT)
@@ -139,7 +148,9 @@ def test_request_binds_formal_execution_assumptions_hash() -> None:
         create_confirmation_request(ir, plan, {}, GENERATED_AT, EXPIRES_AT)  # type: ignore[arg-type]
 
 
-def test_grant_requires_typed_confirmed_execute(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_grant_requires_typed_confirmed_execute(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     request = _request()
     approval = _approval(request)
     monkeypatch.setattr(
@@ -147,18 +158,24 @@ def test_grant_requires_typed_confirmed_execute(monkeypatch: pytest.MonkeyPatch)
         lambda size: "typed-approval-token" if size == 32 else pytest.fail("wrong token size"),
     )
 
-    handoff = issue_confirmation_grant(request, approval, ISSUED_AT)
+    grant = issue_confirmation_grant(request, approval, _store(tmp_path), ISSUED_AT)
 
-    assert handoff.grant.confirmation_request_id == request.confirmation_request_id
-    assert handoff.confirmation_token == "typed-approval-token"
+    assert grant.confirmation_request_id == request.confirmation_request_id
+    assert grant.confirmation_token == "typed-approval-token"
     with pytest.raises(ValueError, match="CONFIRMED_EXECUTE"):
         replace(approval, decision="APPROVE")
     with pytest.raises(ValueError, match="ApprovalRecord required"):
-        issue_confirmation_grant(request, {"decision": "CONFIRMED_EXECUTE"}, ISSUED_AT)  # type: ignore[arg-type]
+        issue_confirmation_grant(  # type: ignore[arg-type]
+            request,
+            {"decision": "CONFIRMED_EXECUTE"},
+            _store(tmp_path, "invalid.json"),
+            ISSUED_AT,
+        )
 
 
 def test_token_is_random_and_state_has_only_token_hash(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     request = _request()
     approval = _approval(request)
@@ -170,26 +187,33 @@ def test_token_is_random_and_state_has_only_token_hash(
         return next(tokens)
 
     monkeypatch.setattr("tv_quant.contracts.confirmation.secrets.token_urlsafe", _token_urlsafe)
-    first = issue_confirmation_grant(request, approval, ISSUED_AT)
-    second = issue_confirmation_grant(request, approval, ISSUED_AT)
+    first_path = tmp_path / "first.json"
+    second_path = tmp_path / "second.json"
+    first = issue_confirmation_grant(request, approval, _store(tmp_path, first_path.name), ISSUED_AT)
+    second = issue_confirmation_grant(request, approval, _store(tmp_path, second_path.name), ISSUED_AT)
 
     assert sizes == [32, 32]
     assert first.confirmation_token != second.confirmation_token
-    assert first.grant.confirmation_token_hash == sha256_bytes(b"first-plaintext-token")
-    assert second.grant.confirmation_token_hash == sha256_bytes(b"second-plaintext-token")
-    assert "confirmation_token" not in asdict(first.grant)
-    assert "first-plaintext-token" not in json.dumps(asdict(first.grant), sort_keys=True)
+    first_state = json.loads(first_path.read_text(encoding="utf-8"))["grant"]
+    second_state = json.loads(second_path.read_text(encoding="utf-8"))["grant"]
+    assert "confirmation_token_hash" in first_state
+    assert "confirmation_token_hash" in second_state
+    assert "confirmation_token" not in first_state
+    assert "first-plaintext-token" not in first_path.read_text(encoding="utf-8")
     assert "first-plaintext-token" not in repr(first)
     assert "token" not in inspect.signature(issue_confirmation_grant).parameters
 
 
-def test_expiry_and_single_use_fields_are_frozen(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_expiry_and_single_use_fields_are_frozen(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     request = _request()
     monkeypatch.setattr(
         "tv_quant.contracts.confirmation.secrets.token_urlsafe", lambda _size: "one-time-token"
     )
-    handoff = issue_confirmation_grant(request, _approval(request), ISSUED_AT)
-    grant = handoff.grant
+    grant = issue_confirmation_grant(
+        request, _approval(request), _store(tmp_path), ISSUED_AT
+    )
 
     assert request.generated_at == GENERATED_AT
     assert request.expires_at == EXPIRES_AT
@@ -205,7 +229,9 @@ def test_expiry_and_single_use_fields_are_frozen(monkeypatch: pytest.MonkeyPatch
         request.config_summary["symbol"] = "QQQ"  # type: ignore[index]
 
 
-def test_chat_text_is_not_accepted_as_approval(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_chat_text_is_not_accepted_as_approval(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     request = _request()
     monkeypatch.setattr(
         "tv_quant.contracts.confirmation.secrets.token_urlsafe",
@@ -214,7 +240,9 @@ def test_chat_text_is_not_accepted_as_approval(monkeypatch: pytest.MonkeyPatch) 
 
     for chat_text in ("approved", "CONFIRMED_EXECUTE", "批准"):
         with pytest.raises(ValueError, match="ApprovalRecord required"):
-            issue_confirmation_grant(request, chat_text, ISSUED_AT)  # type: ignore[arg-type]
+            issue_confirmation_grant(  # type: ignore[arg-type]
+                request, chat_text, _store(tmp_path, f"invalid-{len(chat_text)}.json"), ISSUED_AT
+            )
 
 
 @pytest.mark.parametrize(
@@ -234,6 +262,7 @@ def test_request_rejects_invalid_utc_or_expiry_order(
 
 def test_grant_rejects_wrong_request_expired_issue_and_untyped_request(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     request = _request()
     approval = _approval(request)
@@ -246,14 +275,18 @@ def test_grant_rejects_wrong_request_expired_issue_and_untyped_request(
         issue_confirmation_grant(
             request,
             replace(approval, confirmation_request_id="different-request"),
+            _store(tmp_path, "wrong-request.json"),
             ISSUED_AT,
         )
     with pytest.raises(ValueError, match="before request expiry"):
-        issue_confirmation_grant(request, approval, EXPIRES_AT)
+        issue_confirmation_grant(
+            request, approval, _store(tmp_path, "expired.json"), EXPIRES_AT
+        )
     with pytest.raises(ValueError, match="ConfirmationRequest required"):
         issue_confirmation_grant(  # type: ignore[arg-type]
             {"confirmation_request_id": request.confirmation_request_id},
             approval,
+            _store(tmp_path, "untyped.json"),
             ISSUED_AT,
         )
 
@@ -283,7 +316,7 @@ def test_public_contracts_are_frozen_slotted_and_grant_state_is_serializable() -
     approval = _approval(request)
     grant = ConfirmationGrant(
         confirmation_request_id=request.confirmation_request_id,
-        confirmation_token_hash="b" * 64,
+        confirmation_token="plaintext-token",
         bound_config_hash=request.normalized_config_hash,
         bound_data_plan_hash=request.data_plan_hash,
         bound_assumptions_hash=request.assumptions_hash,
@@ -296,7 +329,8 @@ def test_public_contracts_are_frozen_slotted_and_grant_state_is_serializable() -
     assert not hasattr(request, "__dict__")
     assert not hasattr(approval, "__dict__")
     assert not hasattr(grant, "__dict__")
-    assert json.loads(json.dumps(asdict(grant)))["confirmation_token_hash"] == "b" * 64
+    assert json.loads(json.dumps(asdict(grant)))["confirmation_token"] == "plaintext-token"
+    assert "plaintext-token" not in repr(grant)
 
 
 def test_callable_string_subclasses_are_rejected_from_frozen_fields() -> None:
@@ -345,6 +379,7 @@ def test_request_rejects_data_plan_cost_profile_mismatch() -> None:
 def test_grant_rejects_tampered_typed_request_before_token_generation(
     field: str,
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     """Changing any approval-visible request field must invalidate its approved ID."""
     request = _request()
@@ -374,4 +409,9 @@ def test_grant_rejects_tampered_typed_request_before_token_generation(
     )
 
     with pytest.raises(ValueError, match="request integrity"):
-        issue_confirmation_grant(tampered, approval, ISSUED_AT)
+        issue_confirmation_grant(
+            tampered,
+            approval,
+            _store(tmp_path, f"tampered-{field}.json"),
+            ISSUED_AT,
+        )

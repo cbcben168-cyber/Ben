@@ -42,8 +42,36 @@ slots=True)`、`enum.Enum`、`pathlib.Path`、`zoneinfo.ZoneInfo`、pandas
   `BLOCKED`、`INCOMPLETE`、`NOT_IMPLEMENTED` 只属于 operation/import/report。
 - `YFINANCE_SMOKE` 只接受本地物化文件，只能产生 `SMOKE_ONLY`，永远不能
   被 formal query 选中。
+- CSV/Parquet parser 保留原始输入顺序和重复行；validation 前禁止排序、去重
+  或静默修复，canonical stable sort 只发生在 VALID 结果之后。
+- market data、calendar snapshot、全部 gap/action evidence 必须先 containment
+  check，再原子复制到 `raw/<import_id>/inputs/`；复制后所有消费者只读 preserved
+  refs/hashes，禁止回读原始用户路径。
+- `validate_daily_dataset` 同时返回 report 与可选 validated candidate；后续
+  adjustment、identity、canonicalization 只能消费 validated candidate。
+- canonical reuse 只由 logical descriptor 决定；新发布严格遵守 components
+  → file hashes → provenance → complete manifest → verify → atomic publish。
+- 每个 registry snapshot 对 `(dataset_id, manifest_hash)` 最多一个 current
+  binding；re-import 合并 provenance 并替换 current eligibility pointer。
+- 首版复权只实现 `split-only-v1` 与 `NO_ACTIONS_IN_RANGE` identity factor；
+  `CASH_DIVIDEND` 必须返回 NOT_IMPLEMENTED + DATA_CAPABILITY_BLOCKER。
+- invalidation event、INVALIDATED eligibility、registry snapshot 必须作为一个
+  transaction directory 发布，active snapshot pointer 最后原子替换。
 - V2.1 的 19 个冻结公共接口、next-bar、成本、Buy and Hold、确认门禁和
   517-test baseline 不得退化。
+
+## Independent Review Closure Map
+
+| Review item | Frozen closure | Tasks | Primary acceptance nodes |
+|---|---|---:|---|
+| BLOCKER 1 — parser repair before validation | parser preserves source order/duplicates; validation blocks out-of-order input; stable sort follows VALID only | 4, 8, 16 | `test_parsers_preserve_out_of_order_source_sequence`, `test_out_of_order_input_remains_blocked`, lifecycle equivalence test |
+| BLOCKER 2 — original input and evidence TOCTOU | `PreservedImportInputs` atomically contains and hashes market, calendar, gap and action inputs; all consumers read preserved refs only | 10, 14, 15 | preservation-package, mutation-during-copy, preserved-parser-path and post-preservation-mutation tests |
+| BLOCKER 3 — validation output not propagated | `DailyDatasetValidationResult` returns the only allowed `ValidatedDatasetCandidate`; identical duplicates are removed there and never read again from normalized rows | 8, 15 | validated-candidate, duplicate canonical-row and downstream-input tests |
+| BLOCKER 4 — cyclic/incomplete publication | descriptor-only reuse decision; components → file hashes → provenance → complete manifest → verify → atomic publish; reuse performs no canonical write | 9, 10, 12, 15 | publication-order, complete-manifest and reuse-no-write tests |
+| BLOCKER 5 — parallel current registry binding | each snapshot upserts one binding per `(dataset_id, manifest_hash)`; re-import merges provenances and replaces eligibility pointer | 11, 12, 13, 16 | exact-pair uniqueness, two-provenance re-import and invalidation lifecycle tests |
+| BLOCKER 6 — undefined dividend adjustment | only `split-only-v1`, SPLIT and the no-actions identity factor are implemented; cash dividends are typed NOT_IMPLEMENTED blockers | 7, 8, 15 | cash-dividend coverage, validation and no-output importer tests |
+| IMPORTANT 1 — hash/signature ambiguity | the only bundle helper is `component_logical_hashes`; publisher return is `PublishedCanonicalBundle`; inconsistent same-ID claims are `IDENTITY_CLAIM_MISMATCH` | 3, 9, 10, 12 | helper ownership, exact claim mismatch and frozen signature tests |
+| IMPORTANT 2 — invalidation transaction semantics | event, INVALIDATED eligibility and snapshot publish as one verified directory; active pointer is last; complete inactive orphans remain inactive | 13, 16 | no-partial-active-visibility, replay, current eligibility replacement and lifecycle tests |
 
 ---
 
@@ -55,7 +83,7 @@ slots=True)`、`enum.Enum`、`pathlib.Path`、`zoneinfo.ZoneInfo`、pandas
 | Bytes/file SHA-256 | `sha256_bytes(payload: bytes) -> str` / `sha256_file(path: Path) -> str` | 不导入 `hashlib` 到 data-foundation modules |
 | Artifact hash binding | `bind_artifact_hashes(manifest, artifact_paths)` | 以 backward-compatible `hashed_names` 参数扩展数据组件绑定 |
 | Canonical numbers | `canonical_decimal(value, path) -> str` / `canonical_integer(value, path) -> int` | 所有价格、因子和 volume 通过现有 owner |
-| Path containment | `resolve_under_root(root, relative_path) -> Path` | 在 source read、raw publish、canonical publish、registry commit 前重复调用 |
+| Path containment | `resolve_under_root(root, relative_path) -> Path` | 在全输入 preflight、preserved read/package publish、canonical publish、registry commit 前重复调用 |
 | Artifact ownership | `ArtifactContract` / `ARTIFACT_OWNERS` | 追加 versioned data artifact entries；旧 entries 和接口不变 |
 | Typed status | `PipelineStatus` / `BlockerCode` / `StatusCodeRegistry` | 复用已有四个 data/config blocker，不创建平行状态 enum |
 | Capability registry | `CapabilityRegistry` + `config/capability-registry-v2.1.json` | 追加 `v2.2a` capability records；V2.1 records 不改义 |
@@ -219,6 +247,19 @@ class DataImportRuntimeContext:
     path_safety_policy_version: str
     clock: Callable[[], datetime]
     uuid_factory: Callable[[], UUID]
+
+@dataclass(frozen=True, slots=True)
+class PreservedImportInputs:
+    import_id: str
+    inputs_root_ref: RelativePath
+    market_data_ref: RelativePath
+    market_data_hash: Sha256Hex
+    calendar_snapshot_ref: RelativePath
+    calendar_snapshot_hash: Sha256Hex
+    gap_evidence_refs: tuple[RelativePath, ...]
+    gap_evidence_hashes: tuple[Sha256Hex, ...]
+    corporate_action_evidence_refs: tuple[RelativePath, ...]
+    corporate_action_evidence_hashes: tuple[Sha256Hex, ...]
 
 @dataclass(frozen=True, slots=True)
 class DailyBarRaw:
@@ -396,6 +437,21 @@ class NormalizedDatasetCandidate:
     calendar_ref: TradingCalendarRef
 
 @dataclass(frozen=True, slots=True)
+class ValidatedDatasetCandidate:
+    import_id: str
+    validated_raw_bars: tuple[DailyBarRaw, ...]
+    daily_gaps: tuple[DailyGapRecord, ...]
+    gap_evidence: GapEvidence
+    corporate_action_events: tuple[CorporateActionEvent, ...]
+    corporate_action_evidence: CorporateActionEvidence
+    calendar_ref: TradingCalendarRef
+
+@dataclass(frozen=True, slots=True)
+class DailyDatasetValidationResult:
+    report: DataValidationReport
+    validated_candidate: ValidatedDatasetCandidate | None
+
+@dataclass(frozen=True, slots=True)
 class LogicalDatasetBundle:
     raw_bars: tuple[DailyBarRaw, ...]
     daily_gaps: tuple[DailyGapRecord, ...]
@@ -441,7 +497,7 @@ def materialize_xnys_snapshot(
 def load_calendar_snapshot(path: Path) -> TradingCalendarRef: ...
 def validate_daily_dataset(
     candidate: NormalizedDatasetCandidate,
-) -> DataValidationReport: ...
+) -> DailyDatasetValidationResult: ...
 def derive_adjustment_factors(
     events: tuple[CorporateActionEvent, ...],
     evidence: CorporateActionEvidence,
@@ -504,13 +560,14 @@ class DataImportManifest:
     source_type: MarketDataSourceType
     source_name: str
     original_file_name: str
-    original_file_hash: Sha256Hex
+    original_file_hash: Sha256Hex | None
     import_timestamp_utc: UtcTimestamp
-    raw_artifact_ref: RelativePath
-    raw_artifact_hash: Sha256Hex
+    preserved_inputs: PreservedImportInputs | None
     parser_version: str
     schema_version: str
     stage_statuses: Mapping[str, ValidationOutcome]
+    validated_candidate_ref: RelativePath | None
+    validated_candidate_hash: Sha256Hex | None
     validation_report_ref: RelativePath | None
     validation_report_hash: Sha256Hex | None
     gap_evidence_refs: tuple[RelativePath, ...]
@@ -518,6 +575,23 @@ class DataImportManifest:
     candidate_dataset_id: Sha256Hex | None
     final_dataset_id: Sha256Hex | None
     blocker_codes: tuple[BlockerCode, ...]
+
+@dataclass(frozen=True, slots=True)
+class CanonicalDatasetDescriptor:
+    descriptor_schema_version: str
+    dataset_identity: DatasetIdentity
+    schema_hash: Sha256Hex
+    calendar_ref: TradingCalendarRef
+    timezone_policy_hash: Sha256Hex
+    stable_key_definition: tuple[str, ...]
+    source_range: tuple[IsoDate, IsoDate]
+    requested_range: tuple[IsoDate, IsoDate]
+    canonical_range: tuple[IsoDate, IsoDate]
+    row_count: int
+    gap_count: int
+    component_logical_hashes: Mapping[str, Sha256Hex]
+    gap_semantic_coverage_hash: Sha256Hex
+    corporate_action_semantic_coverage_hash: Sha256Hex
 
 @dataclass(frozen=True, slots=True)
 class CanonicalDatasetManifest:
@@ -544,6 +618,32 @@ class CanonicalDatasetManifest:
     validation_report_hash: Sha256Hex
     parquet_writer_profile: Mapping[str, object]
     parent_dataset_id: Sha256Hex | None
+
+@dataclass(frozen=True, slots=True)
+class PublishedCanonicalBundle:
+    manifest: CanonicalDatasetManifest
+    manifest_ref: RelativePath
+    manifest_hash: Sha256Hex
+    provenance: DatasetProvenance
+    provenance_ref: RelativePath
+    reused_existing: bool
+
+@dataclass(frozen=True, slots=True)
+class ProvenanceInputs:
+    request: DataImportRequest
+    preserved_inputs: PreservedImportInputs
+    import_timestamp_utc: UtcTimestamp
+    validation_report_ref: RelativePath
+    validation_report_hash: Sha256Hex
+    parent_dataset_id: Sha256Hex | None
+
+@dataclass(frozen=True, slots=True)
+class RegistrationDecision:
+    reuse_existing: bool
+    manifest_revision: int
+    existing_manifest: CanonicalDatasetManifest | None
+    existing_manifest_ref: RelativePath | None
+    existing_manifest_hash: Sha256Hex | None
 ~~~
 
 ~~~python
@@ -624,15 +724,29 @@ class ImportLocalDatasetResult:
 def publish_canonical_bundle(
     root: Path,
     bundle: LogicalDatasetBundle,
-    identity: DatasetIdentity,
-    provenance: DatasetProvenance,
+    descriptor: CanonicalDatasetDescriptor,
+    decision: RegistrationDecision,
+    provenance_inputs: ProvenanceInputs,
     report: DataValidationReport,
     writer_profile: Mapping[str, object],
-) -> CanonicalDatasetManifest: ...
+) -> PublishedCanonicalBundle: ...
+
+def build_canonical_descriptor(
+    bundle: LogicalDatasetBundle,
+    identity: DatasetIdentity,
+) -> CanonicalDatasetDescriptor: ...
 
 class MarketDataRegistry:
     @classmethod
     def load(cls, root: Path, snapshot_ref: RelativePath) -> MarketDataRegistry: ...
+    @property
+    def snapshot(self) -> RegistrySnapshot: ...
+    def binding_for(self, dataset_id: Sha256Hex) -> RegistryBinding | None: ...
+    def load_manifest(self, binding: RegistryBinding) -> CanonicalDatasetManifest: ...
+    def load_provenances(
+        self,
+        binding: RegistryBinding,
+    ) -> tuple[DatasetProvenance, ...]: ...
     def register(
         self,
         manifest: CanonicalDatasetManifest,
@@ -675,7 +789,7 @@ here so task snippets do not depend on implicit functions.
 
 ~~~python
 # projections.py
-def component_hashes(bundle: LogicalDatasetBundle) -> Mapping[str, Sha256Hex]: ...
+def component_logical_hashes(bundle: LogicalDatasetBundle) -> Mapping[str, Sha256Hex]: ...
 def project_raw(rows: tuple[DailyBarRaw, ...]) -> tuple[Mapping[str, object], ...]: ...
 def project_gaps(rows: tuple[DailyGapRecord, ...]) -> tuple[Mapping[str, object], ...]: ...
 def project_events(rows: tuple[CorporateActionEvent, ...]) -> tuple[Mapping[str, object], ...]: ...
@@ -722,6 +836,10 @@ def build_validation_report(
     candidate: NormalizedDatasetCandidate,
     issues: tuple[DataValidationIssue, ...],
 ) -> DataValidationReport: ...
+def build_validated_candidate(
+    candidate: NormalizedDatasetCandidate,
+    deduplicated_rows: tuple[DailyBarRaw, ...],
+) -> ValidatedDatasetCandidate: ...
 def run_check(
     name: str,
     check: Callable[[], tuple[DataValidationIssue, ...]],
@@ -752,12 +870,75 @@ def verify_published_hashes(
     manifest: CanonicalDatasetManifest,
 ) -> None: ...
 def records_to_table(component_name: str, records: Sequence[object]) -> pa.Table: ...
+def preserve_import_inputs(
+    root: Path,
+    import_id: str,
+    request: DataImportRequest,
+) -> PreservedImportInputs: ...
+def preflight_all_contained_inputs(
+    root: Path,
+    request: DataImportRequest,
+) -> tuple[tuple[str, Path], ...]: ...
+def create_preserved_inputs_staging(root: Path, import_id: str) -> Path: ...
+def copy_open_input_and_verify(
+    source: Path,
+    staging: Path,
+    role: str,
+    index: int,
+) -> tuple[str, RelativePath, Sha256Hex]: ...
+def build_preserved_import_inputs(
+    import_id: str,
+    copied: tuple[tuple[str, RelativePath, Sha256Hex], ...],
+) -> PreservedImportInputs: ...
+def verify_preserved_input_hashes(
+    root: Path,
+    preserved: PreservedImportInputs,
+) -> None: ...
+def publish_preserved_inputs_directory(
+    root: Path,
+    staging: Path,
+    final_ref: RelativePath,
+) -> None: ...
+def hash_staged_components(staging: Path) -> Mapping[str, Sha256Hex]: ...
+def build_dataset_provenance(
+    descriptor: CanonicalDatasetDescriptor,
+    component_file_hashes: Mapping[str, Sha256Hex],
+    inputs: ProvenanceInputs,
+) -> DatasetProvenance: ...
+def write_provenance(staging: Path, provenance: DatasetProvenance) -> RelativePath: ...
+def publish_import_provenance(
+    root: Path,
+    import_id: str,
+    provenance: DatasetProvenance,
+) -> RelativePath: ...
+def build_complete_manifest(
+    descriptor: CanonicalDatasetDescriptor,
+    component_file_hashes: Mapping[str, Sha256Hex],
+    provenance: DatasetProvenance,
+    provenance_ref: RelativePath,
+    inputs: ProvenanceInputs,
+    writer_profile: Mapping[str, object],
+    manifest_revision: int,
+) -> CanonicalDatasetManifest: ...
+def canonical_manifest_payload(
+    manifest: CanonicalDatasetManifest,
+) -> Mapping[str, object]: ...
+def require_reusable_manifest(
+    decision: RegistrationDecision,
+    descriptor: CanonicalDatasetDescriptor,
+) -> CanonicalDatasetManifest: ...
 
 # registry.py
 def require_exact_manifest_hash(
     manifest: CanonicalDatasetManifest,
     manifest_hash: Sha256Hex,
 ) -> None: ...
+def descriptor_payload(
+    descriptor: CanonicalDatasetDescriptor,
+) -> Mapping[str, object]: ...
+def descriptor_from_manifest(
+    manifest: CanonicalDatasetManifest,
+) -> CanonicalDatasetDescriptor: ...
 def require_nonempty_provenances(
     provenances: tuple[DatasetProvenance, ...],
 ) -> None: ...
@@ -772,6 +953,10 @@ def build_registry_snapshot(
     parent_hash: Sha256Hex | None,
     bindings: tuple[RegistryBinding, ...],
 ) -> RegistrySnapshot: ...
+def upsert_current_binding(
+    bindings: tuple[RegistryBinding, ...],
+    replacement: RegistryBinding,
+) -> tuple[RegistryBinding, ...]: ...
 def publish_registry_snapshot_atomically(root: Path, snapshot: RegistrySnapshot) -> None: ...
 def verify_and_filter_bindings(
     registry: MarketDataRegistry,
@@ -792,8 +977,8 @@ def replace_prior_as_invalidated(
 class RegistryTransaction:
     def stage_json(self, name: str, payload: Mapping[str, object]) -> None: ...
     def verify_all_hashes(self) -> None: ...
-    def publish_files(self) -> None: ...
-    def publish_snapshot_pointer_last(self) -> None: ...
+    def publish_transaction_directory(self) -> RelativePath: ...
+    def activate_snapshot_pointer_last(self) -> None: ...
 
 def registry_transaction(
     root: Path,
@@ -806,33 +991,47 @@ def is_reparse_point(path: Path) -> bool: ...
 def volume_identity(path: Path) -> tuple[int, int]: ...
 
 # importer.py
-def verify_source(request: DataImportRequest, runtime: DataImportRuntimeContext) -> Path: ...
-def load_contained_calendar(
-    request: DataImportRequest,
+def load_preserved_calendar(
+    preserved: PreservedImportInputs,
     runtime: DataImportRuntimeContext,
 ) -> TradingCalendarRef: ...
+def load_preserved_evidence(
+    preserved: PreservedImportInputs,
+    runtime: DataImportRuntimeContext,
+) -> tuple[
+    tuple[DailyGapRecord, ...],
+    GapEvidence,
+    tuple[CorporateActionEvent, ...],
+    CorporateActionEvidence,
+]: ...
 def parse_by_source_type(
-    source: Path,
+    preserved: PreservedImportInputs,
     request: DataImportRequest,
+    runtime: DataImportRuntimeContext,
     calendar_ref: TradingCalendarRef,
 ) -> tuple[DailyBarRaw, ...]: ...
 def assemble_candidate(
     import_id: str,
     rows: tuple[DailyBarRaw, ...],
+    gaps: tuple[DailyGapRecord, ...],
+    gap_evidence: GapEvidence,
+    events: tuple[CorporateActionEvent, ...],
+    action_evidence: CorporateActionEvidence,
     request: DataImportRequest,
-    runtime: DataImportRuntimeContext,
     calendar_ref: TradingCalendarRef,
 ) -> NormalizedDatasetCandidate: ...
 def finalize_failed_import(
+    request: DataImportRequest,
     import_id: str,
     imported_at: UtcTimestamp,
-    raw_ref: RelativePath,
-    raw_hash: Sha256Hex,
+    preserved: PreservedImportInputs | None,
     error: DataFoundationError,
 ) -> ImportLocalDatasetResult: ...
 def finalize_nonvalid_import(
+    request: DataImportRequest,
     import_id: str,
     imported_at: UtcTimestamp,
+    preserved: PreservedImportInputs,
     candidate: NormalizedDatasetCandidate,
     report: DataValidationReport,
 ) -> ImportLocalDatasetResult: ...
@@ -840,34 +1039,38 @@ def continue_valid_import(
     request: DataImportRequest,
     runtime: DataImportRuntimeContext,
     imported_at: UtcTimestamp,
-    raw_ref: RelativePath,
-    raw_hash: Sha256Hex,
-    candidate: NormalizedDatasetCandidate,
+    preserved: PreservedImportInputs,
+    candidate: ValidatedDatasetCandidate,
     report: DataValidationReport,
 ) -> ImportLocalDatasetResult: ...
 def assemble_logical_bundle(
-    candidate: NormalizedDatasetCandidate,
+    candidate: ValidatedDatasetCandidate,
     factors: tuple[AdjustmentFactor, ...],
     adjusted: tuple[DailyBarAdjusted, ...],
 ) -> LogicalDatasetBundle: ...
-def manifest_candidate(bundle: LogicalDatasetBundle) -> CanonicalDatasetManifest: ...
-def reuse_or_publish(
-    decision: RegistrationDecision,
-    bundle: LogicalDatasetBundle,
-    report: DataValidationReport,
-    provenance: DatasetProvenance,
-) -> PublishedCanonicalBundle: ...
 def check_matrix(report: DataValidationReport) -> Mapping[str, bool]: ...
-def build_and_publish_provenance(
-    runtime: DataImportRuntimeContext,
+def provenance_inputs(
     request: DataImportRequest,
-    identity: DatasetIdentity,
-    report: DataValidationReport,
-) -> tuple[DatasetProvenance, RelativePath]: ...
+    preserved: PreservedImportInputs,
+    imported_at: UtcTimestamp,
+    validation_report_ref: RelativePath,
+    validation_report_hash: Sha256Hex,
+) -> ProvenanceInputs: ...
 def publish_eligibility(
     root: Path,
     eligibility: DataEligibility,
 ) -> RelativePath: ...
+def finalize_successful_import(
+    request: DataImportRequest,
+    imported_at: UtcTimestamp,
+    preserved: PreservedImportInputs,
+    validated_candidate_ref: RelativePath,
+    validated_candidate_hash: Sha256Hex,
+    report: DataValidationReport,
+    published: PublishedCanonicalBundle,
+    eligibility: DataEligibility,
+    snapshot: RegistrySnapshot,
+) -> ImportLocalDatasetResult: ...
 def load_registry_from_runtime(
     runtime: DataImportRuntimeContext,
 ) -> MarketDataRegistry: ...
@@ -894,6 +1097,13 @@ for traceability but is excluded from dataset identity.
 | DailyBarRaw | volume | Y | N | Y |
 | DailyBarRaw | volume_status | Y | N | Y |
 | DailyBarRaw | source_row_ref | N | Y | Y |
+| PreservedImportInputs | import_id/inputs_root_ref | N | Y | Y |
+| PreservedImportInputs | market-data ref/hash | N | Y | Y |
+| PreservedImportInputs | calendar snapshot ref/hash | N | Y | Y |
+| PreservedImportInputs | gap evidence refs/hashes | N | Y | Y |
+| PreservedImportInputs | corporate-action evidence refs/hashes | N | Y | Y |
+| ValidatedDatasetCandidate | validated_raw_bars | feeds identity after validation | N | Y |
+| ValidatedDatasetCandidate | evidence/calendar fields | feeds identity after validation | N | Y |
 | DailyBarAdjusted | stable identity/time/currency fields | Y | N | Y |
 | DailyBarAdjusted | adjustment_factor_id | Y | N | Y |
 | DailyBarAdjusted | adjustment_method | Y | N | Y |
@@ -926,7 +1136,7 @@ for traceability but is excluded from dataset identity.
 | CorporateActionEvent | stable listing identity | Y | N | Y |
 | CorporateActionEvent | event_type/ex_date/effective_trading_date | Y | N | Y |
 | CorporateActionEvent | split_ratio | Y when SPLIT | N | Y |
-| CorporateActionEvent | cash_amount/cash_currency | Y when CASH_DIVIDEND | N | Y |
+| CorporateActionEvent | cash_amount/cash_currency | N; CASH_DIVIDEND blocks before identity | Y | Y |
 | CorporateActionEvidence | evidence_schema_version | N | Y | Y |
 | CorporateActionEvidence | evidence_id/evidence_hash | N | Y | Y |
 | CorporateActionEvidence | semantic_coverage_hash | Y | N | Y |
@@ -946,6 +1156,9 @@ for traceability but is excluded from dataset identity.
 | DatasetProvenance | validation_status/blockers | N | Y | Y |
 | DatasetProvenance | parent_dataset_id/dataset_id/content_hash | N | Y | Y |
 | DatasetProvenance | dependency_hashes | N | Y | Y |
+| CanonicalDatasetDescriptor | DatasetIdentity/logical schema/calendar/timezone | Y | N | transient |
+| CanonicalDatasetDescriptor | stable key/ranges/counts | Y | N | transient |
+| CanonicalDatasetDescriptor | component logical/semantic coverage hashes | Y | N | transient |
 | CanonicalDatasetManifest | manifest_schema_version/revision | N | Y | Y |
 | CanonicalDatasetManifest | DatasetIdentity | Y | N | Y |
 | CanonicalDatasetManifest | logical schema/calendar/timezone refs | Y | N | Y |
@@ -957,16 +1170,30 @@ for traceability but is excluded from dataset identity.
 | CanonicalDatasetManifest | validation report ref/hash | N | Y | Y |
 | CanonicalDatasetManifest | writer/compression/row-group/metadata profile | N | Y | Y |
 | CanonicalDatasetManifest | parent_dataset_id | N | Y | Y |
+| DataImportManifest | preserved_inputs | N | Y | Y |
 
 Physical Parquet parameters never enter `DatasetIdentity`. Logical and physical
 hashes remain separate. No projection function may call a new hash helper;
 all projections terminate at `tv_quant.run_manifest.canonical_hash`.
+`CanonicalDatasetDescriptor` contains only the identity-bearing logical fields
+listed above. Component file hashes, all physical refs, provenance/report
+refs and hashes, writer results and physical profiles are prohibited from the
+descriptor and therefore cannot be used to decide logical reuse.
 
 ## 5. Design-to-Test Traceability Matrix
 
 | Design requirement | Task | Test file | Test name | Expected result |
 |---|---:|---|---|---|
-| CSV/Parquet logical equivalence | 4 | `tests/data_foundation/test_parsers.py` | `test_csv_and_parquet_normalize_to_same_rows` | same row payload and logical hash |
+| CSV/Parquet logical equivalence | 16 | `tests/data_foundation/test_end_to_end.py` | `test_csv_parquet_reimport_query_and_invalidation_lifecycle` | validated canonical rows and dataset IDs match |
+| out-of-order input remains blocked | 8 | `tests/data_foundation/test_validation.py` | `test_out_of_order_input_remains_blocked` | BLOCKED; validated candidate is None |
+| parser does not sort before validation | 4 | `tests/data_foundation/test_parsers.py` | `test_parsers_preserve_out_of_order_source_sequence` | parsed tuple retains source order |
+| parser reads preserved raw copy | 15 | `tests/data_foundation/test_importer.py` | `test_parser_receives_only_preserved_market_data_path` | parser path is under `raw/<import_id>/inputs` |
+| modified original after preservation does not affect import | 15 | `tests/data_foundation/test_importer.py` | `test_original_mutation_after_preservation_cannot_change_import` | result follows preserved hash/bytes |
+| all evidence/calendar inputs are preserved and hashed | 10 | `tests/data_foundation/test_artifacts.py` | `test_preservation_package_contains_and_hashes_every_declared_input` | all declared inputs have immutable refs and verified hashes |
+| identical duplicate is absent from canonical rows | 8, 15 | `tests/data_foundation/test_importer.py` | `test_identical_duplicate_is_absent_from_canonical_rows` | one canonical raw row; audit issue retained |
+| validated candidate is the canonicalization input | 15 | `tests/data_foundation/test_importer.py` | `test_canonicalization_receives_validated_candidate_only` | original normalized rows never reach adjustment/identity/publication |
+| provenance is built after component file hashes exist | 10 | `tests/data_foundation/test_artifacts.py` | `test_provenance_is_built_only_after_component_file_hashes` | provenance contains verified staged or reused file hashes |
+| no incomplete manifest candidate | 10 | `tests/data_foundation/test_artifacts.py` | `test_manifest_is_built_only_after_physical_and_lineage_hashes` | manifest construction cannot precede components/provenance/report hashes |
 | source_row_ref excluded from dataset identity | 3 | `tests/data_foundation/test_projections.py` | `test_source_row_ref_change_does_not_change_dataset_id` | dataset IDs equal |
 | different evidence lineage with same semantic coverage | 3 | `tests/data_foundation/test_projections.py` | `test_lineage_change_with_same_semantics_keeps_dataset_id` | dataset IDs equal; evidence hashes differ |
 | different logical data changes identity | 9 | `tests/data_foundation/test_identity.py` | `test_logical_value_change_changes_dataset_id` | dataset IDs differ |
@@ -983,15 +1210,18 @@ all projections terminate at `tv_quant.run_manifest.canonical_hash`.
 | YFINANCE_SMOKE qualification | 11 | `tests/data_foundation/test_registry.py` | `test_smoke_import_creates_smoke_only` | SMOKE_ONLY and formal false |
 | smoke excluded from formal query | 12 | `tests/data_foundation/test_registry_query.py` | `test_formal_lookup_excludes_smoke_binding` | typed DATA_CAPABILITY_BLOCKER |
 | exact manifest invalidation | 13 | `tests/data_foundation/test_invalidation.py` | `test_invalidation_scopes_exact_manifest_hash` | other revisions unchanged |
-| invalidation triple atomicity | 13 | `tests/data_foundation/test_invalidation.py` | `test_invalidation_triple_is_all_or_none` | no partial visibility |
+| invalidation transaction has no partial active visibility | 13 | `tests/data_foundation/test_invalidation.py` | `test_invalidation_transaction_has_no_partial_active_visibility` | old pointer remains active; no partial triple is active |
 | invalidation replay idempotency | 13 | `tests/data_foundation/test_invalidation.py` | `test_identical_invalidation_replay_reuses_triple` | same three hashes returned |
-| identical re-import reuse | 12 | `tests/data_foundation/test_registry_query.py` | `test_identical_reimport_reuses_manifest_revision` | same artifacts/revision; new provenance |
-| identity collision fail closed | 12 | `tests/data_foundation/test_registry_query.py` | `test_dataset_id_collision_rejects_mismatch` | DATA_VALIDATION_BLOCKER |
+| one current binding per dataset_id + manifest_hash | 11 | `tests/data_foundation/test_registry.py` | `test_register_upserts_one_current_binding_per_exact_pair` | exactly one current binding in new snapshot |
+| equivalent re-import updates provenance on same binding | 12 | `tests/data_foundation/test_registry_query.py` | `test_identical_reimport_updates_same_binding_provenances` | same artifacts/revision and binding key; two provenances |
+| identity claim mismatch fails closed | 12 | `tests/data_foundation/test_registry_query.py` | `test_claimed_dataset_id_rejects_logical_mismatch` | DATA_VALIDATION_BLOCKER / IDENTITY_CLAIM_MISMATCH |
+| invalidation removes the only current VALID eligibility | 13 | `tests/data_foundation/test_invalidation.py` | `test_invalidation_replaces_only_current_valid_eligibility` | exact current binding points only to INVALIDATED eligibility |
 | manifest/eligibility one-way reference | 10 | `tests/data_foundation/test_artifacts.py` | `test_manifest_has_no_eligibility_back_reference` | manifest payload has no eligibility fields |
 | path traversal and Windows special paths | 14 | `tests/data_foundation/test_security.py` | `test_windows_special_paths_and_reparse_escape_are_rejected` | CONFIG_VALIDATION_BLOCKER before read/write |
 | request excludes absolute root | 2 | `tests/data_foundation/test_contracts.py` | `test_runtime_root_is_not_serializable_or_hashable` | request hash unchanged; serialization rejected |
 | NYSE half-day and DST UTC sessions | 5 | `tests/data_foundation/test_calendar.py` | `test_xnys_half_day_and_dst_sessions_are_frozen` | exact UTC opens/closes |
 | corporate-action lineage excluded from factor identity | 7 | `tests/data_foundation/test_adjustments.py` | `test_evidence_lineage_does_not_change_factor_identity` | factor IDs equal |
+| cash dividend returns NOT_IMPLEMENTED | 7, 8, 15 | `tests/data_foundation/test_importer.py` | `test_cash_dividend_returns_not_implemented_without_outputs` | DATA_CAPABILITY_BLOCKER; no validated candidate/canonical/eligibility |
 | full local import orchestration | 15 | `tests/data_foundation/test_importer.py` | `test_valid_local_csv_publishes_complete_binding` | immutable manifest + VALID binding |
 | static duplicate-owner/security checks | 17 | `tests/data_foundation/test_static_ownership.py` | `test_data_foundation_reuses_existing_owners_and_has_no_network_path` | no forbidden definitions/imports |
 | V2.1 regression | 17 | existing full suite | `py -3.14 -m pytest tests -q` | 517 existing tests plus V2.2A tests pass |
@@ -1016,6 +1246,8 @@ def csv_request(**changes: object) -> DataImportRequest: ...
 def parquet_request(**changes: object) -> DataImportRequest: ...
 def calendar() -> TradingCalendarRef: ...
 def write_equivalent_parquet(root: Path, rows: tuple[DailyBarRaw, ...]) -> Path: ...
+def write_out_of_order_csv(root: Path, dates: tuple[IsoDate, ...]) -> Path: ...
+def write_out_of_order_parquet(root: Path, dates: tuple[IsoDate, ...]) -> Path: ...
 def full_bars() -> tuple[DailyBarRaw, ...]: ...
 def no_gaps_evidence() -> GapEvidence: ...
 def gaps_present_evidence(gap: DailyGapRecord) -> GapEvidence: ...
@@ -1030,11 +1262,32 @@ def evidence(**changes: object) -> CorporateActionEvidence: ...
 def no_actions_evidence() -> CorporateActionEvidence: ...
 def identity_factor(*, price: str, volume: str) -> AdjustmentFactor: ...
 def candidate_with(*rows: DailyBarRaw, **changes: object) -> NormalizedDatasetCandidate: ...
+def validated_candidate_with(
+    *rows: DailyBarRaw,
+    **changes: object,
+) -> ValidatedDatasetCandidate: ...
 def conflicting_rows() -> tuple[DailyBarRaw, DailyBarRaw]: ...
+def earlier_bar() -> DailyBarRaw: ...
+def later_bar() -> DailyBarRaw: ...
+def cash_dividend_event() -> CorporateActionEvent: ...
 def bundle(**changes: object) -> LogicalDatasetBundle: ...
 def identity_for(value: LogicalDatasetBundle) -> DatasetIdentity: ...
-def deterministic_collision(value: Mapping[str, object]) -> str: ...
+def claimed_identity(
+    value: LogicalDatasetBundle,
+    **changes: object,
+) -> DatasetIdentity: ...
 def writer_profile(**changes: object) -> Mapping[str, object]: ...
+def request_with_market_calendar_gap_and_action_inputs(root: Path) -> DataImportRequest: ...
+def record_provenance_file_hash_inputs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> list[Mapping[str, Sha256Hex]]: ...
+def record_publication_build_order(monkeypatch: pytest.MonkeyPatch) -> list[str]: ...
+def record_canonical_write_attempts(monkeypatch: pytest.MonkeyPatch) -> list[Path]: ...
+def publish_reuse(
+    root: Path,
+    existing: PublishedCanonicalBundle,
+    value: LogicalDatasetBundle,
+) -> PublishedCanonicalBundle: ...
 def publish_bundle(root: Path, value: LogicalDatasetBundle, profile: Mapping[str, object]) -> PublishedCanonicalBundle: ...
 def read_table(bundle: PublishedCanonicalBundle, component: str) -> pa.Table: ...
 def read_manifest(bundle: PublishedCanonicalBundle) -> Mapping[str, object]: ...
@@ -1064,17 +1317,48 @@ def registry_with_two_revisions() -> MarketDataRegistry: ...
 def binding(snapshot: RegistrySnapshot, manifest_hash: Sha256Hex) -> RegistryBinding: ...
 def invalidate_twice_same_request() -> tuple[InvalidationEvent, DataEligibility, RegistrySnapshot]: ...
 def invalidate_once() -> tuple[InvalidationEvent, DataEligibility, RegistrySnapshot]: ...
-def inject_failure_after_each_staged_record(
+def inject_invalidation_failure(
     monkeypatch: pytest.MonkeyPatch,
+    failure_point: str,
 ) -> None: ...
 def invalidate_fixture_binding(
     root: Path,
 ) -> tuple[InvalidationEvent, DataEligibility, RegistrySnapshot]: ...
-def visible_invalidation_records(root: Path) -> tuple[RelativePath, ...]: ...
+def active_invalidation_records(root: Path) -> tuple[RelativePath, ...]: ...
+def active_snapshot_pointer(root: Path) -> RelativePath: ...
+def orphan_transaction_directories(root: Path) -> tuple[RelativePath, ...]: ...
 def record_verify_calls(monkeypatch: pytest.MonkeyPatch) -> list[str]: ...
+def record_input_preflight_and_copy_calls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> list[str]: ...
+def unsafe_last_evidence_request() -> DataImportRequest: ...
+def mutate_during_preserved_copy(monkeypatch: pytest.MonkeyPatch) -> None: ...
 def publish_contained_bundle() -> PublishedCanonicalBundle: ...
 def valid_csv_request() -> DataImportRequest: ...
 def runtime(root: Path) -> DataImportRuntimeContext: ...
+def preserved_inputs(root: Path, import_id: str = "import-1") -> PreservedImportInputs: ...
+def mutate_original_inputs_after_preservation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None: ...
+def all_preserved_hashes(preserved: PreservedImportInputs) -> tuple[Sha256Hex, ...]: ...
+def hashes_of_declared_inputs(
+    root: Path,
+    request: DataImportRequest,
+) -> tuple[Sha256Hex, ...]: ...
+def identity_from_preserved_bytes(
+    root: Path,
+    preserved: PreservedImportInputs,
+) -> DatasetIdentity: ...
+def request_with_identical_duplicate() -> DataImportRequest: ...
+def cash_dividend_request() -> DataImportRequest: ...
+def record_parser_paths(monkeypatch: pytest.MonkeyPatch) -> list[Path]: ...
+def record_canonicalization_candidates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> list[ValidatedDatasetCandidate]: ...
+def read_canonical_component(
+    result: ImportLocalDatasetResult,
+    component_name: str,
+) -> pa.Table: ...
 def import_with_forced_outcome(outcome: ValidationOutcome) -> ImportLocalDatasetResult: ...
 def import_with_gap_reason(reason: GapReasonCode) -> ImportLocalDatasetResult: ...
 def spy_csv_request() -> DataImportRequest: ...
@@ -1082,6 +1366,11 @@ def spy_parquet_request() -> DataImportRequest: ...
 def load_registry(root: Path) -> MarketDataRegistry: ...
 def invalidate_exact_binding(binding: RegistryBinding, root: Path) -> tuple[InvalidationEvent, DataEligibility, RegistrySnapshot]: ...
 def fixture_calendar() -> TradingCalendarRef: ...
+def fixture_spy_rows() -> tuple[DailyBarRaw, ...]: ...
+def read_validated_rows(
+    root: Path,
+    manifest: DataImportManifest,
+) -> tuple[DailyBarRaw, ...]: ...
 def write_test_parquet(
     path: Path,
     rows: tuple[DailyBarRaw, ...],
@@ -1155,7 +1444,7 @@ def test_extended_artifact_binding_preserves_legacy_default(tmp_path: Path) -> N
     assert ArtifactContract().owners == ARTIFACT_OWNERS
 ~~~
 
-- [ ] **Step 2: Run the focused tests and verify RED**
+- [ ] **Step 2: Run RED focused tests**
 
 Run:
 `py -3.14 -m pytest tests/data_foundation/test_registration.py tests/contracts/test_artifact_contract.py tests/contracts/test_capability_registry.py -q`
@@ -1278,9 +1567,13 @@ git commit -m "Register V2.2A data foundation contracts and owners."
 **Interfaces:**
 - Consumes: `canonical_decimal(value, path)`, `canonical_integer(value, path)`,
   `BlockerCode`, `PipelineStatus`, `Path`, `Callable`, `datetime`, `UUID`.
-- Produces: every enum and dataclass in Sections 3.1-3.3 except
-  `DatasetIdentity`, `DatasetProvenance`, `CanonicalDatasetManifest`,
-  `RegistryBinding` and `RegistrySnapshot`, which are completed in later tasks.
+- Produces: scalar/enums plus request/runtime, preserved-input, market record,
+  evidence, validation, normalized/validated candidate, logical bundle,
+  operation and import-result contracts in Sections 3.1-3.3. Task 3 completes
+  `DatasetIdentity`; Task 9 completes `CanonicalDatasetDescriptor`; Task 10
+  completes provenance/manifest/publication/registration-decision contracts;
+  Task 11 completes eligibility/binding/snapshot contracts; Task 13 completes
+  invalidation contracts.
 - Exact helpers:
 
 ~~~python
@@ -1352,6 +1645,13 @@ symbol/MIC, `America/New_York`, sorted unique tuples, canonical numeric strings,
 hash syntax, non-negative counts, and mutually required optional fields.
 `DataImportRuntimeContext.__reduce_ex__` raises
 `TypeError("runtime context is not persistable")`.
+`DataImportManifest.preserved_inputs` may be `None` only when failure occurs
+before raw-package publication, and only that branch permits
+`original_file_hash=None`. Otherwise `original_file_hash` equals
+`preserved_inputs.market_data_hash`, and the manifest gap refs/hashes equal the
+preserved gap-evidence refs/hashes. Successful, blocked-after-preservation,
+incomplete and not-implemented manifests all persist the complete
+`PreservedImportInputs`, including calendar and corporate-action evidence.
 
 - [ ] **Step 4: Run GREEN and frozen-interface regression**
 
@@ -1452,7 +1752,7 @@ def daily_bar_semantic_payload(bar: DailyBarRaw) -> Mapping[str, object]:
     }
 
 def build_dataset_identity(bundle: LogicalDatasetBundle) -> DatasetIdentity:
-    hashes = component_hashes(bundle)
+    hashes = component_logical_hashes(bundle)
     content_hash = canonical_hash(bundle_content_payload(
         hashes,
         bundle.gap_evidence.semantic_coverage_hash,
@@ -1480,7 +1780,9 @@ Expected: PASS for identity invariance and logical-change sensitivity.
 
 Add `stable_row_key(record) -> tuple[str, str, str, str]` and
 `sorted_payloads(records, projector)`. Reject duplicate sort keys before
-hashing; do not deduplicate in projection code.
+hashing; do not deduplicate in projection code. These canonical sort helpers
+accept only a `LogicalDatasetBundle` assembled from `ValidatedDatasetCandidate`;
+no parser or pre-validation call site may invoke them.
 
 - [ ] **Step 6: Run hash-owner regression**
 
@@ -1521,19 +1823,19 @@ def normalize_source_row(
 ) -> DailyBarRaw: ...
 ~~~
 
-- [ ] **Step 1: Write strict parser and equivalence tests**
+- [ ] **Step 1: Write strict parser and raw-order preservation tests**
 
 ~~~python
-def test_csv_and_parquet_normalize_to_same_rows(tmp_path: Path) -> None:
-    csv_rows = parse_csv_source(FIXTURES / "valid-spy.csv", csv_request(), calendar())
-    parquet_path = write_equivalent_parquet(tmp_path, csv_rows)
+def test_parsers_preserve_out_of_order_source_sequence(tmp_path: Path) -> None:
+    expected_dates = ("2026-01-05", "2026-01-02")
+    csv_path = write_out_of_order_csv(tmp_path, expected_dates)
+    parquet_path = write_out_of_order_parquet(tmp_path, expected_dates)
+
+    csv_rows = parse_csv_source(csv_path, csv_request(), calendar())
     parquet_rows = parse_parquet_source(parquet_path, parquet_request(), calendar())
-    assert tuple(map(daily_bar_semantic_payload, csv_rows)) == tuple(
-        map(daily_bar_semantic_payload, parquet_rows)
-    )
-    assert logical_component_hash(tuple(map(daily_bar_semantic_payload, csv_rows))) == (
-        logical_component_hash(tuple(map(daily_bar_semantic_payload, parquet_rows)))
-    )
+
+    assert tuple(row.trading_date for row in csv_rows) == expected_dates
+    assert tuple(row.trading_date for row in parquet_rows) == expected_dates
 ~~~
 
 Add cases for unknown column, missing required column, invalid UTF-8, non-ISO
@@ -1558,7 +1860,7 @@ with source_path.open("r", encoding=profile.encoding, newline="") as handle:
                              request=request, calendar_ref=calendar_ref)
         for index, row in enumerate(reader)
     )
-return tuple(sorted(rows, key=stable_row_key))
+return rows
 ~~~
 
 Reject whitespace-only values and scientific special values before numeric
@@ -1573,33 +1875,37 @@ actual_fingerprint = canonical_hash(arrow_schema_payload(table.schema))
 if actual_fingerprint != profile.arrow_schema_fingerprint:
     raise DataFoundationError(BlockerCode.DATA_VALIDATION_BLOCKER, "PARQUET_SCHEMA_MISMATCH")
 require_arrow_types(table.schema, expected_arrow_fields())
-return tuple(sorted(
-    (normalize_source_row(row, row_ref=f"parquet:{index}",
-                          request=request, calendar_ref=calendar_ref)
-     for index, row in enumerate(table.to_pylist())),
-    key=stable_row_key,
-))
+return tuple(
+    normalize_source_row(row, row_ref=f"parquet:{index}",
+                         request=request, calendar_ref=calendar_ref)
+    for index, row in enumerate(table.to_pylist())
+)
 ~~~
 
 Do not trust the file extension. Reject unsupported dictionary/timezone/null
-metadata unless the profile explicitly fixes their interpretation.
+metadata unless the profile explicitly fixes their interpretation. Both parser
+adapters preserve the exact input sequence and may neither sort nor deduplicate;
+order and duplicate policy belongs exclusively to Task 8 validation.
 
 - [ ] **Step 5: Run GREEN**
 
 Run: `py -3.14 -m pytest tests/data_foundation/test_parsers.py -q`
 
-Expected: PASS; CSV/Parquet logical rows and hashes match.
+Expected: PASS; both adapters preserve even an invalid out-of-order sequence.
 
 - [ ] **Step 6: Refactor shared row decoding, then run targeted and data-quality regression**
 
 Make `parse_csv_source` and `parse_parquet_source` delegate only to the shared
 `normalize_source_row`; keep adapter-specific file/schema checks in their own
-functions.
+functions. Inspect both return paths to prove neither calls `sorted`,
+`stable_row_key`, `dict.fromkeys`, `set` or a duplicate-removal helper.
 
 Run:
 `py -3.14 -m pytest tests/data_foundation/test_parsers.py tests/contracts/test_numeric_canonicalization.py tests/test_data_quality.py -q`
 
-Expected: PASS; no parser silently coerces invalid numeric inputs.
+Expected: PASS; no parser silently coerces invalid numeric inputs, repairs row
+order or removes duplicates. CSV/Parquet logical equivalence is deliberately
+deferred to validated canonical rows in Task 16.
 
 - [ ] **Step 7: Commit**
 
@@ -1864,21 +2170,33 @@ def validate_corporate_action_coverage(
 
 ~~~python
 def test_evidence_lineage_does_not_change_factor_identity() -> None:
-    left = derive_adjustment_factors(events(), evidence(source_name="a"), "split-dividend-v1")
-    right = derive_adjustment_factors(events(), evidence(source_name="b"), "split-dividend-v1")
+    left = derive_adjustment_factors(events(), evidence(source_name="a"), "split-only-v1")
+    right = derive_adjustment_factors(events(), evidence(source_name="b"), "split-only-v1")
     assert tuple(f.adjustment_factor_id for f in left) == tuple(
         f.adjustment_factor_id for f in right
     )
     assert left[0].corporate_action_evidence_hash != right[0].corporate_action_evidence_hash
 
 def test_no_actions_range_produces_identity_factor() -> None:
-    factors = derive_adjustment_factors((), no_actions_evidence(), "split-dividend-v1")
+    factors = derive_adjustment_factors((), no_actions_evidence(), "split-only-v1")
     assert factors == (identity_factor(price="1", volume="1"),)
+
+def test_cash_dividend_is_an_explicit_capability_blocker() -> None:
+    issues = validate_corporate_action_coverage(
+        (cash_dividend_event(),), evidence(), calendar()
+    )
+    assert issues[0].issue_code == "CASH_DIVIDEND_NOT_IMPLEMENTED"
+    assert issues[0].mapped_blocker_code is BlockerCode.DATA_CAPABILITY_BLOCKER
+    with pytest.raises(DataFoundationError, match="CASH_DIVIDEND_NOT_IMPLEMENTED"):
+        derive_adjustment_factors(
+            (cash_dividend_event(),), evidence(), "split-only-v1"
+        )
 ~~~
 
-Add split direction, cash-dividend method, bad dates, missing currency, source
-event ref mismatch, duplicate conflicting event ID, unsupported method, adjusted
-OHLC rules, and adjusted-only input rejection.
+Add split direction, bad dates, source-event ref mismatch, duplicate conflicting
+event ID, unsupported method, adjusted OHLC rules, and adjusted-only input
+rejection. The only supported first-release method is `split-only-v1`; no
+combined split-and-dividend method or cash-dividend formula exists.
 
 - [ ] **Step 2: Run RED**
 
@@ -1936,14 +2254,19 @@ def apply_one(bar: DailyBarRaw, factor: AdjustmentFactor) -> DailyBarAdjusted:
 
 `mul_price` and `mul_volume` use `Decimal` only internally and serialize through
 `canonical_decimal`/`canonical_integer`. SPLIT fixes reciprocal price and direct
-volume direction in `split-dividend-v1`. Cash dividends use only explicit local
-event values and the method's frozen formula/version.
+volume direction in `split-only-v1`. `NO_ACTIONS_IN_RANGE` produces the identity
+factor. Any `CASH_DIVIDEND` event yields a
+`CASH_DIVIDEND_NOT_IMPLEMENTED` issue mapped to
+`DATA_CAPABILITY_BLOCKER`; `derive_adjustment_factors` repeats that fail-closed
+guard and never constructs factors for the unsupported event.
 
 - [ ] **Step 5: Run GREEN**
 
 Run: `py -3.14 -m pytest tests/data_foundation/test_adjustments.py -q`
 
-Expected: PASS; raw bars remain byte-for-byte/dataclass-equal before and after.
+Expected: PASS; split and identity-factor paths preserve raw bars
+byte-for-byte/dataclass-equal, while cash dividends are rejected without an
+adjusted output.
 
 - [ ] **Step 6: Refactor factor lookup, then run numeric, projection, and gap regression**
 
@@ -1973,7 +2296,9 @@ git commit -m "Add deterministic corporate-action adjustments."
 **Interfaces:**
 - Consumes: `NormalizedDatasetCandidate`, gap validation from Task 6,
   action validation from Task 7, canonical numeric owners.
-- Produces: `validate_daily_dataset(candidate) -> DataValidationReport` and:
+- Produces:
+  `validate_daily_dataset(candidate) -> DailyDatasetValidationResult`, where a
+  non-`None` `ValidatedDatasetCandidate` is the only downstream data input, and:
 
 ~~~python
 VALIDATION_CHECK_ORDER = (
@@ -1994,15 +2319,33 @@ def deduplicate_identical_rows(
     ("open", "0"), ("high", "-1"), ("low", "NaN"), ("close", "Infinity"),
 ])
 def test_nonpositive_or_nonfinite_price_blocks(field: str, value: str) -> None:
-    report = validate_daily_dataset(candidate_with(**{field: value}))
-    assert report.validation_status is ValidationOutcome.BLOCKED
-    assert BlockerCode.DATA_VALIDATION_BLOCKER in report.blocker_codes
+    result = validate_daily_dataset(candidate_with(**{field: value}))
+    assert result.report.validation_status is ValidationOutcome.BLOCKED
+    assert result.validated_candidate is None
+    assert BlockerCode.DATA_VALIDATION_BLOCKER in result.report.blocker_codes
 
-def test_identical_duplicate_is_audited_but_conflict_blocks() -> None:
-    deduped, issues = deduplicate_identical_rows((bar(), bar()))
-    assert len(deduped) == 1
-    assert issues[0].issue_code == "DEDUPLICATED_IDENTICAL"
-    assert validate_daily_dataset(candidate_with(conflicting_rows())).validation_status is ValidationOutcome.BLOCKED
+def test_identical_duplicate_is_audited_and_removed_from_validated_candidate() -> None:
+    result = validate_daily_dataset(candidate_with(bar(), bar()))
+    assert result.report.validation_status is ValidationOutcome.VALID
+    assert tuple(issue.issue_code for issue in result.report.issues) == (
+        "DEDUPLICATED_IDENTICAL",
+    )
+    assert len(result.validated_candidate.validated_raw_bars) == 1
+
+def test_out_of_order_input_remains_blocked() -> None:
+    result = validate_daily_dataset(candidate_with(later_bar(), earlier_bar()))
+    assert result.report.validation_status is ValidationOutcome.BLOCKED
+    assert "OUT_OF_ORDER" in {issue.issue_code for issue in result.report.issues}
+    assert result.validated_candidate is None
+
+def test_cash_dividend_validation_has_no_candidate() -> None:
+    result = validate_daily_dataset(candidate_with(
+        corporate_action_events=(cash_dividend_event(),),
+        corporate_action_evidence=evidence(),
+    ))
+    assert result.report.validation_status is ValidationOutcome.NOT_IMPLEMENTED
+    assert result.report.blocker_codes == (BlockerCode.DATA_CAPABILITY_BLOCKER,)
+    assert result.validated_candidate is None
 ~~~
 
 Cover all OHLC inequalities, negative/boolean/null volume, row order, duplicate,
@@ -2020,11 +2363,13 @@ absent.
 - [ ] **Step 3: Implement deterministic checks without repair**
 
 ~~~python
-def validate_daily_dataset(candidate: NormalizedDatasetCandidate) -> DataValidationReport:
+def validate_daily_dataset(
+    candidate: NormalizedDatasetCandidate,
+) -> DailyDatasetValidationResult:
     issues: list[DataValidationIssue] = []
+    issues.extend(validate_order_and_unique_keys(candidate.raw_bars))
     rows, duplicate_issues = deduplicate_identical_rows(candidate.raw_bars)
     issues.extend(duplicate_issues)
-    issues.extend(validate_order_and_unique_keys(rows))
     issues.extend(validate_sessions(rows, candidate.calendar_ref))
     issues.extend(validate_ohlcv(rows))
     issues.extend(validate_gap_coverage(
@@ -2035,11 +2380,27 @@ def validate_daily_dataset(candidate: NormalizedDatasetCandidate) -> DataValidat
         candidate.corporate_action_evidence,
         candidate.calendar_ref,
     ))
-    return build_validation_report(candidate, ordered_issues(issues))
+    report = build_validation_report(candidate, ordered_issues(issues))
+    if report.validation_status is not ValidationOutcome.VALID:
+        return DailyDatasetValidationResult(report, None)
+    validated = build_validated_candidate(
+        candidate,
+        tuple(sorted(rows, key=stable_row_key)),
+    )
+    return DailyDatasetValidationResult(report, validated)
 ~~~
 
 Do not fill, interpolate, select a conflicting winner, convert null volume to
-zero, or downgrade a blocking issue.
+zero, or downgrade a blocking issue. Validation inspects the parser-preserved
+sequence before duplicate handling. Canonical stable sorting happens only in
+the `VALID` branch after every check has completed; an out-of-order input is
+never repaired into a validated candidate.
+`validate_order_and_unique_keys` emits `OUT_OF_ORDER` and blocking
+`CONFLICTING_DUPLICATE` issues from the untouched sequence; identical duplicates
+are reported once as non-blocking `DEDUPLICATED_IDENTICAL` by
+`deduplicate_identical_rows`. `build_validated_candidate` copies evidence and
+calendar records and stable-sorts all canonical tuples only after the report is
+VALID.
 
 - [ ] **Step 4: Derive outcome and status metadata**
 
@@ -2052,6 +2413,9 @@ operation status exactly as `VALID -> SUCCESS`, `BLOCKED -> BLOCKED`,
 `NOT_IMPLEMENTED -> NOT_IMPLEMENTED + DATA_CAPABILITY_BLOCKER`. Populate
 recoverable/retryable/terminal/user-action metadata through
 `status_definition(blocker_code)`.
+The named `CASH_DIVIDEND_NOT_IMPLEMENTED` issue forces the `NOT_IMPLEMENTED`
+branch even if all remaining checks pass. It always returns
+`validated_candidate=None`.
 
 ~~~python
 OPERATION_STATUS_BY_OUTCOME = {
@@ -2069,7 +2433,9 @@ OPERATION_STATUS_BY_OUTCOME = {
 
 Run: `py -3.14 -m pytest tests/data_foundation/test_validation.py -q`
 
-Expected: PASS with stable issue/report hashes under input order changes.
+Expected: PASS with stable issue/report hashes for repeated identical input;
+changing source order is observable and an out-of-order sequence remains
+blocked.
 
 - [ ] **Step 6: Refactor check aggregation, then run targeted and related contract tests**
 
@@ -2080,6 +2446,9 @@ Replace repeated issue extension with
 Run: `py -3.14 -m pytest tests/data_foundation/test_contracts.py tests/data_foundation/test_parsers.py tests/data_foundation/test_calendar.py tests/data_foundation/test_gap_evidence.py tests/data_foundation/test_adjustments.py tests/data_foundation/test_validation.py -q`
 
 Expected: PASS; every design validation criterion maps to a named test.
+Inspect downstream tests to confirm only
+`DailyDatasetValidationResult.validated_candidate` can reach adjustment,
+identity or canonicalization.
 
 - [ ] **Step 7: Commit**
 
@@ -2119,9 +2488,14 @@ def verify_identity_claim(
     claimed: DatasetIdentity,
     bundle: LogicalDatasetBundle,
 ) -> None: ...
+
+def build_canonical_descriptor(
+    bundle: LogicalDatasetBundle,
+    identity: DatasetIdentity,
+) -> CanonicalDatasetDescriptor: ...
 ~~~
 
-- [ ] **Step 1: Write identity sensitivity and collision tests**
+- [ ] **Step 1: Write identity sensitivity and claimed-identity mismatch tests**
 
 ~~~python
 def test_logical_value_change_changes_dataset_id() -> None:
@@ -2129,10 +2503,25 @@ def test_logical_value_change_changes_dataset_id() -> None:
         build_dataset_identity(bundle(close="101")).dataset_id
     )
 
-def test_identity_collision_claim_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(run_manifest, "canonical_hash", deterministic_collision)
-    with pytest.raises(DataFoundationError, match="IDENTITY_COLLISION"):
-        verify_identity_claim(identity_for(bundle(close="100")), bundle(close="101"))
+def test_claimed_dataset_id_rejects_logical_mismatch() -> None:
+    original = identity_for(bundle(close="100"))
+    false_claim = claimed_identity(
+        bundle(close="101"),
+        dataset_id=original.dataset_id,
+    )
+    with pytest.raises(DataFoundationError, match="IDENTITY_CLAIM_MISMATCH"):
+        verify_identity_claim(false_claim, bundle(close="101"))
+
+def test_descriptor_contains_only_identity_bearing_logical_fields() -> None:
+    descriptor = build_canonical_descriptor(bundle(), identity_for(bundle()))
+    assert {field.name for field in dataclasses.fields(descriptor)} == {
+        "descriptor_schema_version", "dataset_identity", "schema_hash",
+        "calendar_ref", "timezone_policy_hash", "stable_key_definition",
+        "source_range", "requested_range", "canonical_range", "row_count",
+        "gap_count", "component_logical_hashes",
+        "gap_semantic_coverage_hash",
+        "corporate_action_semantic_coverage_hash",
+    }
 ~~~
 
 Parameterize gap set, semantic coverage, event set, factor, adjustment method,
@@ -2169,15 +2558,24 @@ def component_logical_hashes(bundle):
     })
 ~~~
 
-- [ ] **Step 4: Implement two-stage collision verification**
+Build `CanonicalDatasetDescriptor` from this map and the same logical
+schema/calendar/timezone/range/count values used by identity. Its constructor
+has no component-file hash, physical ref, provenance, report, writer-profile or
+physical-result parameter. Task 12 reconstructs this exact descriptor from an
+existing complete manifest for reuse comparison.
+
+- [ ] **Step 4: Implement exact identity-claim verification**
 
 `verify_identity_claim` first compares the recomputed content/dependency
-payload, then compares the claimed ID. If the same `dataset_id` is associated
-with any different identity-bearing payload, raise
-`DataFoundationError(DATA_VALIDATION_BLOCKER, "IDENTITY_COLLISION")` before
-publication.
+payload and component logical hashes, then compares the recomputed dataset ID.
+If one claimed `dataset_id` is paired with a different `content_hash`, semantic
+dependency set or component logical-hash map, raise
+`DataFoundationError(DATA_VALIDATION_BLOCKER, "IDENTITY_CLAIM_MISMATCH")`
+before publication. This gate verifies internal claims and registry
+consistency; it does not claim to detect a general cryptographic SHA-256
+collision.
 
-- [ ] **Step 5: Run focused GREEN**
+- [ ] **Step 5: Run GREEN focused tests**
 
 Run:
 `py -3.14 -m pytest tests/data_foundation/test_identity.py tests/data_foundation/test_projections.py -q`
@@ -2211,15 +2609,20 @@ git commit -m "Finalize V2.2A logical dataset identity."
 **Files:**
 - Create: `src/tv_quant/data_foundation/artifacts.py`
 - Create: `tests/data_foundation/test_artifacts.py`
+- Modify: `src/tv_quant/data_foundation/contracts.py`
 - Modify: `src/tv_quant/data_foundation/__init__.py`
 - Modify: `src/tv_quant/research_pipeline.py`
 - Test: `tests/data_foundation/test_artifacts.py`
 
 **Interfaces:**
-- Consumes: `DatasetIdentity`, `LogicalDatasetBundle`,
-  `DatasetProvenance`, `DataValidationReport`, `resolve_under_root`,
+- Consumes: `CanonicalDatasetDescriptor`, `RegistrationDecision`,
+  `LogicalDatasetBundle`, `ProvenanceInputs`, `DataValidationReport`,
+  `PreservedImportInputs`, `resolve_under_root`,
   `bind_artifact_hashes`, `sha256_file`, typed provenance mode from Task 1.
-- Produces: `publish_canonical_bundle` and:
+- Produces: `DatasetProvenance`, `CanonicalDatasetManifest`,
+  `PublishedCanonicalBundle`, `ProvenanceInputs`, `RegistrationDecision`,
+  `preserve_import_inputs`,
+  `publish_canonical_bundle(...) -> PublishedCanonicalBundle` and:
 
 ~~~python
 PARQUET_WRITER_PROFILE = MappingProxyType({
@@ -2234,24 +2637,12 @@ PARQUET_WRITER_PROFILE = MappingProxyType({
     "data_page_version": "2.0",
 })
 
-@dataclass(frozen=True, slots=True)
-class PublishedCanonicalBundle:
-    manifest: CanonicalDatasetManifest
-    manifest_ref: RelativePath
-    manifest_hash: Sha256Hex
-
-def publish_raw_source(
-    root: Path,
-    import_id: str,
-    source_path: Path,
-) -> tuple[RelativePath, Sha256Hex]: ...
-
 def publish_validated_candidate(
     root: Path,
     import_id: str,
-    candidate: NormalizedDatasetCandidate,
+    candidate: ValidatedDatasetCandidate,
     report: DataValidationReport,
-) -> tuple[RelativePath, RelativePath]: ...
+) -> tuple[RelativePath, Sha256Hex, RelativePath, Sha256Hex]: ...
 ~~~
 
 - [ ] **Step 1: Write RED determinism, immutability, and manifest-direction tests**
@@ -2274,10 +2665,63 @@ def test_physical_profile_changes_file_hash_not_dataset_id(tmp_path: Path) -> No
     second = publish_bundle(tmp_path / "b", bundle(), writer_profile(compression="snappy"))
     assert first.manifest.dataset_identity.dataset_id == second.manifest.dataset_identity.dataset_id
     assert first.manifest.component_file_hashes != second.manifest.component_file_hashes
+
+def test_preservation_package_contains_and_hashes_every_declared_input(
+    tmp_path: Path,
+) -> None:
+    request = request_with_market_calendar_gap_and_action_inputs(tmp_path)
+    preserved = preserve_import_inputs(tmp_path, "import-1", request)
+    refs = (
+        preserved.market_data_ref,
+        preserved.calendar_snapshot_ref,
+        *preserved.gap_evidence_refs,
+        *preserved.corporate_action_evidence_refs,
+    )
+    hashes = (
+        preserved.market_data_hash,
+        preserved.calendar_snapshot_hash,
+        *preserved.gap_evidence_hashes,
+        *preserved.corporate_action_evidence_hashes,
+    )
+    assert all(ref.startswith("raw/import-1/inputs/") for ref in refs)
+    assert tuple(sha256_file(tmp_path / ref) for ref in refs) == hashes
+
+def test_provenance_is_built_only_after_component_file_hashes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    observed = record_provenance_file_hash_inputs(monkeypatch)
+    published = publish_bundle(tmp_path, bundle(), writer_profile())
+    assert observed == [published.manifest.component_file_hashes]
+    assert published.provenance.component_file_hashes == observed[0]
+
+def test_manifest_is_built_only_after_physical_and_lineage_hashes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = record_publication_build_order(monkeypatch)
+    publish_bundle(tmp_path, bundle(), writer_profile())
+    assert calls == [
+        "descriptor", "reuse-decision", "components", "file-hashes",
+        "provenance", "manifest", "verify", "publish",
+    ]
+
+def test_reuse_keeps_canonical_artifacts_and_uses_existing_file_hashes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first = publish_bundle(tmp_path, bundle(), writer_profile())
+    writes = record_canonical_write_attempts(monkeypatch)
+    second = publish_reuse(tmp_path, first, bundle())
+    assert writes == []
+    assert second.manifest_ref == first.manifest_ref
+    assert second.manifest_hash == first.manifest_hash
+    assert second.reused_existing is True
+    assert second.provenance.component_file_hashes == first.manifest.component_file_hashes
+    assert second.provenance.provenance_hash != first.provenance.provenance_hash
 ~~~
 
 Add repeat publication, existing target, partial staging, hash mismatch, fixed
-column order, writer metadata, physical profile changes, and contained refs.
+column order, writer metadata, physical profile changes, contained refs, all
+input roles preflighted before copying, source mutation during copy, immutable
+preserved-package target conflicts and reuse without canonical writes.
 
 - [ ] **Step 2: Run RED**
 
@@ -2285,7 +2729,35 @@ Run: `py -3.14 -m pytest tests/data_foundation/test_artifacts.py -q`
 
 Expected: FAIL because artifact schemas and atomic publication do not exist.
 
-- [ ] **Step 3: Implement fixed Arrow schemas and deterministic writes**
+- [ ] **Step 3: Preserve every import input before any consumer opens it**
+
+Build the complete source set from the market-data, calendar snapshot, every
+gap-evidence and every corporate-action-evidence request ref. Resolve and
+containment-check the entire set before creating a staging directory or copying
+one byte. Copy from already-opened handles into fixed role paths under one
+`raw/<import_id>/inputs/` staging directory. For each handle, compare file
+identity/size/mtime before and after the copy, rewind and hash the source handle,
+and require that hash to equal the copied file's `sha256_file`; a concurrent
+mutation fails with `INPUT_CHANGED_DURING_PRESERVATION`. Verify every copied
+hash, atomically publish the whole package, then return only preserved refs and
+hashes.
+
+~~~python
+sources = preflight_all_contained_inputs(root, request)
+staging = create_preserved_inputs_staging(root, import_id)
+copied = tuple(copy_open_input_and_verify(source, staging, role, index)
+               for index, (role, source) in enumerate(sources))
+preserved = build_preserved_import_inputs(import_id, copied)
+verify_preserved_input_hashes(root, preserved)
+publish_preserved_inputs_directory(root, staging, preserved.inputs_root_ref)
+return preserved
+~~~
+
+No downstream parser, calendar loader, evidence loader, identity builder or
+provenance builder may retain or reopen an original request path after this
+function returns.
+
+- [ ] **Step 4: Implement fixed Arrow schemas and deterministic component writes**
 
 Define one explicit `pa.schema` per component. Convert records using ordered
 field lists, sort by stable keys, and call:
@@ -2306,35 +2778,86 @@ pq.write_table(
 Logical hashes are computed before writing. File hashes are computed from final
 bytes through `sha256_file` and bound through `bind_artifact_hashes`.
 
-- [ ] **Step 4: Implement same-root atomic publication**
+- [ ] **Step 5: Implement descriptor-driven publication in frozen dependency order**
 
 Create an exclusive staging directory under the contained root. Re-resolve
-containment before each write and immediately before `Path.replace`. Reject an
-existing final directory, cross-volume staging, partial target or hash mismatch.
-Publish components, provenance, report and manifest as an all-verified directory;
-on failure retain raw/validated evidence and write only quarantine references.
+containment before each write and immediately before `Path.replace`. The caller
+must already have constructed the logical bundle, identity, descriptor and
+reuse decision, in that order. `CanonicalDatasetDescriptor` is the only reuse
+input and contains no physical refs/hashes, provenance/report refs/hashes or
+writer result.
+
+For a new dataset: stage physical components, compute and verify their file
+hashes, build `DatasetProvenance`, then build the complete
+`CanonicalDatasetManifest`, verify all cross-references and hashes, and publish
+the canonical directory atomically. No partially populated manifest object is
+constructed. Reject an existing final directory,
+cross-volume staging, partial target or hash mismatch. On failure retain the
+raw/validated evidence and write only quarantine references.
 
 ~~~python
 staging = create_exclusive_staging(root, dataset_id, revision)
 verify_same_volume_staging(root, staging, target)
 write_and_verify_components(staging, bundle, writer_profile)
-write_canonical_json_artifact(staging / CANONICAL_MANIFEST_NAME, manifest_payload)
+component_file_hashes = hash_staged_components(staging)
+provenance = build_dataset_provenance(
+    descriptor, component_file_hashes, provenance_inputs
+)
+provenance_ref = write_provenance(staging, provenance)
+manifest = build_complete_manifest(
+    descriptor, component_file_hashes, provenance, provenance_ref,
+    provenance_inputs,
+    writer_profile, decision.manifest_revision,
+)
+write_canonical_json_artifact(
+    staging / CANONICAL_MANIFEST_NAME,
+    canonical_manifest_payload(manifest),
+)
 verify_published_hashes(staging, manifest)
 verify_contained_path(root, target_relative, require_existing=False)
 if target.exists():
     raise DataFoundationError(BlockerCode.DATA_VALIDATION_BLOCKER,
                               "IMMUTABLE_TARGET_EXISTS", str(target_relative))
 staging.replace(target)
+return PublishedCanonicalBundle(
+    manifest, manifest_ref, manifest_hash, provenance, provenance_ref, False
+)
 ~~~
 
-- [ ] **Step 5: Run GREEN**
+For `decision.reuse_existing=True`, verify the descriptor against the existing
+manifest, do not create or replace any canonical component, report or manifest,
+and build the new provenance with
+`decision.existing_manifest.component_file_hashes`. Publish only the new
+provenance association outside the immutable canonical directory and return the
+same manifest ref/hash with `reused_existing=True`.
+
+~~~python
+if decision.reuse_existing:
+    manifest = require_reusable_manifest(decision, descriptor)
+    provenance = build_dataset_provenance(
+        descriptor, manifest.component_file_hashes, provenance_inputs
+    )
+    provenance_ref = publish_import_provenance(
+        root, provenance_inputs.preserved_inputs.import_id, provenance
+    )
+    return PublishedCanonicalBundle(
+        manifest=manifest,
+        manifest_ref=decision.existing_manifest_ref,
+        manifest_hash=decision.existing_manifest_hash,
+        provenance=provenance,
+        provenance_ref=provenance_ref,
+        reused_existing=True,
+    )
+~~~
+
+- [ ] **Step 6: Run GREEN**
 
 Run: `py -3.14 -m pytest tests/data_foundation/test_artifacts.py -q`
 
 Expected: PASS; physical writer changes alter file/manifest hashes but not
 logical hashes or dataset ID.
 
-- [ ] **Step 6: Refactor schema dispatch, then run targeted manifest and path regressions**
+- [ ] **Step 7: Refactor schema dispatch, then run targeted manifest and path regressions**
 
 Use one immutable `COMPONENT_ARROW_SCHEMAS` mapping and one
 `records_to_table(component_name, records) -> pa.Table` dispatcher.
@@ -2344,10 +2867,10 @@ Run:
 
 Expected: PASS with old artifact semantics unchanged.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ~~~powershell
-git add src/tv_quant/data_foundation/artifacts.py src/tv_quant/data_foundation/__init__.py src/tv_quant/research_pipeline.py tests/data_foundation/test_artifacts.py
+git add src/tv_quant/data_foundation/artifacts.py src/tv_quant/data_foundation/contracts.py src/tv_quant/data_foundation/__init__.py src/tv_quant/research_pipeline.py tests/data_foundation/test_artifacts.py
 git commit -m "Publish immutable V2.2A canonical artifacts."
 ~~~
 
@@ -2391,6 +2914,20 @@ def test_smoke_import_creates_smoke_only() -> None:
     )
     assert eligibility.state is DataEligibilityState.SMOKE_ONLY
     assert eligibility.formal_eligible is False
+
+def test_register_upserts_one_current_binding_per_exact_pair() -> None:
+    first = register_dataset(registry(), dataset(close="100"), provider="local-csv")
+    second = register_dataset(
+        first.registry, dataset(close="100"), provider="local-parquet"
+    )
+    key = (first.binding.dataset_id, first.binding.manifest_hash)
+    current = tuple(
+        item for item in second.registry.snapshot.bindings
+        if (item.dataset_id, item.manifest_hash) == key
+    )
+    assert len(current) == 1
+    assert len(current[0].provenance_hashes) == 2
+    assert current[0].eligibility_hash == second.binding.eligibility_hash
 ~~~
 
 Add exact manifest hash mismatch, missing provenance association, empty
@@ -2420,34 +2957,43 @@ def derive_eligibility(manifest, manifest_hash, provenances, check_matrix):
 
 Callers cannot pass `formal_eligible`. `INVALIDATED` is created only by Task 13.
 
-- [ ] **Step 4: Implement append-only atomic registry snapshots**
+- [ ] **Step 4: Implement append-only snapshots with one current exact-pair binding**
 
 Validate:
 `eligibility.dataset_id == manifest.dataset_identity.dataset_id`,
 `eligibility.manifest_hash == manifest_hash`, and qualifying provenance hashes
-are a non-empty subset of associations. Sort bindings by
-`(dataset_id, manifest_revision, manifest_hash, eligibility_hash)`. Publish a
-new contained snapshot and pointer atomically; never rewrite the prior snapshot.
+are a non-empty subset of associations. Within each new snapshot,
+`(dataset_id, manifest_hash)` is a unique key. Registration merges the prior and
+new provenance associations, constructs the replacement eligibility first, and
+upserts exactly one replacement binding with its new eligibility pointer. Sort
+current bindings by `(dataset_id, manifest_revision, manifest_hash)`. Publish a
+new contained snapshot and pointer atomically; never rewrite the prior snapshot,
+prior eligibility or prior provenance records.
 
 ~~~python
-verify_binding(manifest, manifest_hash, eligibility, (provenance,))
-bindings = tuple(sorted(
-    (*self.snapshot.bindings, new_binding),
-    key=lambda item: (
-        item.dataset_id, item.manifest_revision,
-        item.manifest_hash, item.eligibility_hash,
-    ),
-))
+verify_binding(manifest, manifest_hash, eligibility, all_provenances)
+bindings = upsert_current_binding(self.snapshot.bindings, replacement_binding)
+assert sum(
+    (item.dataset_id, item.manifest_hash)
+    == (replacement_binding.dataset_id, replacement_binding.manifest_hash)
+    for item in bindings
+) == 1
 snapshot = build_registry_snapshot(self.snapshot.snapshot_hash, bindings)
 publish_registry_snapshot_atomically(self.root, snapshot)
 ~~~
+
+`upsert_current_binding` rejects a pre-existing duplicate exact-pair key rather
+than guessing a winner. A new eligibility in a later snapshot replaces only the
+current eligibility pointer for that exact pair; historical snapshots and all
+historical eligibility records remain addressable.
 
 - [ ] **Step 5: Run GREEN**
 
 Run: `py -3.14 -m pytest tests/data_foundation/test_registry.py -q`
 
-Expected: PASS; only VALID is formal, SMOKE_ONLY is permanent false, and
-manifest payloads contain no eligibility reference.
+Expected: PASS; only VALID is formal, SMOKE_ONLY is permanent false, manifest
+payloads contain no eligibility reference, and every current snapshot has at
+most one binding for each `(dataset_id, manifest_hash)`.
 
 - [ ] **Step 6: Refactor binding verification, then run identity/artifact regression**
 
@@ -2480,48 +3026,49 @@ git commit -m "Bind V2.2A manifests and eligibility."
 - Produces: `find_latest_eligible_dataset` and:
 
 ~~~python
-@dataclass(frozen=True, slots=True)
-class RegistrationDecision:
-    reuse_existing: bool
-    manifest_revision: int
-    existing_binding: RegistryBinding | None
-
 def decide_registration(
     registry: MarketDataRegistry,
-    identity: DatasetIdentity,
-    manifest_candidate: CanonicalDatasetManifest,
+    descriptor: CanonicalDatasetDescriptor,
 ) -> RegistrationDecision: ...
 
-def append_provenance_association(
+def associated_provenances_for_registration(
     registry: MarketDataRegistry,
-    binding: RegistryBinding,
-    provenance_ref: RelativePath,
-    provenance_hash: Sha256Hex,
-    provider_capability_id: str,
-) -> RegistrySnapshot: ...
+    decision: RegistrationDecision,
+    new_provenance: DatasetProvenance,
+) -> tuple[DatasetProvenance, ...]: ...
 ~~~
 
-- [ ] **Step 1: Write RED idempotency, collision, and provider-order tests**
+- [ ] **Step 1: Write RED idempotency, identity-claim, and provider-order tests**
 
 ~~~python
-def test_identical_reimport_reuses_manifest_revision() -> None:
+def test_identical_reimport_updates_same_binding_provenances() -> None:
     first = register_dataset(registry(), dataset(close="100"), provider="local-csv")
     second = register_dataset(first.registry, dataset(close="100"), provider="local-parquet")
     assert second.binding.manifest_hash == first.binding.manifest_hash
     assert second.binding.manifest_revision == 1
     assert len(second.binding.provenance_hashes) == 2
+    matches = tuple(
+        item for item in second.registry.snapshot.bindings
+        if (item.dataset_id, item.manifest_hash)
+        == (second.binding.dataset_id, second.binding.manifest_hash)
+    )
+    assert matches == (second.binding,)
 
 def test_formal_lookup_excludes_smoke_binding() -> None:
     result = find_latest_eligible_dataset(requirement(), smoke_registry(), snapshot_hash(), capabilities())
     assert result.blocker_code is BlockerCode.DATA_CAPABILITY_BLOCKER
 
-def test_dataset_id_collision_rejects_mismatch() -> None:
+def test_claimed_dataset_id_rejects_logical_mismatch() -> None:
     first = register_dataset(registry(), dataset(close="100"), provider="local-csv")
-    with pytest.raises(DataFoundationError, match="IDENTITY_COLLISION"):
-        register_dataset(first.registry, dataset(close="101"), provider="local-csv")
+    with pytest.raises(DataFoundationError, match="IDENTITY_CLAIM_MISMATCH"):
+        register_dataset(
+            first.registry,
+            dataset(close="101", claimed_dataset_id=first.binding.dataset_id),
+            provider="local-csv",
+        )
 ~~~
 
-Add same-ID mismatch collision, same provider rank content conflict, preference
+Add same-ID logical-claim mismatch, same provider rank content conflict, preference
 fallback, complete coverage, canonical range end, active revision and
 deterministic dataset-ID tie-break tests.
 
@@ -2533,25 +3080,36 @@ Expected: FAIL because reuse and query policies are absent.
 
 - [ ] **Step 3: Implement idempotent registration decision**
 
-For an existing `dataset_id`, compare every identity-bearing component hash,
-semantic dependency hash, range and count. Exact equality reuses canonical
-artifacts and manifest revision and appends only import/provenance association.
-Any mismatch raises
-`DataFoundationError(DATA_VALIDATION_BLOCKER, "IDENTITY_COLLISION")`. A
-normal re-import never creates revision 2.
+For an existing `dataset_id`, compare the complete
+`CanonicalDatasetDescriptor` against logical descriptor fields reconstructed
+from the registered manifest: content hash, semantic dependencies, every
+component logical hash, semantic coverage hashes, logical schema/calendar/
+timezone, stable key, ranges and counts. Exact equality reuses canonical
+artifacts and manifest revision and adds the new provenance to the same current
+binding; it never rewrites canonical files or appends a parallel active
+binding. Any mismatch raises
+`DataFoundationError(DATA_VALIDATION_BLOCKER, "IDENTITY_CLAIM_MISMATCH")`. A
+normal re-import never creates revision 2. This is a claimed-identity
+consistency check, not a generic cryptographic collision detector.
 
 ~~~python
+identity = descriptor.dataset_identity
 existing = registry.binding_for(identity.dataset_id)
 if existing is None:
-    return RegistrationDecision(False, 1, None)
+    return RegistrationDecision(False, 1, None, None, None)
 registered = registry.load_manifest(existing)
-if identity_payload(registered.dataset_identity) != identity_payload(identity):
+if descriptor_payload(descriptor) != descriptor_payload(
+    descriptor_from_manifest(registered)
+):
     raise DataFoundationError(
         BlockerCode.DATA_VALIDATION_BLOCKER,
-        "IDENTITY_COLLISION",
+        "IDENTITY_CLAIM_MISMATCH",
         identity.dataset_id,
     )
-return RegistrationDecision(True, registered.manifest_revision, existing)
+return RegistrationDecision(
+    True, registered.manifest_revision, registered,
+    existing.manifest_ref, existing.manifest_hash,
+)
 ~~~
 
 - [ ] **Step 4: Implement the frozen query order**
@@ -2626,17 +3184,44 @@ def test_invalidation_scopes_exact_manifest_hash() -> None:
 def test_identical_invalidation_replay_reuses_triple() -> None:
     assert invalidate_twice_same_request() == invalidate_once()
 
-def test_invalidation_triple_is_all_or_none(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("failure_point", [
+    "after-event-stage",
+    "after-eligibility-stage",
+    "after-snapshot-stage",
+    "after-transaction-publish",
+])
+def test_invalidation_transaction_has_no_partial_active_visibility(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure_point: str,
 ) -> None:
-    inject_failure_after_each_staged_record(monkeypatch)
+    before_pointer = active_snapshot_pointer(tmp_path)
+    before_records = active_invalidation_records(tmp_path)
+    inject_invalidation_failure(monkeypatch, failure_point)
     with pytest.raises(DataFoundationError):
         invalidate_fixture_binding(tmp_path)
-    assert visible_invalidation_records(tmp_path) == ()
+    assert active_snapshot_pointer(tmp_path) == before_pointer
+    assert active_invalidation_records(tmp_path) == before_records
+    if failure_point == "after-transaction-publish":
+        assert len(orphan_transaction_directories(tmp_path)) == 1
+
+def test_invalidation_replaces_only_current_valid_eligibility() -> None:
+    event, invalidated, snapshot = invalidate_once()
+    matches = tuple(
+        item for item in snapshot.bindings
+        if (item.dataset_id, item.manifest_hash)
+        == (invalidated.dataset_id, invalidated.manifest_hash)
+    )
+    assert len(matches) == 1
+    assert matches[0].eligibility_state is DataEligibilityState.INVALIDATED
+    assert not any(
+        item.eligibility_state is DataEligibilityState.VALID for item in matches
+    )
 ~~~
 
-Inject failures after event staging, eligibility staging and snapshot staging to
-prove no partial record becomes visible.
+Inject failures after each record stage and after the complete transaction
+directory publish to prove no partial triple becomes active and the prior
+snapshot pointer remains unchanged.
 
 - [ ] **Step 2: Run RED**
 
@@ -2666,14 +3251,19 @@ invalidated = replace_prior_as_invalidated(prior, event_id, canonical_hash(event
 Preserve exact manifest and qualifying provenance hashes. The new eligibility
 is formal false and binds the event ID/hash.
 
-- [ ] **Step 4: Implement compare-and-append triple publication**
+- [ ] **Step 4: Implement compare-and-replace transaction publication**
 
 Verify all expected hashes against the current snapshot. Derive a deterministic
 request key from the complete request. If that key already maps to a committed
-triple, return the same triple. Otherwise stage event, eligibility and snapshot
-under one same-root transaction directory, fsync/close, verify hashes, and
-atomically publish the new snapshot pointer only after all three final files are
-present. A mismatched parent or partial historical record fails closed.
+transaction, return the same triple. Otherwise replace the exact current
+binding's eligibility ref/hash/state through `upsert_current_binding`, so the
+new snapshot retains exactly one `(dataset_id, manifest_hash)` binding and no
+current VALID eligibility for that pair. Stage event, INVALIDATED eligibility
+and registry snapshot together under one same-root transaction staging
+directory, fsync/close and verify every hash. Atomically rename that one complete
+directory into the transaction namespace, then atomically replace the active
+snapshot pointer last. A mismatched parent or partial historical record fails
+closed.
 
 ~~~python
 with registry_transaction(root, expected_snapshot_hash) as tx:
@@ -2681,16 +3271,23 @@ with registry_transaction(root, expected_snapshot_hash) as tx:
     tx.stage_json("eligibility-invalidated.json", eligibility_payload)
     tx.stage_json("registry-snapshot.json", snapshot_payload)
     tx.verify_all_hashes()
-    tx.publish_files()
-    tx.publish_snapshot_pointer_last()
+    transaction_ref = tx.publish_transaction_directory()
+    tx.activate_snapshot_pointer_last()
 ~~~
+
+No individual event, eligibility or snapshot file is ever published directly
+into its final namespace. A crash after the transaction-directory rename but
+before pointer replacement may leave a complete, verified orphan transaction;
+it is not active, is ignored by readers, and is retained for a future retention
+workflow. V2.2A invalidation does not delete it automatically.
 
 - [ ] **Step 5: Run GREEN**
 
 Run: `py -3.14 -m pytest tests/data_foundation/test_invalidation.py -q`
 
-Expected: PASS for exact scope, all-or-none visibility, idempotent replay and
-parent/hash conflicts.
+Expected: PASS for exact scope, one current exact-pair binding, all-or-none
+active visibility, idempotent replay, retained inactive orphan and parent/hash
+conflicts.
 
 - [ ] **Step 6: Refactor transaction staging, then run registry history regression**
 
@@ -2721,7 +3318,8 @@ git commit -m "Add atomic exact-binding dataset invalidation."
 - Test: `tests/contracts/test_path_safety.py`
 
 **Interfaces:**
-- Consumes: existing `resolve_under_root(root, relative_path) -> Path`.
+- Consumes: existing `resolve_under_root(root, relative_path) -> Path` and Task
+  10 `preserve_import_inputs`.
 - Produces in the same owner module:
 
 ~~~python
@@ -2752,7 +3350,27 @@ def test_windows_special_paths_and_reparse_escape_are_rejected(
 def test_artifact_publication_rechecks_containment(monkeypatch) -> None:
     calls = record_verify_calls(monkeypatch)
     publish_contained_bundle()
-    assert calls == ["raw-publish", "canonical-publish"]
+    assert calls == ["preserved-package-publish", "canonical-publish"]
+
+def test_all_inputs_are_contained_before_first_copy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    events = record_input_preflight_and_copy_calls(monkeypatch)
+    with pytest.raises(ValueError):
+        preserve_import_inputs(tmp_path, "import-1", unsafe_last_evidence_request())
+    assert events == [
+        "contain:market-data", "contain:calendar", "contain:gap-evidence:0",
+        "contain:corporate-action-evidence:0",
+    ]
+    assert not any(event.startswith("copy:") for event in events)
+
+def test_source_mutation_during_preservation_fails_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    mutate_during_preserved_copy(monkeypatch)
+    with pytest.raises(DataFoundationError, match="INPUT_CHANGED_DURING_PRESERVATION"):
+        preserve_import_inputs(tmp_path, "import-1", valid_csv_request())
+    assert not (tmp_path / "raw" / "import-1" / "inputs").exists()
 ~~~
 
 Create symlink/junction/reparse tests where supported; skip only when the OS
@@ -2785,12 +3403,25 @@ candidate.relative_to(resolved_root)
 return candidate
 ~~~
 
-- [ ] **Step 4: Enforce same-root, same-volume atomic publication**
+- [ ] **Step 4: Freeze input-package containment and TOCTOU checks**
+
+`preflight_all_contained_inputs` resolves the full declared input set before
+the first copy. Immediately before each open, repeat containment/reparse and
+file-identity verification against the preflight result. Open only those
+resolved paths, reject any file identity or
+metadata change observed during copy, verify the preserved byte hash against a
+second pass over the same open handle, and atomically publish the complete raw
+input package. Re-resolve every preserved ref before downstream reads; never
+re-resolve or reopen `DataImportRequest` paths after preservation. A preserved
+package hash mismatch is a blocker, not a reason to fall back to the original.
+
+- [ ] **Step 5: Enforce same-root, same-volume atomic publication**
 
 Compare `Path.anchor` and Windows volume serial/device identity where available.
-Re-run `verify_contained_path` immediately before raw copy and canonical
-directory replace. Task 15 adds source-read and registry-commit checks around
-the orchestrator. Never log `runtime.data_root` or the resolved absolute target.
+Re-run `verify_contained_path` immediately before preserved-package and
+canonical-directory replace. Task 15 adds preserved-source-read and
+registry-commit checks around the orchestrator. Never log `runtime.data_root`
+or the resolved absolute target.
 
 ~~~python
 if volume_identity(staging) != volume_identity(target.parent):
@@ -2799,7 +3430,7 @@ verify_contained_path(root, raw_relative, require_existing=False)
 verify_contained_path(root, canonical_relative, require_existing=False)
 ~~~
 
-- [ ] **Step 5: Run GREEN**
+- [ ] **Step 6: Run GREEN**
 
 Run:
 `py -3.14 -m pytest tests/data_foundation/test_security.py tests/contracts/test_path_safety.py -q`
@@ -2807,7 +3438,7 @@ Run:
 Expected: PASS on Windows; symlink/junction/reparse escape cannot reach read or
 write calls.
 
-- [ ] **Step 6: Refactor platform probes, then run artifact and confirmation-store regression**
+- [ ] **Step 7: Refactor platform probes, then run artifact and confirmation-store regression**
 
 Isolate Windows attribute/volume inspection behind private functions in the
 existing `path_safety.py` owner so non-Windows code remains deterministic.
@@ -2818,7 +3449,7 @@ Run:
 Expected: PASS with V2.1 root containment and atomic confirmation semantics
 unchanged.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ~~~powershell
 git add src/tv_quant/contracts/path_safety.py tests/contracts/test_path_safety.py src/tv_quant/data_foundation/artifacts.py tests/data_foundation/test_security.py
@@ -2844,17 +3475,20 @@ git commit -m "Strengthen Windows data-root containment."
 ~~~python
 IMPORT_STAGE_ORDER = (
     "REQUEST_VALIDATION",
-    "SOURCE_CONTAINMENT",
-    "RAW_PRESERVATION",
-    "PARSING",
-    "CALENDAR_BINDING",
+    "ALL_INPUT_CONTAINMENT",
+    "RAW_INPUT_PRESERVATION",
+    "PRESERVED_CALENDAR_AND_EVIDENCE_LOADING",
+    "PRESERVED_MARKET_DATA_PARSING",
     "VALIDATION",
+    "VALIDATED_EVIDENCE_PUBLICATION",
     "ADJUSTMENT",
+    "LOGICAL_BUNDLE",
     "IDENTITY",
+    "DESCRIPTOR_AND_REUSE_DECISION",
     "CANONICAL_PUBLICATION",
     "ELIGIBILITY",
     "REGISTRY_COMMIT",
-    "FINALIZATION",
+    "FINALIZED_IMPORT_MANIFEST",
 )
 ~~~
 
@@ -2888,12 +3522,64 @@ def test_nonvalid_outcome_has_no_canonical_manifest_or_eligibility(outcome) -> N
     assert result.canonical_manifest is None
     assert result.eligibility is None
     assert result.registry_binding is None
+
+def test_parser_receives_only_preserved_market_data_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    paths = record_parser_paths(monkeypatch)
+    result = import_local_dataset(valid_csv_request(), runtime(tmp_path))
+    assert result.operation.status is PipelineStatus.SUCCESS
+    assert paths == [tmp_path / result.import_manifest.preserved_inputs.market_data_ref]
+    assert "raw" in paths[0].parts and "inputs" in paths[0].parts
+
+def test_original_mutation_after_preservation_cannot_change_import(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    request = request_with_market_calendar_gap_and_action_inputs(tmp_path)
+    expected_hashes = hashes_of_declared_inputs(tmp_path, request)
+    mutate_original_inputs_after_preservation(monkeypatch)
+    result = import_local_dataset(request, runtime(tmp_path))
+    assert result.operation.status is PipelineStatus.SUCCESS
+    assert all_preserved_hashes(result.import_manifest.preserved_inputs) == expected_hashes
+    assert result.canonical_manifest.dataset_identity == identity_from_preserved_bytes(
+        tmp_path, result.import_manifest.preserved_inputs
+    )
+
+def test_canonicalization_receives_validated_candidate_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    candidates = record_canonicalization_candidates(monkeypatch)
+    result = import_local_dataset(request_with_identical_duplicate(), runtime(tmp_path))
+    assert result.operation.status is PipelineStatus.SUCCESS
+    assert len(candidates) == 1
+    assert isinstance(candidates[0], ValidatedDatasetCandidate)
+    assert len(candidates[0].validated_raw_bars) == 1
+
+def test_identical_duplicate_is_absent_from_canonical_rows(tmp_path: Path) -> None:
+    result = import_local_dataset(request_with_identical_duplicate(), runtime(tmp_path))
+    assert result.validation_report.validation_status is ValidationOutcome.VALID
+    assert "DEDUPLICATED_IDENTICAL" in {
+        issue.issue_code for issue in result.validation_report.issues
+    }
+    assert read_canonical_component(result, "daily-bar-raw").num_rows == 1
+
+def test_cash_dividend_returns_not_implemented_without_outputs(tmp_path: Path) -> None:
+    result = import_local_dataset(cash_dividend_request(), runtime(tmp_path))
+    assert result.operation.status is PipelineStatus.NOT_IMPLEMENTED
+    assert result.operation.blocker_code is BlockerCode.DATA_CAPABILITY_BLOCKER
+    assert result.validation_report.validation_status is ValidationOutcome.NOT_IMPLEMENTED
+    assert result.canonical_manifest is None
+    assert result.eligibility is None
+    assert result.registry_binding is None
 ~~~
 
-Add tests for new import/provenance IDs on repeats, raw-before-parse, failed
-manifest finalization, quarantine refs, no auto retry and
-`YFINANCE_SMOKE -> SMOKE_ONLY`. Record and assert containment checks at
-`source-read`, `raw-publish`, `canonical-publish` and `registry-commit`.
+Add tests for new import/provenance IDs on repeats, all-input-preservation before
+any loader/parser, failed manifest finalization, quarantine refs, no auto retry
+and `YFINANCE_SMOKE -> SMOKE_ONLY`. Assert that `DataImportManifest` records the
+market-data, calendar, every gap-evidence and every corporate-action-evidence
+preserved ref/hash. Record containment checks at all original-input preflights,
+`preserved-market-read`, `preserved-calendar-read`, `preserved-evidence-read`,
+`canonical-publish` and `registry-commit`.
 
 - [ ] **Step 2: Run RED**
 
@@ -2907,56 +3593,89 @@ Expected: FAIL because orchestration and finalized result semantics are absent.
 def import_local_dataset(request, runtime):
     import_id = runtime.uuid_factory().hex
     imported_at = utc_z(runtime.clock())
-    source = verify_source(request, runtime)
-    raw_ref, raw_hash = publish_raw_source(runtime.data_root, import_id, source)
+    preserved: PreservedImportInputs | None = None
     try:
-        calendar_ref = load_contained_calendar(request, runtime)
-        rows = parse_by_source_type(source, request, calendar_ref)
-        candidate = assemble_candidate(import_id, rows, request, runtime, calendar_ref)
-        report = validate_daily_dataset(candidate)
+        preserved = preserve_import_inputs(runtime.data_root, import_id, request)
+        calendar_ref = load_preserved_calendar(preserved, runtime)
+        gaps, gap_evidence, events, action_evidence = load_preserved_evidence(
+            preserved, runtime
+        )
+        rows = parse_by_source_type(preserved, request, runtime, calendar_ref)
+        normalized = assemble_candidate(
+            import_id, rows, gaps, gap_evidence, events, action_evidence,
+            request, calendar_ref,
+        )
+        validation = validate_daily_dataset(normalized)
     except DataFoundationError as exc:
-        return finalize_failed_import(import_id, imported_at, raw_ref, raw_hash, exc)
-    if report.validation_status is not ValidationOutcome.VALID:
-        return finalize_nonvalid_import(import_id, imported_at, candidate, report)
+        return finalize_failed_import(request, import_id, imported_at, preserved, exc)
+    if validation.validated_candidate is None:
+        return finalize_nonvalid_import(
+            request, import_id, imported_at, preserved, normalized, validation.report
+        )
     return continue_valid_import(
-        request, runtime, imported_at, raw_ref, raw_hash, candidate, report
+        request, runtime, imported_at, preserved,
+        validation.validated_candidate, validation.report,
     )
 ~~~
 
-Raw bytes are copied and hashed before parser invocation. Every exception is
-translated to typed status metadata and immutable evidence; programming errors
-are not converted into success.
+All original paths are containment-checked before the first copy. The immutable
+raw input package is atomically published before any parser/calendar/evidence
+loader runs. After `preserve_import_inputs` returns, the request paths are used
+only as lineage strings in the finalized import manifest; every byte read comes
+from `PreservedImportInputs`. Every expected domain exception is translated to
+typed status metadata and immutable evidence; programming errors are not
+converted into success.
 
 - [ ] **Step 4: Implement valid identity/publication/eligibility/registry stages**
 
-Derive actions/factors/adjusted rows, construct the logical bundle and identity,
-check idempotent registration, publish or reuse canonical artifacts, create a
-new provenance, derive VALID or SMOKE_ONLY eligibility, commit the registry
-snapshot, then finalize the import manifest. If registry commit fails, no
-eligibility/binding is returned and staged records remain unreachable.
+Consume only `ValidatedDatasetCandidate`: derive factors/adjusted rows,
+construct the logical bundle, compute component logical hashes and identity,
+build the logical-only descriptor, then decide reuse. Call the single
+`publish_canonical_bundle` boundary, which either performs the frozen new-data
+publication order or reuses canonical artifacts without rewriting them while
+creating a new provenance from the existing manifest's component file hashes.
+Derive a replacement VALID or SMOKE_ONLY eligibility from all provenance
+associations, upsert the one current exact-pair registry binding, and only then
+finalize `DataImportManifest` with all preserved inputs. If registry commit
+fails, no eligibility/binding is returned and staged records remain unreachable.
 
 ~~~python
+validated = candidate
+validated_ref, validated_hash, report_ref, report_hash = publish_validated_candidate(
+    runtime.data_root, validated.import_id, validated, report
+)
 factors = derive_adjustment_factors(
-    candidate.corporate_action_events,
-    candidate.corporate_action_evidence,
+    validated.corporate_action_events,
+    validated.corporate_action_evidence,
     request.adjustment_method,
 )
-adjusted = apply_adjustments(candidate.raw_bars, factors, request.adjustment_method)
-bundle = assemble_logical_bundle(candidate, factors, adjusted)
-identity = build_dataset_identity(bundle)
-registry = load_registry_from_runtime(runtime)
-decision = decide_registration(registry, identity, manifest_candidate(bundle))
-provenance, provenance_ref = build_and_publish_provenance(
-    runtime, request, identity, report
+adjusted = apply_adjustments(
+    validated.validated_raw_bars, factors, request.adjustment_method
 )
-published = reuse_or_publish(decision, bundle, report, provenance)
+bundle = assemble_logical_bundle(validated, factors, adjusted)
+identity = build_dataset_identity(bundle)
+descriptor = build_canonical_descriptor(bundle, identity)
+registry = load_registry_from_runtime(runtime)
+decision = decide_registration(registry, descriptor)
+published = publish_canonical_bundle(
+    runtime.data_root, bundle, descriptor, decision,
+    provenance_inputs(request, preserved, imported_at, report_ref, report_hash),
+    report, PARQUET_WRITER_PROFILE,
+)
+provenances = associated_provenances_for_registration(
+    registry, decision, published.provenance
+)
 eligibility = derive_eligibility(
-    published.manifest, published.manifest_hash, (provenance,), check_matrix(report)
+    published.manifest, published.manifest_hash, provenances, check_matrix(report)
 )
 eligibility_ref = publish_eligibility(runtime.data_root, eligibility)
 snapshot = registry.register(
     published.manifest, published.manifest_ref,
-    provenance, provenance_ref, eligibility, eligibility_ref,
+    published.provenance, published.provenance_ref, eligibility, eligibility_ref,
+)
+result = finalize_successful_import(
+    request, imported_at, preserved, validated_ref, validated_hash,
+    report, published, eligibility, snapshot
 )
 ~~~
 
@@ -2965,7 +3684,7 @@ snapshot = registry.register(
 Run: `py -3.14 -m pytest tests/data_foundation/test_importer.py -q`
 
 Expected: PASS for success, smoke, blocker, incomplete, not-implemented,
-repeat, collision and failure-evidence paths.
+repeat, identity-claim mismatch and failure-evidence paths.
 
 - [ ] **Step 6: Refactor stage dispatch, then prove no prohibited execution path**
 
@@ -3014,14 +3733,41 @@ def test_csv_parquet_reimport_query_and_invalidation_lifecycle(tmp_path: Path) -
     csv_result = import_local_dataset(spy_csv_request(), runtime(tmp_path))
     parquet_result = import_local_dataset(spy_parquet_request(), runtime(tmp_path))
     assert csv_result.import_manifest.import_id != parquet_result.import_manifest.import_id
+    assert tuple(map(daily_bar_semantic_payload, read_validated_rows(
+        tmp_path, csv_result.import_manifest
+    ))) == tuple(map(daily_bar_semantic_payload, read_validated_rows(
+        tmp_path, parquet_result.import_manifest
+    )))
     assert csv_result.canonical_manifest.dataset_identity.dataset_id == (
         parquet_result.canonical_manifest.dataset_identity.dataset_id
     )
-    binding = find_latest_eligible_dataset(requirement(), load_registry(tmp_path), ...)
+    current = load_registry(tmp_path)
+    matches = tuple(
+        item for item in current.snapshot.bindings
+        if (item.dataset_id, item.manifest_hash) == (
+            csv_result.canonical_manifest.dataset_identity.dataset_id,
+            csv_result.registry_binding.manifest_hash,
+        )
+    )
+    assert len(matches) == 1
+    assert len(matches[0].provenance_hashes) == 2
+    binding = find_latest_eligible_dataset(
+        requirement(), current, current.snapshot.snapshot_hash, capabilities()
+    )
     assert binding.dataset_id == csv_result.canonical_manifest.dataset_identity.dataset_id
     _, invalidated, _ = invalidate_exact_binding(binding, tmp_path)
     assert invalidated.state is DataEligibilityState.INVALIDATED
-    assert find_latest_eligible_dataset(requirement(), load_registry(tmp_path), ...).blocker_code is BlockerCode.DATA_CAPABILITY_BLOCKER
+    after = load_registry(tmp_path)
+    exact = tuple(
+        item for item in after.snapshot.bindings
+        if (item.dataset_id, item.manifest_hash)
+        == (binding.dataset_id, binding.manifest_hash)
+    )
+    assert len(exact) == 1
+    assert exact[0].eligibility_state is DataEligibilityState.INVALIDATED
+    assert find_latest_eligible_dataset(
+        requirement(), after, after.snapshot.snapshot_hash, capabilities()
+    ).blocker_code is BlockerCode.DATA_CAPABILITY_BLOCKER
 ~~~
 
 - [ ] **Step 3: Run RED**
@@ -3036,24 +3782,29 @@ reference required by the pipeline.
 Test helpers may create roots, local Parquet and requests; they must not call
 private publication or registry mutation helpers to bypass gates. Freeze the
 expected component names, identity equality, eligibility state, binding hashes,
-manifest revision and post-invalidation lookup result.
+manifest revision, one-current-binding invariant, two provenance associations
+and post-invalidation lookup result. CSV/Parquet equivalence is asserted over
+the persisted validated-candidate rows, never the parser output.
 
 ~~~python
 def materialize_parquet_fixture(root: Path, csv_request: DataImportRequest) -> Path:
-    rows = parse_csv_source(
-        FIXTURES / "valid-spy.csv", csv_request, fixture_calendar()
-    )
+    rows = fixture_spy_rows()
     path = root / "incoming" / "spy.parquet"
     write_test_parquet(path, rows, writer_profile())
     return path
 ~~~
 
+`fixture_spy_rows` is a test-owned literal tuple matching the CSV fixture; it
+does not call a production parser. Both public imports independently preserve,
+parse and validate their own input package before the comparison.
+
 - [ ] **Step 5: Run GREEN**
 
 Run: `py -3.14 -m pytest tests/data_foundation/test_end_to_end.py -q`
 
-Expected: PASS for SPY/QQQ CSV/Parquet equivalence, legal gaps, smoke-only
-exclusion, idempotent repeat and invalidation lifecycle.
+Expected: PASS for SPY/QQQ validated CSV/Parquet equivalence, legal gaps,
+smoke-only exclusion, one exact-pair binding with two provenances, and an
+invalidation lifecycle whose formal lookup ends in a blocker.
 
 - [ ] **Step 6: Refactor fixture factories, then run the complete V2.2A suite twice**
 
@@ -3143,12 +3894,14 @@ never claim network availability.
 
 ~~~python
 __all__ = (
-    "DataImportRequest", "DataImportRuntimeContext",
+    "DataImportRequest", "DataImportRuntimeContext", "PreservedImportInputs",
     "DailyBarRaw", "DailyBarAdjusted", "DailyGapRecord", "GapEvidence",
     "CorporateActionEvent", "CorporateActionEvidence", "AdjustmentFactor",
-    "DataValidationIssue", "DataValidationReport", "DatasetIdentity",
-    "DatasetProvenance", "DataImportManifest", "CanonicalDatasetManifest",
-    "DataEligibility", "InvalidationEvent", "RegistryBinding",
+    "DataValidationIssue", "DataValidationReport", "ValidatedDatasetCandidate",
+    "DailyDatasetValidationResult", "DatasetIdentity", "DatasetProvenance",
+    "DataImportManifest", "CanonicalDatasetDescriptor",
+    "CanonicalDatasetManifest", "PublishedCanonicalBundle", "DataEligibility",
+    "InvalidationEvent", "RegistryBinding",
     "import_local_dataset", "find_latest_eligible_dataset", "invalidate_dataset",
 )
 ~~~
@@ -3166,13 +3919,19 @@ TRACEABILITY_REQUIREMENTS = frozenset({
     "csv_parquet_equivalence", "lineage_excluded_from_identity",
     "physical_profile_excluded_from_identity", "empty_gap_component",
     "gap_reason_states", "smoke_only", "idempotent_reimport",
-    "identity_collision", "one_way_manifest_eligibility",
+    "identity_claim_mismatch", "one_way_manifest_eligibility",
+    "parser_order_preserved", "out_of_order_blocked",
+    "preserved_input_package", "original_mutation_isolated",
+    "validated_candidate_propagation", "publication_dependency_order",
+    "current_binding_uniqueness", "same_binding_provenance_update",
+    "cash_dividend_not_implemented",
+    "invalidation_no_partial_active_visibility",
     "atomic_invalidation", "windows_path_security", "v21_regression",
 })
 assert traceability_test_nodes() == TRACEABILITY_REQUIREMENTS
 ~~~
 
-- [ ] **Step 5: Run focused GREEN and compile checks**
+- [ ] **Step 5: Run GREEN focused tests and compile checks**
 
 Run:
 
@@ -3268,19 +4027,41 @@ Expected:
 
 Each task is accepted only after its RED evidence, minimal GREEN implementation,
 refactor, focused regression and commit are independently reviewable. The final
-review must confirm:
+review must run and record all sixteen gates:
 
-1. every frozen design requirement maps to Section 5 and a real test;
-2. every referenced type and function is defined in Section 3 or an existing
-   frozen owner;
-3. task dependencies match Section 6 and contain no forward ownership cycle;
-4. identity fields and lineage-only fields match Section 4 exactly;
-5. logical hashes, physical hashes and lineage hashes remain separate;
-6. manifest-to-eligibility references remain one-way;
-7. invalidation publishes the exact event/eligibility/snapshot triple atomically;
-8. Windows path checks occur at all four boundaries and never persist root;
-9. no task modifies V2.1 semantics, launches a provider or executes a backtest;
-10. the full regression and static-owner checks pass before final acceptance.
+1. **Spec coverage:** every frozen design and independent-review requirement
+   maps to Section 5 and a real test.
+2. **Placeholder scan:** none of the writing-plan failure phrases or an
+   undefined implementation step remains.
+3. **Type/signature consistency:** every referenced type and function has one
+   exact signature in Section 3 or an existing frozen owner.
+4. **Task dependency:** Section 6 contains no forward ownership cycle.
+5. **Ownership:** hashes, decimals, artifact binding, containment and registry
+   responsibilities stay with their named owner.
+6. **Identity/lineage:** Section 4 remains an allow-list and logical, physical
+   and lineage hashes stay separate.
+7. **Parser-before-validation:** CSV/Parquet adapters preserve raw order and
+   duplicates; out-of-order input is blocked before canonical sorting.
+8. **Raw-input/TOCTOU:** all declared inputs are contained, copied, hashed and
+   thereafter read only through `PreservedImportInputs`.
+9. **Validated-candidate propagation:** adjustment, identity and canonical
+   publication consume only a non-`None` `ValidatedDatasetCandidate`.
+10. **Publication dependency order:** descriptor reuse decision precedes
+    physical staging; provenance follows component file hashes; the complete
+    manifest follows provenance/report hashes.
+11. **Registry current-binding uniqueness:** every snapshot has at most one
+    current binding per `(dataset_id, manifest_hash)` and re-import replaces its
+    eligibility pointer while merging provenance associations.
+12. **Adjustment method:** `split-only-v1` and the no-actions identity factor
+    are the only implemented paths; cash dividends return NOT_IMPLEMENTED.
+13. **Atomic transaction:** invalidation activates only a verified complete
+    transaction directory by replacing the snapshot pointer last; inactive
+    complete orphans are not deleted or treated as active.
+14. **Design-to-test traceability:** every Section 5 node exists with the exact
+    file/name/result stated.
+15. **Diff check:** `git diff --check` reports no whitespace errors.
+16. **Commit scope:** only the planned files for the implementation task are
+    committed; V2.1 behavior, providers, backtests and V2.2B remain untouched.
 
 After Task 17, stop and request an independent implementation review. Do not
 start V2.2B.

@@ -60,6 +60,31 @@ slots=True)`、`enum.Enum`、`pathlib.Path`、`zoneinfo.ZoneInfo`、pandas
 - V2.1 的 19 个冻结公共接口、next-bar、成本、Buy and Hold、确认门禁和
   517-test baseline 不得退化。
 
+- Canonical JSON is fail-closed: V2.2A persists only recursive JSON
+  `null`/bool/int/string/list/mapping values with string mapping keys. `Path`,
+  `datetime`, `set`, `bytes`, every float (including NaN/Infinity), `Decimal`,
+  and custom objects are rejected before serialization; `default=str` is
+  prohibited.
+- `artifact_paths` are transient hash-time `Path` values only. Every V2.2A
+  persisted artifact, provenance, manifest, registry snapshot, eligibility and
+  import manifest contains only validated `RelativePath` references; an
+  absolute data root or resolved absolute file path is a blocker.
+- Registry activation is explicit and append-only. A formal lookup reads only
+  `active_manifest_by_dataset_id` and its `ManifestActivationEvent`; it never
+  infers activity from manifest revision, mtime, import time, or lexical order.
+- `DataEligibility.qualifying_provenance_hashes` is the explicit
+  formal-qualifying subset of one-to-one `ProvenanceAssociation` records. A
+  smoke re-import cannot lower VALID, a later local formal association upgrades
+  SMOKE_ONLY to VALID, and normal re-import never restores INVALIDATED.
+- `split-only-v1` uses only Decimal arithmetic on a latest-basis backward
+  adjustment: later effective events apply to earlier bars, multiplication is
+  cumulative and deterministically ordered, and the only quantization is the
+  final `0.000000000001` ROUND_HALF_EVEN conversion.
+- Before any Task 1 write/test implementation action, the dependency preflight
+  must prove installed `exchange-calendars==4.13.2` and `pyarrow==25.0.0`.
+  A missing or wrong version stops execution; it never runs pip or contacts a
+  package index.
+
 ## Independent Review Closure Map
 
 | Review item | Frozen closure | Tasks | Primary acceptance nodes |
@@ -73,6 +98,18 @@ slots=True)`、`enum.Enum`、`pathlib.Path`、`zoneinfo.ZoneInfo`、pandas
 | IMPORTANT 1 — hash/signature ambiguity | the only bundle helper is `component_logical_hashes`; publisher return is `PublishedCanonicalBundle`; inconsistent same-ID claims are `IDENTITY_CLAIM_MISMATCH` | 3, 9, 10, 12 | helper ownership, exact claim mismatch and frozen signature tests |
 | IMPORTANT 2 — invalidation transaction semantics | event, INVALIDATED eligibility and snapshot publish as one verified directory; active pointer is last; complete inactive orphans remain inactive | 13, 16 | no-partial-active-visibility, replay, current eligibility replacement and lifecycle tests |
 
+### Second independent review closure map
+
+| Review item | Frozen closure | Tasks | Primary acceptance nodes |
+|---|---|---:|---|
+| BLOCKER 1 – permissive canonical JSON | recursive validator and `allow_nan=False`; no writer fallback/string coercion | 1, 17 | `test_canonical_json_rejects_non_json_values` |
+| BLOCKER 2 – absolute persisted paths | transient `artifact_paths` are separated from serialized relative refs; legacy call behavior remains | 1, 10, 14, 17 | `test_v22a_artifact_refs_are_relative_and_separate_from_hash_paths` |
+| BLOCKER 3 – implicit active revision | activation event + snapshot mapping select one explicit manifest only | 11, 12, 13, 16 | activation/inactive-revision/no-fallback query tests |
+| BLOCKER 4 – provenance/eligibility ambiguity | one-to-one associations and qualifying subset control state transitions and provider ranking | 11, 12, 15 | smoke/local transition and qualifying-provider tests |
+| BLOCKER 5 – unrepresentable query result | `EligibleDatasetSelection` returns exact binding and chosen association/capability | 12, 16 | `test_formal_lookup_returns_selected_qualifying_provenance` |
+| IMPORTANT 1 – incomplete import evidence | every outcome publishes immutable import manifest binding final provenance/eligibility/snapshot where present | 10, 15, 16 | success/failure/final-link import-manifest tests |
+| IMPORTANT 2 – underspecified splits/preflight | explicit Decimal formula and no-network dependency gate precede implementation | 1, 7, 17 | boundary/cumulative/rounding/preflight tests |
+
 ---
 
 ## 1. Existing Owner and Dependency Map
@@ -81,7 +118,8 @@ slots=True)`、`enum.Enum`、`pathlib.Path`、`zoneinfo.ZoneInfo`、pandas
 |---|---|---|
 | Canonical payload hash | `tv_quant.run_manifest.canonical_hash(value: Mapping[str, Any]) -> str` | 所有 logical、identity、manifest、eligibility、registry payload 委托该函数 |
 | Bytes/file SHA-256 | `sha256_bytes(payload: bytes) -> str` / `sha256_file(path: Path) -> str` | 不导入 `hashlib` 到 data-foundation modules |
-| Artifact hash binding | `bind_artifact_hashes(manifest, artifact_paths)` | 以 backward-compatible `hashed_names` 参数扩展数据组件绑定 |
+| Canonical JSON validation/write | `tv_quant.run_manifest.validate_canonical_json_value` / `write_canonical_json_artifact` | strict JSON and serialized-relative-ref validation stay with the existing writer owner |
+| Artifact hash binding | `bind_artifact_hashes(manifest, artifact_paths, *, persisted_refs=None)` | `artifact_paths` are transient; V2.2A writes validated refs while the absent-ref branch preserves V2.1 |
 | Canonical numbers | `canonical_decimal(value, path) -> str` / `canonical_integer(value, path) -> int` | 所有价格、因子和 volume 通过现有 owner |
 | Path containment | `resolve_under_root(root, relative_path) -> Path` | 在全输入 preflight、preserved read/package publish、canonical publish、registry commit 前重复调用 |
 | Artifact ownership | `ArtifactContract` / `ARTIFACT_OWNERS` | 追加 versioned data artifact entries；旧 entries 和接口不变 |
@@ -125,6 +163,12 @@ CanonicalDecimal = str
 IsoDate = str
 UtcTimestamp = str
 RelativePath = str
+CanonicalJsonScalar = str | int | bool | None
+CanonicalJsonValue = (
+    CanonicalJsonScalar
+    | tuple["CanonicalJsonValue", ...]
+    | Mapping[str, "CanonicalJsonValue"]
+)
 
 class MarketDataSourceType(str, Enum):
     LOCAL_CSV = "LOCAL_CSV"
@@ -184,6 +228,12 @@ All persisted records use `@dataclass(frozen=True, slots=True)`, tuples instead
 of lists, `MappingProxyType` for nested mappings, lowercase 64-hex validation,
 and explicit `schema_version`. Every `*_payload` function returns only JSON
 scalar/list/mapping values accepted by the existing `canonical_hash` owner.
+`validate_canonical_json_value` walks every mapping key and array item before
+the writer runs: keys must be strings; supported values are `None`, `bool`,
+`int`, `str`, tuple/list and mapping. It rejects `float` before its finite
+state is considered, so NaN and both infinities fail closed alongside `Path`,
+`datetime`, `set`, `bytes`, `Decimal`, and arbitrary objects. Persisted refs
+are independently checked as non-absolute, normalized `RelativePath` values.
 
 ~~~python
 @dataclass(frozen=True, slots=True)
@@ -252,6 +302,7 @@ class DataImportRuntimeContext:
 class PreservedImportInputs:
     import_id: str
     inputs_root_ref: RelativePath
+    preserved_inputs_hash: Sha256Hex
     market_data_ref: RelativePath
     market_data_hash: Sha256Hex
     calendar_snapshot_ref: RelativePath
@@ -477,6 +528,7 @@ def corporate_action_evidence_semantic_payload(
 def adjustment_factor_semantic_payload(
     factor: AdjustmentFactor,
 ) -> Mapping[str, object]: ...
+def provenance_payload(provenance: "DatasetProvenance") -> Mapping[str, object]: ...
 def logical_component_hash(rows: Sequence[Mapping[str, object]]) -> Sha256Hex: ...
 def build_dataset_identity(bundle: LogicalDatasetBundle) -> DatasetIdentity: ...
 
@@ -523,6 +575,9 @@ class DatasetIdentity:
 class DatasetProvenance:
     provenance_id: Sha256Hex
     provenance_hash: Sha256Hex
+    import_id: str
+    request_hash: Sha256Hex
+    preserved_inputs_hash: Sha256Hex
     provider_id: str
     provider_capability_id: str
     provider_capability_version: str
@@ -574,7 +629,19 @@ class DataImportManifest:
     gap_evidence_hashes: tuple[Sha256Hex, ...]
     candidate_dataset_id: Sha256Hex | None
     final_dataset_id: Sha256Hex | None
+    final_provenance_ref: RelativePath | None
+    final_provenance_hash: Sha256Hex | None
+    final_eligibility_ref: RelativePath | None
+    final_eligibility_hash: Sha256Hex | None
+    final_registry_snapshot_ref: RelativePath | None
+    final_registry_snapshot_hash: Sha256Hex | None
     blocker_codes: tuple[BlockerCode, ...]
+
+@dataclass(frozen=True, slots=True)
+class PublishedImportManifest:
+    manifest: DataImportManifest
+    manifest_ref: RelativePath
+    manifest_hash: Sha256Hex
 
 @dataclass(frozen=True, slots=True)
 class CanonicalDatasetDescriptor:
@@ -663,6 +730,29 @@ class DataEligibility:
     invalidation_reason: str | None
 
 @dataclass(frozen=True, slots=True)
+class ProvenanceAssociation:
+    provenance_ref: RelativePath
+    provenance_hash: Sha256Hex
+    import_id: str
+    request_hash: Sha256Hex
+    provider_capability_id: str
+    source_type: MarketDataSourceType
+    qualifies_for_formal: bool
+
+@dataclass(frozen=True, slots=True)
+class ManifestActivationEvent:
+    event_schema_version: str
+    activation_event_id: Sha256Hex
+    activation_event_hash: Sha256Hex
+    dataset_id: Sha256Hex
+    manifest_hash: Sha256Hex
+    prior_manifest_hash: Sha256Hex | None
+    reason_code: str
+    actor_ref: str
+    event_timestamp_utc: UtcTimestamp
+    parent_registry_snapshot_hash: Sha256Hex
+
+@dataclass(frozen=True, slots=True)
 class InvalidationEvent:
     event_schema_version: str
     invalidation_event_id: Sha256Hex
@@ -686,9 +776,14 @@ class RegistryBinding:
     eligibility_ref: RelativePath
     eligibility_hash: Sha256Hex
     eligibility_state: DataEligibilityState
-    provenance_refs: tuple[RelativePath, ...]
-    provenance_hashes: tuple[Sha256Hex, ...]
-    provider_capability_ids: tuple[str, ...]
+    provenance_associations: tuple[ProvenanceAssociation, ...]
+
+@dataclass(frozen=True, slots=True)
+class EligibleDatasetSelection:
+    binding: RegistryBinding
+    selected_provenance_ref: RelativePath
+    selected_provenance_hash: Sha256Hex
+    selected_provider_capability_id: str
 
 @dataclass(frozen=True, slots=True)
 class RegistrySnapshot:
@@ -697,6 +792,8 @@ class RegistrySnapshot:
     parent_snapshot_hash: Sha256Hex | None
     bindings: tuple[RegistryBinding, ...]
     invalidation_event_refs: tuple[RelativePath, ...]
+    active_manifest_by_dataset_id: Mapping[Sha256Hex, Sha256Hex]
+    manifest_activation_event_refs: tuple[RelativePath, ...]
 
 @dataclass(frozen=True, slots=True)
 class DataFoundationOperationResult:
@@ -714,6 +811,8 @@ class DataFoundationOperationResult:
 class ImportLocalDatasetResult:
     operation: DataFoundationOperationResult
     import_manifest: DataImportManifest
+    import_manifest_ref: RelativePath
+    import_manifest_hash: Sha256Hex
     validation_report: DataValidationReport | None
     canonical_manifest: CanonicalDatasetManifest | None
     eligibility: DataEligibility | None
@@ -731,6 +830,11 @@ def publish_canonical_bundle(
     writer_profile: Mapping[str, object],
 ) -> PublishedCanonicalBundle: ...
 
+def publish_import_manifest(
+    root: Path,
+    manifest: DataImportManifest,
+) -> PublishedImportManifest: ...
+
 def build_canonical_descriptor(
     bundle: LogicalDatasetBundle,
     identity: DatasetIdentity,
@@ -741,7 +845,14 @@ class MarketDataRegistry:
     def load(cls, root: Path, snapshot_ref: RelativePath) -> MarketDataRegistry: ...
     @property
     def snapshot(self) -> RegistrySnapshot: ...
-    def binding_for(self, dataset_id: Sha256Hex) -> RegistryBinding | None: ...
+    @property
+    def snapshot_ref(self) -> RelativePath: ...
+    def binding_for_exact(
+        self,
+        dataset_id: Sha256Hex,
+        manifest_hash: Sha256Hex,
+    ) -> RegistryBinding | None: ...
+    def active_binding_for(self, dataset_id: Sha256Hex) -> RegistryBinding | None: ...
     def load_manifest(self, binding: RegistryBinding) -> CanonicalDatasetManifest: ...
     def load_provenances(
         self,
@@ -756,13 +867,22 @@ class MarketDataRegistry:
         eligibility: DataEligibility,
         eligibility_ref: RelativePath,
     ) -> RegistrySnapshot: ...
+    def activate_manifest(
+        self,
+        dataset_id: Sha256Hex,
+        manifest_hash: Sha256Hex,
+        expected_snapshot_hash: Sha256Hex,
+        reason_code: str,
+        actor_ref: str,
+        event_timestamp_utc: UtcTimestamp,
+    ) -> tuple[ManifestActivationEvent, RegistrySnapshot]: ...
 
 def find_latest_eligible_dataset(
     requirement: DatasetRequirement,
     registry: MarketDataRegistry,
     expected_snapshot_hash: Sha256Hex,
     capability_registry: CapabilityRegistry,
-) -> RegistryBinding | DataFoundationOperationResult: ...
+) -> EligibleDatasetSelection | DataFoundationOperationResult: ...
 
 def invalidate_dataset(
     registry: MarketDataRegistry,
@@ -788,6 +908,11 @@ These helpers remain private to their named module. Their signatures are frozen
 here so task snippets do not depend on implicit functions.
 
 ~~~python
+# run_manifest.py -- existing canonical JSON owner; this is not a second path
+# containment owner. It only rejects nonportable serialized refs before JSON.
+def validate_canonical_json_value(value: object, path: str = "$") -> None: ...
+def validate_persisted_relative_ref(value: object, path: str) -> RelativePath: ...
+
 # projections.py
 def component_logical_hashes(bundle: LogicalDatasetBundle) -> Mapping[str, Sha256Hex]: ...
 def project_raw(rows: tuple[DailyBarRaw, ...]) -> tuple[Mapping[str, object], ...]: ...
@@ -846,6 +971,12 @@ def run_check(
 ) -> tuple[DataValidationIssue, ...]: ...
 
 # adjustments.py
+from decimal import Decimal, ROUND_HALF_EVEN, localcontext
+
+SPLIT_METHOD_ID = "split-only-v1"
+SPLIT_WORKING_PRECISION = 80
+SPLIT_QUANTUM = Decimal("0.000000000001")
+SPLIT_ROUNDING = ROUND_HALF_EVEN
 def mul_price(value: CanonicalDecimal, factor: CanonicalDecimal) -> CanonicalDecimal: ...
 def mul_volume(
     value: int | CanonicalDecimal | None,
@@ -855,6 +986,14 @@ def factor_for_trading_date(
     factors: tuple[AdjustmentFactor, ...],
     trading_date: IsoDate,
 ) -> AdjustmentFactor: ...
+def ordered_split_events(
+    events: tuple[CorporateActionEvent, ...],
+) -> tuple[CorporateActionEvent, ...]: ...
+def backward_factor_for_date(
+    trading_date: IsoDate,
+    events: tuple[CorporateActionEvent, ...],
+) -> tuple[CanonicalDecimal, CanonicalDecimal, tuple[Sha256Hex, ...]]: ...
+def quantize_final_adjusted_decimal(value: Decimal) -> Decimal: ...
 
 # artifacts.py
 CANONICAL_MANIFEST_NAME = "canonical-dataset-manifest.json"
@@ -911,6 +1050,9 @@ def publish_import_provenance(
     import_id: str,
     provenance: DatasetProvenance,
 ) -> RelativePath: ...
+def data_import_manifest_payload(
+    manifest: DataImportManifest,
+) -> Mapping[str, object]: ...
 def build_complete_manifest(
     descriptor: CanonicalDatasetDescriptor,
     component_file_hashes: Mapping[str, Sha256Hex],
@@ -939,19 +1081,30 @@ def descriptor_payload(
 def descriptor_from_manifest(
     manifest: CanonicalDatasetManifest,
 ) -> CanonicalDatasetDescriptor: ...
-def require_nonempty_provenances(
-    provenances: tuple[DatasetProvenance, ...],
-) -> None: ...
+def association_for_provenance(
+    provenance: DatasetProvenance,
+    provenance_ref: RelativePath,
+) -> ProvenanceAssociation: ...
+def merge_provenance_associations(
+    prior: tuple[ProvenanceAssociation, ...],
+    new: ProvenanceAssociation,
+) -> tuple[ProvenanceAssociation, ...]: ...
+def qualifying_association_hashes(
+    associations: tuple[ProvenanceAssociation, ...],
+) -> tuple[Sha256Hex, ...]: ...
 def build_hashed_eligibility(**fields: object) -> DataEligibility: ...
 def verify_binding(
     manifest: CanonicalDatasetManifest,
     manifest_hash: Sha256Hex,
     eligibility: DataEligibility,
-    provenances: tuple[DatasetProvenance, ...],
+    associations: tuple[ProvenanceAssociation, ...],
 ) -> None: ...
 def build_registry_snapshot(
     parent_hash: Sha256Hex | None,
     bindings: tuple[RegistryBinding, ...],
+    invalidation_event_refs: tuple[RelativePath, ...],
+    active_manifest_by_dataset_id: Mapping[Sha256Hex, Sha256Hex],
+    manifest_activation_event_refs: tuple[RelativePath, ...],
 ) -> RegistrySnapshot: ...
 def upsert_current_binding(
     bindings: tuple[RegistryBinding, ...],
@@ -964,16 +1117,24 @@ def verify_and_filter_bindings(
     expected_snapshot_hash: Sha256Hex,
 ) -> tuple[RegistryBinding, ...]: ...
 def load_eligibility(binding: RegistryBinding) -> DataEligibility: ...
+def select_qualifying_association(
+    binding: RegistryBinding,
+    eligibility: DataEligibility,
+    provider_capability_id: str,
+) -> ProvenanceAssociation | None: ...
 def select_without_content_conflict(
-    bindings: tuple[RegistryBinding, ...],
-) -> RegistryBinding: ...
+    selections: tuple[EligibleDatasetSelection, ...],
+) -> EligibleDatasetSelection: ...
+def require_explicit_active_binding(
+    registry: MarketDataRegistry,
+    dataset_id: Sha256Hex,
+) -> RegistryBinding | None: ...
 def capability_blocker(issue_code: str) -> DataFoundationOperationResult: ...
 def replace_prior_as_invalidated(
     prior: DataEligibility,
     event_id: Sha256Hex,
     event_hash: Sha256Hex,
 ) -> DataEligibility: ...
-
 class RegistryTransaction:
     def stage_json(self, name: str, payload: Mapping[str, object]) -> None: ...
     def verify_all_hashes(self) -> None: ...
@@ -991,6 +1152,15 @@ def is_reparse_point(path: Path) -> bool: ...
 def volume_identity(path: Path) -> tuple[int, int]: ...
 
 # importer.py
+def finalize_and_publish_import_manifest(
+    root: Path,
+    manifest: DataImportManifest,
+    operation: DataFoundationOperationResult,
+    validation_report: DataValidationReport | None,
+    canonical_manifest: CanonicalDatasetManifest | None,
+    eligibility: DataEligibility | None,
+    registry_binding: RegistryBinding | None,
+) -> ImportLocalDatasetResult: ...
 def load_preserved_calendar(
     preserved: PreservedImportInputs,
     runtime: DataImportRuntimeContext,
@@ -1021,6 +1191,7 @@ def assemble_candidate(
     calendar_ref: TradingCalendarRef,
 ) -> NormalizedDatasetCandidate: ...
 def finalize_failed_import(
+    root: Path,
     request: DataImportRequest,
     import_id: str,
     imported_at: UtcTimestamp,
@@ -1028,6 +1199,7 @@ def finalize_failed_import(
     error: DataFoundationError,
 ) -> ImportLocalDatasetResult: ...
 def finalize_nonvalid_import(
+    root: Path,
     request: DataImportRequest,
     import_id: str,
     imported_at: UtcTimestamp,
@@ -1061,6 +1233,7 @@ def publish_eligibility(
     eligibility: DataEligibility,
 ) -> RelativePath: ...
 def finalize_successful_import(
+    root: Path,
     request: DataImportRequest,
     imported_at: UtcTimestamp,
     preserved: PreservedImportInputs,
@@ -1098,6 +1271,7 @@ for traceability but is excluded from dataset identity.
 | DailyBarRaw | volume_status | Y | N | Y |
 | DailyBarRaw | source_row_ref | N | Y | Y |
 | PreservedImportInputs | import_id/inputs_root_ref | N | Y | Y |
+| PreservedImportInputs | preserved_inputs_hash | N | Y | Y |
 | PreservedImportInputs | market-data ref/hash | N | Y | Y |
 | PreservedImportInputs | calendar snapshot ref/hash | N | Y | Y |
 | PreservedImportInputs | gap evidence refs/hashes | N | Y | Y |
@@ -1146,7 +1320,7 @@ for traceability but is excluded from dataset identity.
 | CorporateActionEvidence | source/provider/original-file fields | N | Y | Y |
 | CorporateActionEvidence | source_event_refs | N | Y | Y |
 | CorporateActionEvidence | validation_status/blocker_codes | N | Y | Y |
-| DatasetProvenance | provenance_id/provenance_hash | N | Y | Y |
+| DatasetProvenance | provenance_id/provenance_hash/import_id/request_hash/preserved_inputs_hash | N | Y | Y |
 | DatasetProvenance | provider/source/original-file fields | N | Y | Y |
 | DatasetProvenance | import_timestamp_utc | N | Y | Y |
 | DatasetProvenance | schema/calendar/timezone fields | N | Y | Y |
@@ -1171,6 +1345,12 @@ for traceability but is excluded from dataset identity.
 | CanonicalDatasetManifest | writer/compression/row-group/metadata profile | N | Y | Y |
 | CanonicalDatasetManifest | parent_dataset_id | N | Y | Y |
 | DataImportManifest | preserved_inputs | N | Y | Y |
+| DataImportManifest | final provenance/eligibility/registry snapshot refs/hashes | N | Y | Y |
+| PublishedImportManifest | manifest ref/hash | N | Y | Y |
+| ProvenanceAssociation | exact provenance ref/hash/import/provider capability/formal qualifier | N | Y | Y |
+| RegistryBinding | provenance associations and eligibility pointer | N | Y | Y |
+| ManifestActivationEvent | active manifest selection/audit fields | N | Y | Y |
+| RegistrySnapshot | explicit active-manifest mapping/activation refs | N | Y | Y |
 
 Physical Parquet parameters never enter `DatasetIdentity`. Logical and physical
 hashes remain separate. No projection function may call a new hash helper;
@@ -1226,6 +1406,24 @@ descriptor and therefore cannot be used to decide logical reuse.
 | static duplicate-owner/security checks | 17 | `tests/data_foundation/test_static_ownership.py` | `test_data_foundation_reuses_existing_owners_and_has_no_network_path` | no forbidden definitions/imports |
 | V2.1 regression | 17 | existing full suite | `py -3.14 -m pytest tests -q` | 517 existing tests plus V2.2A tests pass |
 
+| canonical JSON rejects non-JSON values | 1 | `tests/data_foundation/test_registration.py` | `test_canonical_json_rejects_non_json_values` | Path/datetime/set/bytes/float/custom objects fail closed |
+| absolute root absent from persisted artifacts | 1, 10, 17 | `tests/data_foundation/test_artifacts.py` | `test_persisted_v22a_payloads_never_contain_absolute_root` | no serialized value contains runtime root |
+| artifact file paths and persisted refs are separate | 1 | `tests/contracts/test_artifact_contract.py` | `test_v22a_artifact_refs_are_relative_and_separate_from_hash_paths` | transient paths hash files; persisted payload has refs only |
+| explicit active manifest revision only | 11 | `tests/data_foundation/test_registry.py` | `test_activate_manifest_records_explicit_mapping_and_event` | snapshot mapping/event selects exact hash |
+| inactive higher revision is not automatically selected | 12 | `tests/data_foundation/test_registry_query.py` | `test_formal_lookup_ignores_inactive_higher_revision` | higher revision is ignored without activation |
+| active invalidated revision does not silently fall back | 13 | `tests/data_foundation/test_invalidation.py` | `test_active_invalidated_revision_has_no_fallback` | typed blocker; active mapping remains invalidated hash |
+| smoke then formal produces current VALID | 11 | `tests/data_foundation/test_registry.py` | `test_smoke_then_local_transition_upgrades_current_to_valid` | VALID and formal eligible |
+| formal then smoke keeps current VALID | 11 | `tests/data_foundation/test_registry.py` | `test_local_then_smoke_transition_keeps_current_valid` | VALID is retained |
+| provider preference uses qualifying provenance only | 12 | `tests/data_foundation/test_registry_query.py` | `test_provider_preference_uses_qualifying_associations_only` | non-qualifying provider cannot rank selection |
+| selected provenance is returned by formal lookup | 12 | `tests/data_foundation/test_registry_query.py` | `test_formal_lookup_returns_selected_qualifying_provenance` | exact binding/ref/hash/capability returned |
+| provenance contains unique import_id | 15 | `tests/data_foundation/test_importer.py` | `test_repeat_same_file_provider_fixed_clock_has_distinct_provenance_import_ids` | distinct import IDs and provenance hashes |
+| successful and failed imports publish immutable import manifests | 15 | `tests/data_foundation/test_importer.py` | `test_successful_and_failed_imports_publish_immutable_import_manifests` | result always has ref/hash and stored payload |
+| finalized import manifest binds provenance/eligibility/registry | 15 | `tests/data_foundation/test_importer.py` | `test_success_import_manifest_binds_final_provenance_eligibility_and_registry` | final refs/hashes match returned records |
+| split effective-date boundary | 7 | `tests/data_foundation/test_adjustments.py` | `test_split_backward_adjustment_excludes_event_on_effective_bar` | only events with effective date later than bar apply |
+| cumulative split factors | 7 | `tests/data_foundation/test_adjustments.py` | `test_split_backward_adjustment_uses_cumulative_later_events` | reciprocal price/direct volume products |
+| split rounding and deterministic precision | 7 | `tests/data_foundation/test_adjustments.py` | `test_split_adjustment_quantizes_once_with_half_even_precision` | Decimal-only, deterministic, no intermediate rounding |
+| missing exchange-calendars stops before Task 1 execution | 1 | `tests/data_foundation/test_registration.py` | `test_pre_task1_dependency_preflight_stops_when_required_version_missing` | dependency gate exits before write/test task work |
+
 ### 5.1 Test helper contract
 
 Every helper name used in a test snippet is a private function defined above
@@ -1235,11 +1433,14 @@ production validation, publication, eligibility or registry gate.
 
 ~~~python
 def valid_request(**changes: object) -> DataImportRequest: ...
+def canonical_json_values() -> tuple[object, ...]: ...
+def persisted_payloads(root: Path) -> tuple[Mapping[str, object], ...]: ...
 def valid_eligibility_fields() -> dict[str, object]: ...
 def dataclass_payload(value: object) -> Mapping[str, object]: ...
 def utc_clock() -> datetime: ...
 def uuid_factory() -> UUID: ...
 def raw_bar(**changes: object) -> DailyBarRaw: ...
+def bar(*, date: IsoDate = "2026-01-09", **changes: object) -> DailyBarRaw: ...
 def bundle_with(**changes: object) -> LogicalDatasetBundle: ...
 def gap_evidence(**changes: object) -> GapEvidence: ...
 def csv_request(**changes: object) -> DataImportRequest: ...
@@ -1270,6 +1471,8 @@ def conflicting_rows() -> tuple[DailyBarRaw, DailyBarRaw]: ...
 def earlier_bar() -> DailyBarRaw: ...
 def later_bar() -> DailyBarRaw: ...
 def cash_dividend_event() -> CorporateActionEvent: ...
+def split_event(*, effective_date: IsoDate, ratio: CanonicalDecimal) -> CorporateActionEvent: ...
+def apply_split_decimal(value: CanonicalDecimal, ratio: CanonicalDecimal) -> CanonicalDecimal: ...
 def bundle(**changes: object) -> LogicalDatasetBundle: ...
 def identity_for(value: LogicalDatasetBundle) -> DatasetIdentity: ...
 def claimed_identity(
@@ -1294,6 +1497,8 @@ def read_manifest(bundle: PublishedCanonicalBundle) -> Mapping[str, object]: ...
 def manifest(**changes: object) -> CanonicalDatasetManifest: ...
 def manifest_hash() -> Sha256Hex: ...
 def smoke_provenance() -> DatasetProvenance: ...
+def local_provenance() -> DatasetProvenance: ...
+def association(provenance: DatasetProvenance, *, qualifies: bool) -> ProvenanceAssociation: ...
 def all_checks_true() -> Mapping[str, bool]: ...
 def eligibility_fields() -> dict[str, object]: ...
 def registry() -> MarketDataRegistry: ...
@@ -1309,11 +1514,18 @@ def register_dataset(
     *,
     provider: str,
 ) -> RegistrationTestResult: ...
-def requirement() -> DatasetRequirement: ...
+def requirement(**changes: object) -> DatasetRequirement: ...
 def smoke_registry() -> MarketDataRegistry: ...
 def snapshot_hash() -> Sha256Hex: ...
 def capabilities() -> CapabilityRegistry: ...
 def registry_with_two_revisions() -> MarketDataRegistry: ...
+def registry_with_active_and_inactive_revisions() -> MarketDataRegistry: ...
+def qualifying_registry() -> MarketDataRegistry: ...
+def activate_exact_manifest(
+    registry: MarketDataRegistry,
+    dataset_id: Sha256Hex,
+    manifest_hash: Sha256Hex,
+) -> tuple[ManifestActivationEvent, RegistrySnapshot]: ...
 def binding(snapshot: RegistrySnapshot, manifest_hash: Sha256Hex) -> RegistryBinding: ...
 def invalidate_twice_same_request() -> tuple[InvalidationEvent, DataEligibility, RegistrySnapshot]: ...
 def invalidate_once() -> tuple[InvalidationEvent, DataEligibility, RegistrySnapshot]: ...
@@ -1335,7 +1547,7 @@ def unsafe_last_evidence_request() -> DataImportRequest: ...
 def mutate_during_preserved_copy(monkeypatch: pytest.MonkeyPatch) -> None: ...
 def publish_contained_bundle() -> PublishedCanonicalBundle: ...
 def valid_csv_request() -> DataImportRequest: ...
-def runtime(root: Path) -> DataImportRuntimeContext: ...
+def runtime(root: Path, *, fixed_clock: bool = False) -> DataImportRuntimeContext: ...
 def preserved_inputs(root: Path, import_id: str = "import-1") -> PreservedImportInputs: ...
 def mutate_original_inputs_after_preservation(
     monkeypatch: pytest.MonkeyPatch,
@@ -1351,6 +1563,7 @@ def identity_from_preserved_bytes(
 ) -> DatasetIdentity: ...
 def request_with_identical_duplicate() -> DataImportRequest: ...
 def cash_dividend_request() -> DataImportRequest: ...
+def missing_source_request() -> DataImportRequest: ...
 def record_parser_paths(monkeypatch: pytest.MonkeyPatch) -> list[Path]: ...
 def record_canonicalization_candidates(
     monkeypatch: pytest.MonkeyPatch,
@@ -1360,10 +1573,12 @@ def read_canonical_component(
     component_name: str,
 ) -> pa.Table: ...
 def import_with_forced_outcome(outcome: ValidationOutcome) -> ImportLocalDatasetResult: ...
+def read_import_manifest(root: Path, result: ImportLocalDatasetResult) -> Mapping[str, object]: ...
 def import_with_gap_reason(reason: GapReasonCode) -> ImportLocalDatasetResult: ...
 def spy_csv_request() -> DataImportRequest: ...
 def spy_parquet_request() -> DataImportRequest: ...
 def load_registry(root: Path) -> MarketDataRegistry: ...
+def load_snapshot(snapshot: RegistrySnapshot) -> MarketDataRegistry: ...
 def invalidate_exact_binding(binding: RegistryBinding, root: Path) -> tuple[InvalidationEvent, DataEligibility, RegistrySnapshot]: ...
 def fixture_calendar() -> TradingCalendarRef: ...
 def fixture_spy_rows() -> tuple[DailyBarRaw, ...]: ...
@@ -1413,6 +1628,7 @@ def bind_artifact_hashes(
     manifest: Mapping[str, Any],
     artifact_paths: Mapping[str, Path],
     *,
+    persisted_refs: Mapping[str, RelativePath] | None = None,
     hashed_names: tuple[str, ...] = HASHED_ARTIFACT_NAMES,
 ) -> dict[str, object]: ...
 
@@ -1429,6 +1645,31 @@ def write_canonical_json_artifact(
 ) -> None: ...
 ~~~
 
+- [ ] **Step 0: Run the no-network dependency preflight before Task 1 work**
+
+Run this command before creating Task 1 files, changing requirements, or
+running its RED suite. It inspects installed distribution metadata only and
+must not contain `pip`, `install`, an index URL, or a network client:
+
+~~~powershell
+$required = @{
+  "exchange-calendars" = "4.13.2"
+  "pyarrow" = "25.0.0"
+}
+$missing = foreach ($entry in $required.GetEnumerator()) {
+  $raw = py -3.14 -c "import importlib.metadata as m; print(m.version('$($entry.Key)'))" 2>$null
+  $actual = if ($null -eq $raw) { "" } else { ([string]$raw).Trim() }
+  if ($LASTEXITCODE -ne 0 -or $actual -ne $entry.Value) {
+    "$($entry.Key)==$($entry.Value) (installed: $actual)"
+  }
+}
+if ($missing) { throw "V2.2A dependency preflight failed; stop before Task 1: $($missing -join '; ')" }
+~~~
+
+Expected: both exact versions are installed. If either is missing or wrong,
+stop the implementation plan immediately, report the missing dependency, and
+do not install, download, or otherwise modify the environment.
+
 - [ ] **Step 1: Write registration and backward-compatibility tests**
 
 ~~~python
@@ -1442,6 +1683,25 @@ def test_v22a_capabilities_start_blocked_and_existing_v21_records_coexist() -> N
 def test_extended_artifact_binding_preserves_legacy_default(tmp_path: Path) -> None:
     assert inspect.signature(bind_artifact_hashes).parameters["hashed_names"].kind.name == "KEYWORD_ONLY"
     assert ArtifactContract().owners == ARTIFACT_OWNERS
+
+@pytest.mark.parametrize("value", [
+    Path("x"), datetime(2026, 8, 2), {"x"}, b"x", float("nan"),
+    float("inf"), object(),
+])
+def test_canonical_json_rejects_non_json_values(tmp_path: Path, value: object) -> None:
+    with pytest.raises(TypeError, match="canonical JSON"):
+        write_canonical_json_artifact(tmp_path / "x.json", {"value": value})
+
+def test_v22a_artifact_refs_are_relative_and_separate_from_hash_paths(tmp_path: Path) -> None:
+    path = tmp_path / "artifact.json"
+    path.write_text("{}", encoding="utf-8")
+    bound = bind_artifact_hashes(
+        {"schema_version": "v2.2a"}, {"report": path},
+        persisted_refs={"report": "reports/import-1/report.json"},
+        hashed_names=("report",),
+    )
+    assert bound["artifact_refs"] == {"report": "reports/import-1/report.json"}
+    assert "artifact_paths" not in bound and str(tmp_path) not in json.dumps(bound)
 ~~~
 
 - [ ] **Step 2: Run RED focused tests**
@@ -1496,32 +1756,54 @@ an existing owner module/function; no V2.2A module becomes a hash ledger.
 - [ ] **Step 4: Extend the existing bind/provenance functions without breaking old calls**
 
 ~~~python
-def bind_artifact_hashes(manifest, artifact_paths, *, hashed_names=HASHED_ARTIFACT_NAMES):
+def bind_artifact_hashes(
+    manifest, artifact_paths, *, persisted_refs=None,
+    hashed_names=HASHED_ARTIFACT_NAMES,
+):
     names = tuple(hashed_names)
     missing = tuple(name for name in names if name not in artifact_paths)
     if missing:
         raise ValueError(f"artifact_paths: missing {missing!r}")
     bound = dict(manifest)
-    bound["artifact_paths"] = {name: str(artifact_paths[name]) for name in sorted(artifact_paths)}
     bound["artifact_hashes"] = {name: sha256_file(Path(artifact_paths[name])) for name in names}
-    if "strategy_config" in artifact_paths:
+    if persisted_refs is None:  # frozen V2.1 compatibility branch
+        bound["artifact_paths"] = {
+            name: str(artifact_paths[name]) for name in sorted(artifact_paths)
+        }
+    else:  # mandatory V2.2A branch
+        if set(persisted_refs) != set(artifact_paths):
+            raise ValueError("persisted_refs: exact artifact key set required")
+        bound["artifact_refs"] = {
+            name: validate_persisted_relative_ref(persisted_refs[name], f"artifact_refs.{name}")
+            for name in sorted(persisted_refs)
+        }
+    if persisted_refs is None and "strategy_config" in artifact_paths:
         bound["strategy_config_path"] = str(artifact_paths["strategy_config"])
         bound["strategy_config_file_hash"] = sha256_file(Path(artifact_paths["strategy_config"]))
     return bound
 
 def write_canonical_json_artifact(path, payload):
+    validate_canonical_json_value(payload)
     path.write_text(
         json.dumps(
             payload,
             ensure_ascii=False,
             sort_keys=True,
             separators=(",", ":"),
-            default=str,
+            allow_nan=False,
         ) + "\n",
         encoding="utf-8",
         newline="\n",
     )
 ~~~
+
+`artifact_paths` is never serialized by the V2.2A branch: it exists only while
+`sha256_file` reads bytes. `persisted_refs` must be exact-key, validated
+relative refs, and every Task 10+ caller supplies it. The `persisted_refs is
+None` branch is the frozen V2.1 behavior, including its legacy
+`artifact_paths`/`strategy_config_path` fields. V2.2A manifests, provenance,
+registry snapshots, eligibility and import manifests reject absolute strings
+at their payload constructors as a second defense.
 
 `write_data_provenance` keeps its legacy payload when `payload is None`. In
 typed mode it validates `schema_version == "v2.2a"`, writes sorted UTF-8 JSON,
@@ -1530,6 +1812,9 @@ and never computes a hash itself.
 sorted-key, UTF-8, fixed-separator JSON serialization for validation reports,
 manifests, eligibilities, registry snapshots and invalidation events. V2.2A
 modules assemble typed payloads and delegate every JSON write to this owner.
+The same validator is called by `canonical_hash` before canonical encoding, so
+hash-time and write-time payload acceptance cannot diverge; V2.1 payload tests
+must continue to pass without stringifying unsupported runtime objects.
 
 - [ ] **Step 5: Run GREEN and regression tests**
 
@@ -1596,10 +1881,6 @@ def test_runtime_root_is_not_serializable_or_hashable(tmp_path: Path) -> None:
     with pytest.raises(TypeError, match="runtime context is not persistable"):
         dataclass_payload(runtime)
 
-@pytest.mark.parametrize("state", ["BLOCKED", "INCOMPLETE", "NOT_IMPLEMENTED"])
-def test_data_eligibility_rejects_operation_outcomes(state: str) -> None:
-    with pytest.raises(ValueError, match="DataEligibilityState"):
-        DataEligibility(state=state, **valid_eligibility_fields())
 ~~~
 
 - [ ] **Step 2: Run RED**
@@ -2195,8 +2476,30 @@ def test_cash_dividend_is_an_explicit_capability_blocker() -> None:
 
 Add split direction, bad dates, source-event ref mismatch, duplicate conflicting
 event ID, unsupported method, adjusted OHLC rules, and adjusted-only input
-rejection. The only supported first-release method is `split-only-v1`; no
-combined split-and-dividend method or cash-dividend formula exists.
+rejection. Add these frozen boundary/precision tests:
+
+~~~python
+def test_split_backward_adjustment_excludes_event_on_effective_bar() -> None:
+    rows = (bar(date="2026-01-09"), bar(date="2026-01-10"))
+    event = split_event(effective_date="2026-01-10", ratio="2")
+    adjusted = apply_adjustments(rows, derive_adjustment_factors((event,), evidence(), "split-only-v1"), "split-only-v1")
+    assert adjusted[0].adjusted_close == "50"
+    assert adjusted[1].adjusted_close == "100"
+
+def test_split_backward_adjustment_uses_cumulative_later_events() -> None:
+    events = (split_event(effective_date="2026-01-10", ratio="2"),
+              split_event(effective_date="2026-01-20", ratio="3"))
+    factor = factor_for_trading_date(derive_adjustment_factors(events, evidence(), "split-only-v1"), "2026-01-09")
+    assert (factor.price_factor, factor.volume_factor) == ("0.166666666667", "6")
+
+def test_split_adjustment_quantizes_once_with_half_even_precision() -> None:
+    assert apply_split_decimal("1", "6") == "0.166666666667"
+    assert apply_split_decimal("1", "2.000000000002") == "0.499999999999"
+    assert apply_split_decimal("1", "6") == apply_split_decimal("1", "6")
+~~~
+
+The only supported first-release method is `split-only-v1`; no combined
+split-and-dividend method or cash-dividend formula exists.
 
 - [ ] **Step 2: Run RED**
 
@@ -2252,10 +2555,35 @@ def apply_one(bar: DailyBarRaw, factor: AdjustmentFactor) -> DailyBarAdjusted:
     )
 ~~~
 
+`split-only-v1` is frozen as follows. It normalizes all ratio/value strings
+through the existing finite numeric owner, converts them to `Decimal`, and runs
+the multiplication/division sequence under `localcontext().prec == 80`. For a
+bar date `d`, include exactly SPLIT events `e` where
+`e.effective_trading_date > d`, order them by
+`(effective_trading_date, event_id)`, and calculate on the latest basis:
+
+~~~text
+price_factor(d)  = product(Decimal("1") / e.split_ratio for e in ordered_later_events)
+volume_factor(d) = product(e.split_ratio for e in ordered_later_events)
+adjusted_price   = raw_price * price_factor(d)
+adjusted_volume  = raw_volume * volume_factor(d)
+~~~
+
+No intermediate `quantize`, float conversion or rounding is permitted.
+Immediately before serialization, each adjusted decimal is quantized once to
+`Decimal("0.000000000001")` with `ROUND_HALF_EVEN`; price uses
+`canonical_decimal`. Volume uses the same final quantization and then
+`canonical_integer` only if the quantized value is integral, otherwise
+`canonical_decimal`. `NO_ACTIONS_IN_RANGE` produces the exact `("1", "1")`
+identity factor. The existing unique numeric policy is canonical finite-string
+serialization and has no rounding quantum; therefore this method-specific final
+quantization does not conflict. If implementation finds another unique numeric
+owner specifying a conflicting quantization or rounding rule, stop and report
+the conflict instead of selecting a rule.
+
 `mul_price` and `mul_volume` use `Decimal` only internally and serialize through
-`canonical_decimal`/`canonical_integer`. SPLIT fixes reciprocal price and direct
-volume direction in `split-only-v1`. `NO_ACTIONS_IN_RANGE` produces the identity
-factor. Any `CASH_DIVIDEND` event yields a
+the final conversion rule above. SPLIT fixes reciprocal price and direct volume
+direction in `split-only-v1`. Any `CASH_DIVIDEND` event yields a
 `CASH_DIVIDEND_NOT_IMPLEMENTED` issue mapped to
 `DATA_CAPABILITY_BLOCKER`; `derive_adjustment_factors` repeats that fail-closed
 guard and never constructs factors for the unsupported event.
@@ -2620,7 +2948,7 @@ git commit -m "Finalize V2.2A logical dataset identity."
   `PreservedImportInputs`, `resolve_under_root`,
   `bind_artifact_hashes`, `sha256_file`, typed provenance mode from Task 1.
 - Produces: `DatasetProvenance`, `CanonicalDatasetManifest`,
-  `PublishedCanonicalBundle`, `ProvenanceInputs`, `RegistrationDecision`,
+  `PublishedCanonicalBundle`, `PublishedImportManifest`, `ProvenanceInputs`, `RegistrationDecision`,
   `preserve_import_inputs`,
   `publish_canonical_bundle(...) -> PublishedCanonicalBundle` and:
 
@@ -2643,6 +2971,11 @@ def publish_validated_candidate(
     candidate: ValidatedDatasetCandidate,
     report: DataValidationReport,
 ) -> tuple[RelativePath, Sha256Hex, RelativePath, Sha256Hex]: ...
+
+def publish_import_manifest(
+    root: Path,
+    manifest: DataImportManifest,
+) -> PublishedImportManifest: ...
 ~~~
 
 - [ ] **Step 1: Write RED determinism, immutability, and manifest-direction tests**
@@ -2685,6 +3018,14 @@ def test_preservation_package_contains_and_hashes_every_declared_input(
     )
     assert all(ref.startswith("raw/import-1/inputs/") for ref in refs)
     assert tuple(sha256_file(tmp_path / ref) for ref in refs) == hashes
+    assert preserved.preserved_inputs_hash == canonical_hash({
+        "import_id": preserved.import_id, "refs": refs, "hashes": hashes,
+    })
+
+def test_persisted_v22a_payloads_never_contain_absolute_root(tmp_path: Path) -> None:
+    result = publish_bundle(tmp_path, bundle(), writer_profile())
+    payloads = (read_manifest(result), provenance_payload(result.provenance))
+    assert all(str(tmp_path) not in json.dumps(payload, sort_keys=True) for payload in payloads)
 
 def test_provenance_is_built_only_after_component_file_hashes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -2776,7 +3117,10 @@ pq.write_table(
 ~~~
 
 Logical hashes are computed before writing. File hashes are computed from final
-bytes through `sha256_file` and bound through `bind_artifact_hashes`.
+bytes through `sha256_file` and bound through `bind_artifact_hashes` with
+transient `artifact_paths` plus exact, validated `persisted_refs`. No V2.2A
+payload contains an `artifact_paths` key, a `*_path` absolute path value, or a
+resolved root string.
 
 - [ ] **Step 5: Implement descriptor-driven publication in frozen dependency order**
 
@@ -2850,6 +3194,20 @@ if decision.reuse_existing:
     )
 ~~~
 
+`build_preserved_import_inputs` derives `preserved_inputs_hash` from an ordered
+payload of the import ID and every relative input ref/hash pair. Every
+`DatasetProvenance` carries the producing `import_id`, `request_hash`, and that
+hash. The immutable provenance payload includes these fields, so two imports of
+the same file from the same provider at a fixed clock remain different because
+their UUID-backed import IDs (and hence provenance IDs/hashes) differ.
+
+`publish_import_manifest` writes one immutable contained JSON artifact at
+`imports/<import_id>/import-manifest-<manifest_hash>.json`, after strict JSON
+and relative-ref validation, and returns `PublishedImportManifest`. Its payload
+includes final provenance, eligibility and registry snapshot refs/hashes when
+the corresponding stage succeeded; it uses `None` only for stages not reached.
+It never writes an absolute input or artifact path.
+
 - [ ] **Step 6: Run GREEN**
 
 Run: `py -3.14 -m pytest tests/data_foundation/test_artifacts.py -q`
@@ -2893,11 +3251,15 @@ git commit -m "Publish immutable V2.2A canonical artifacts."
 def derive_eligibility(
     manifest: CanonicalDatasetManifest,
     manifest_hash: Sha256Hex,
-    qualifying_provenances: tuple[DatasetProvenance, ...],
+    associations: tuple[ProvenanceAssociation, ...],
+    prior: DataEligibility | None,
     check_matrix: Mapping[str, bool],
 ) -> DataEligibility: ...
 
 def registry_snapshot_payload(snapshot: RegistrySnapshot) -> Mapping[str, object]: ...
+def manifest_activation_event_payload(
+    event: ManifestActivationEvent,
+) -> Mapping[str, object]: ...
 ~~~
 
 - [ ] **Step 1: Write RED tests for one-way binding and legal states**
@@ -2910,7 +3272,8 @@ def test_eligibility_rejects_operation_outcomes() -> None:
 
 def test_smoke_import_creates_smoke_only() -> None:
     eligibility = derive_eligibility(
-        manifest(), manifest_hash(), (smoke_provenance(),), all_checks_true()
+        manifest(), manifest_hash(), (association(smoke_provenance(), qualifies=False),),
+        None, all_checks_true()
     )
     assert eligibility.state is DataEligibilityState.SMOKE_ONLY
     assert eligibility.formal_eligible is False
@@ -2926,13 +3289,39 @@ def test_register_upserts_one_current_binding_per_exact_pair() -> None:
         if (item.dataset_id, item.manifest_hash) == key
     )
     assert len(current) == 1
-    assert len(current[0].provenance_hashes) == 2
+    assert len(current[0].provenance_associations) == 2
     assert current[0].eligibility_hash == second.binding.eligibility_hash
 ~~~
 
 Add exact manifest hash mismatch, missing provenance association, empty
 qualifying set, smoke/non-smoke mixture, reverse manifest reference, duplicate
 identical registration, corrupt snapshot and immutable history tests.
+Add the following transition and activation cases here (not Task 2, which does
+not own `DataEligibility`):
+
+~~~python
+def test_smoke_then_local_transition_upgrades_current_to_valid() -> None:
+    prior = derive_eligibility(manifest(), manifest_hash(),
+        (association(smoke_provenance(), qualifies=False),), None, all_checks_true())
+    current = derive_eligibility(manifest(), manifest_hash(),
+        (association(smoke_provenance(), qualifies=False), association(local_provenance(), qualifies=True)),
+        prior, all_checks_true())
+    assert current.state is DataEligibilityState.VALID and current.formal_eligible
+
+def test_local_then_smoke_transition_keeps_current_valid() -> None:
+    prior = derive_eligibility(manifest(), manifest_hash(),
+        (association(local_provenance(), qualifies=True),), None, all_checks_true())
+    current = derive_eligibility(manifest(), manifest_hash(),
+        (association(local_provenance(), qualifies=True), association(smoke_provenance(), qualifies=False)),
+        prior, all_checks_true())
+    assert current.state is DataEligibilityState.VALID and current.formal_eligible
+
+def test_activate_manifest_records_explicit_mapping_and_event() -> None:
+    current = registry_with_active_and_inactive_revisions()
+    event, activated = activate_exact_manifest(current, DATASET_ID, MANIFEST_V1_HASH)
+    assert activated.active_manifest_by_dataset_id[DATASET_ID] == MANIFEST_V1_HASH
+    assert event.manifest_hash == MANIFEST_V1_HASH
+~~~
 
 - [ ] **Step 2: Run RED**
 
@@ -2943,26 +3332,54 @@ Expected: FAIL because registry/eligibility binding is absent.
 - [ ] **Step 3: Implement derived eligibility only**
 
 ~~~python
-def derive_eligibility(manifest, manifest_hash, provenances, check_matrix):
+def derive_eligibility(manifest, manifest_hash, associations, prior, check_matrix):
     require_exact_manifest_hash(manifest, manifest_hash)
-    require_nonempty_provenances(provenances)
-    smoke = any(p.source_type is MarketDataSourceType.YFINANCE_SMOKE for p in provenances)
+    if not associations:
+        raise DataFoundationError(BlockerCode.DATA_VALIDATION_BLOCKER, "MISSING_PROVENANCE_ASSOCIATION", "")
     all_checks = all(check_matrix.values())
-    state = DataEligibilityState.SMOKE_ONLY if smoke else DataEligibilityState.VALID
-    formal = state is DataEligibilityState.VALID and all_checks
     if not all_checks:
         raise DataFoundationError(BlockerCode.DATA_VALIDATION_BLOCKER, "ELIGIBILITY_CHECK_FAILED")
-    return build_hashed_eligibility(state=state, formal_eligible=formal, ...)
+    qualifying = qualifying_association_hashes(associations)
+    if prior is not None and prior.state is DataEligibilityState.INVALIDATED:
+        return build_hashed_eligibility(
+            state=DataEligibilityState.INVALIDATED, formal_eligible=False,
+            qualifying_provenance_hashes=prior.qualifying_provenance_hashes,
+            invalidation_event_id=prior.invalidation_event_id,
+            invalidation_event_hash=prior.invalidation_event_hash, ...,
+        )
+    if qualifying:
+        return build_hashed_eligibility(
+            state=DataEligibilityState.VALID, formal_eligible=True,
+            qualifying_provenance_hashes=qualifying, ...,
+        )
+    if prior is not None and prior.state is DataEligibilityState.VALID:
+        return build_hashed_eligibility(
+            state=DataEligibilityState.VALID, formal_eligible=True,
+            qualifying_provenance_hashes=prior.qualifying_provenance_hashes, ...,
+        )
+    return build_hashed_eligibility(
+        state=DataEligibilityState.SMOKE_ONLY, formal_eligible=False,
+        qualifying_provenance_hashes=(), ...,
+    )
 ~~~
 
-Callers cannot pass `formal_eligible`. `INVALIDATED` is created only by Task 13.
+`ProvenanceAssociation` is one-to-one with a persisted provenance record and
+copies its ref/hash/import ID/request hash/provider capability/source type.
+Only local CSV/Parquet associations that independently satisfy the frozen
+formal qualification checks have `qualifies_for_formal=True`; smoke is never
+marked qualifying. `DataEligibility.qualifying_provenance_hashes` must equal
+the sorted explicit qualifying association subset for a new VALID record;
+SMOKE_ONLY has an empty subset. Callers cannot pass `formal_eligible`.
+`INVALIDATED` is created only by Task 13 and ordinary re-import is forbidden to
+clear it.
 
 - [ ] **Step 4: Implement append-only snapshots with one current exact-pair binding**
 
 Validate:
 `eligibility.dataset_id == manifest.dataset_identity.dataset_id`,
 `eligibility.manifest_hash == manifest_hash`, and qualifying provenance hashes
-are a non-empty subset of associations. Within each new snapshot,
+are exactly the sorted `qualifies_for_formal=True` subset of associations (and
+therefore non-empty only for VALID). Within each new snapshot,
 `(dataset_id, manifest_hash)` is a unique key. Registration merges the prior and
 new provenance associations, constructs the replacement eligibility first, and
 upserts exactly one replacement binding with its new eligibility pointer. Sort
@@ -2978,14 +3395,24 @@ assert sum(
     == (replacement_binding.dataset_id, replacement_binding.manifest_hash)
     for item in bindings
 ) == 1
-snapshot = build_registry_snapshot(self.snapshot.snapshot_hash, bindings)
+snapshot = build_registry_snapshot(
+    self.snapshot.snapshot_hash, bindings,
+    self.snapshot.invalidation_event_refs,
+    self.snapshot.active_manifest_by_dataset_id,
+    self.snapshot.manifest_activation_event_refs,
+)
 publish_registry_snapshot_atomically(self.root, snapshot)
 ~~~
 
 `upsert_current_binding` rejects a pre-existing duplicate exact-pair key rather
 than guessing a winner. A new eligibility in a later snapshot replaces only the
 current eligibility pointer for that exact pair; historical snapshots and all
-historical eligibility records remain addressable.
+historical eligibility records remain addressable. Registration never activates
+a manifest or changes an active mapping. `activate_manifest` requires an exact
+current binding, emits an immutable `ManifestActivationEvent`, and atomically
+publishes a successor snapshot whose `active_manifest_by_dataset_id[dataset_id]`
+is exactly the requested manifest hash and whose activation refs include that
+event. It is the only activation path.
 
 - [ ] **Step 5: Run GREEN**
 
@@ -2997,7 +3424,7 @@ most one binding for each `(dataset_id, manifest_hash)`.
 
 - [ ] **Step 6: Refactor binding verification, then run identity/artifact regression**
 
-Extract `verify_binding(manifest, manifest_hash, eligibility, provenances)` and
+Extract `verify_binding(manifest, manifest_hash, eligibility, associations)` and
 call it from registration, load and query paths.
 
 Run:
@@ -3022,7 +3449,7 @@ git commit -m "Bind V2.2A manifests and eligibility."
 
 **Interfaces:**
 - Consumes: `DatasetRequirement`, `CapabilityRegistry`,
-  `MarketDataRegistry`, `RegistryBinding`, identity and manifest hashes.
+  `MarketDataRegistry`, `RegistryBinding`, `EligibleDatasetSelection`, identity and manifest hashes.
 - Produces: `find_latest_eligible_dataset` and:
 
 ~~~python
@@ -3035,7 +3462,8 @@ def associated_provenances_for_registration(
     registry: MarketDataRegistry,
     decision: RegistrationDecision,
     new_provenance: DatasetProvenance,
-) -> tuple[DatasetProvenance, ...]: ...
+    new_provenance_ref: RelativePath,
+) -> tuple[ProvenanceAssociation, ...]: ...
 ~~~
 
 - [ ] **Step 1: Write RED idempotency, identity-claim, and provider-order tests**
@@ -3046,7 +3474,7 @@ def test_identical_reimport_updates_same_binding_provenances() -> None:
     second = register_dataset(first.registry, dataset(close="100"), provider="local-parquet")
     assert second.binding.manifest_hash == first.binding.manifest_hash
     assert second.binding.manifest_revision == 1
-    assert len(second.binding.provenance_hashes) == 2
+    assert len(second.binding.provenance_associations) == 2
     matches = tuple(
         item for item in second.registry.snapshot.bindings
         if (item.dataset_id, item.manifest_hash)
@@ -3069,8 +3497,26 @@ def test_claimed_dataset_id_rejects_logical_mismatch() -> None:
 ~~~
 
 Add same-ID logical-claim mismatch, same provider rank content conflict, preference
-fallback, complete coverage, canonical range end, active revision and
-deterministic dataset-ID tie-break tests.
+fallback, complete coverage, canonical range end, and deterministic dataset-ID
+tie-break tests. Add the activation and selected-provenance proofs:
+
+~~~python
+def test_formal_lookup_ignores_inactive_higher_revision() -> None:
+    current = registry_with_active_and_inactive_revisions()
+    result = find_latest_eligible_dataset(requirement(), current, current.snapshot.snapshot_hash, capabilities())
+    assert result.binding.manifest_hash == MANIFEST_V1_HASH
+
+def test_provider_preference_uses_qualifying_associations_only() -> None:
+    result = find_latest_eligible_dataset(requirement(provider_preference=("local-parquet", "local-csv")), qualifying_registry(), snapshot_hash(), capabilities())
+    assert result.selected_provider_capability_id == "local-csv"
+
+def test_formal_lookup_returns_selected_qualifying_provenance() -> None:
+    result = find_latest_eligible_dataset(requirement(), qualifying_registry(), snapshot_hash(), capabilities())
+    selected = next(a for a in result.binding.provenance_associations
+                    if a.provenance_hash == result.selected_provenance_hash)
+    assert selected.provenance_ref == result.selected_provenance_ref
+    assert selected.qualifies_for_formal is True
+~~~
 
 - [ ] **Step 2: Run RED**
 
@@ -3094,7 +3540,7 @@ consistency check, not a generic cryptographic collision detector.
 
 ~~~python
 identity = descriptor.dataset_identity
-existing = registry.binding_for(identity.dataset_id)
+existing = registry.active_binding_for(identity.dataset_id)
 if existing is None:
     return RegistrationDecision(False, 1, None, None, None)
 registered = registry.load_manifest(existing)
@@ -3115,22 +3561,41 @@ return RegistrationDecision(
 - [ ] **Step 4: Implement the frozen query order**
 
 ~~~python
-candidates = verify_and_filter_bindings(
-    registry, requirement, expected_snapshot_hash
+candidates = verify_and_filter_bindings(registry, requirement, expected_snapshot_hash)
+# It returns only binding_for_exact(dataset_id, snapshot.active_manifest_by_dataset_id[dataset_id]).
+# No revision, mtime, import time, or inactive binding enters this tuple.
+candidates = tuple(
+    (binding, load_eligibility(binding)) for binding in candidates
+    if binding.eligibility_state is DataEligibilityState.VALID
+    and load_eligibility(binding).formal_eligible
 )
-candidates = tuple(c for c in candidates
-                   if c.eligibility_state is DataEligibilityState.VALID
-                   and load_eligibility(c).formal_eligible)
 for provider_id in requirement.provider_preference:
-    rank = tuple(c for c in candidates if provider_id in c.provider_capability_ids)
-    if rank:
-        return select_without_content_conflict(rank)
+    ranked = tuple(
+        EligibleDatasetSelection(
+            binding=binding,
+            selected_provenance_ref=association.provenance_ref,
+            selected_provenance_hash=association.provenance_hash,
+            selected_provider_capability_id=association.provider_capability_id,
+        )
+        for binding, eligibility in candidates
+        if (association := select_qualifying_association(binding, eligibility, provider_id))
+        is not None
+    )
+    if ranked:
+        return select_without_content_conflict(ranked)
 return capability_blocker("NO_FORMAL_ELIGIBLE_DATASET")
 ~~~
 
-`select_without_content_conflict` sorts by complete coverage, canonical range
-end, active revision and dataset ID only after rejecting conflicting logical
-content at the same provider rank. It never reads mtime or import timestamp.
+`verify_and_filter_bindings` first requires the snapshot hash and then iterates
+only the explicit active-manifest mapping, resolving each with
+`binding_for_exact(dataset_id, manifest_hash)`. An absent mapping, missing
+exact binding, or active INVALIDATED binding produces the formal typed blocker;
+it never falls back to an inactive binding. `select_qualifying_association`
+requires both an association in the eligibility's explicit qualifying hash
+subset and the requested provider capability. `select_without_content_conflict`
+sorts selections by complete coverage, canonical range end and dataset ID only
+after rejecting conflicting logical content at the same provider rank. It never
+reads manifest revision, mtime or import timestamp to infer activity.
 
 - [ ] **Step 5: Run GREEN**
 
@@ -3217,6 +3682,13 @@ def test_invalidation_replaces_only_current_valid_eligibility() -> None:
     assert not any(
         item.eligibility_state is DataEligibilityState.VALID for item in matches
     )
+
+def test_active_invalidated_revision_has_no_fallback() -> None:
+    _, invalidated, snapshot = invalidate_once()
+    active_hash = snapshot.active_manifest_by_dataset_id[invalidated.dataset_id]
+    assert active_hash == invalidated.manifest_hash
+    result = find_latest_eligible_dataset(requirement(), load_snapshot(snapshot), snapshot.snapshot_hash, capabilities())
+    assert result.blocker_code is BlockerCode.DATA_CAPABILITY_BLOCKER
 ~~~
 
 Inject failures after each record stage and after the complete transaction
@@ -3265,6 +3737,11 @@ directory into the transaction namespace, then atomically replace the active
 snapshot pointer last. A mismatched parent or partial historical record fails
 closed.
 
+The invalidation successor passes through the prior
+`active_manifest_by_dataset_id` and `manifest_activation_event_refs` unchanged,
+and appends only the new invalidation ref. It does not synthesize a replacement
+active revision while producing the invalidated eligibility.
+
 ~~~python
 with registry_transaction(root, expected_snapshot_hash) as tx:
     tx.stage_json("invalidation-event.json", event_payload)
@@ -3280,6 +3757,10 @@ into its final namespace. A crash after the transaction-directory rename but
 before pointer replacement may leave a complete, verified orphan transaction;
 it is not active, is ignored by readers, and is retained for a future retention
 workflow. V2.2A invalidation does not delete it automatically.
+Invalidation does not alter `active_manifest_by_dataset_id`: if the invalidated
+manifest was active, it remains the explicit active hash and formal lookup
+blocks. The query must not search an earlier/later revision for a replacement;
+only a later explicit `activate_manifest` event may select one.
 
 - [ ] **Step 5: Run GREEN**
 
@@ -3489,6 +3970,7 @@ IMPORT_STAGE_ORDER = (
     "ELIGIBILITY",
     "REGISTRY_COMMIT",
     "FINALIZED_IMPORT_MANIFEST",
+    "IMMUTABLE_IMPORT_MANIFEST_PUBLICATION",
 )
 ~~~
 
@@ -3501,6 +3983,10 @@ def test_valid_local_csv_publishes_complete_binding(tmp_path: Path) -> None:
     assert result.import_manifest.final_dataset_id == result.canonical_manifest.dataset_identity.dataset_id
     assert result.eligibility.state is DataEligibilityState.VALID
     assert result.registry_binding.manifest_hash == result.eligibility.manifest_hash
+    assert result.import_manifest.final_provenance_hash == result.registry_binding.provenance_associations[-1].provenance_hash
+    assert result.import_manifest.final_eligibility_hash == result.eligibility.eligibility_hash
+    assert result.import_manifest.final_registry_snapshot_hash == load_registry(tmp_path).snapshot.snapshot_hash
+    assert result.import_manifest_ref and result.import_manifest_hash
 
 def test_source_missing_is_blocked_without_eligibility() -> None:
     result = import_with_gap_reason(GapReasonCode.SOURCE_MISSING)
@@ -3571,11 +4057,32 @@ def test_cash_dividend_returns_not_implemented_without_outputs(tmp_path: Path) -
     assert result.canonical_manifest is None
     assert result.eligibility is None
     assert result.registry_binding is None
+
+def test_repeat_same_file_provider_fixed_clock_has_distinct_provenance_import_ids(tmp_path: Path) -> None:
+    first = import_local_dataset(valid_csv_request(), runtime(tmp_path, fixed_clock=True))
+    second = import_local_dataset(valid_csv_request(), runtime(tmp_path, fixed_clock=True))
+    assert first.import_manifest.import_id != second.import_manifest.import_id
+    assert first.import_manifest.final_provenance_hash != second.import_manifest.final_provenance_hash
+
+def test_successful_and_failed_imports_publish_immutable_import_manifests(tmp_path: Path) -> None:
+    success = import_local_dataset(valid_csv_request(), runtime(tmp_path))
+    failed = import_local_dataset(missing_source_request(), runtime(tmp_path))
+    for result in (success, failed):
+        assert result.import_manifest_ref and result.import_manifest_hash
+        assert canonical_hash(read_import_manifest(tmp_path, result)) == result.import_manifest_hash
+
+def test_success_import_manifest_binds_final_provenance_eligibility_and_registry(tmp_path: Path) -> None:
+    result = import_local_dataset(valid_csv_request(), runtime(tmp_path))
+    assert result.import_manifest.final_provenance_hash == result.registry_binding.provenance_associations[-1].provenance_hash
+    assert result.import_manifest.final_eligibility_hash == result.eligibility.eligibility_hash
+    assert result.import_manifest.final_registry_snapshot_hash == load_registry(tmp_path).snapshot.snapshot_hash
 ~~~
 
-Add tests for new import/provenance IDs on repeats, all-input-preservation before
-any loader/parser, failed manifest finalization, quarantine refs, no auto retry
-and `YFINANCE_SMOKE -> SMOKE_ONLY`. Assert that `DataImportManifest` records the
+Add tests for all-input-preservation before any loader/parser, failed manifest
+finalization, quarantine refs, no auto retry and `YFINANCE_SMOKE -> SMOKE_ONLY`.
+Assert that every success or typed failure publishes an immutable import manifest
+and `ImportLocalDatasetResult` returns that manifest's ref/hash. Assert that
+`DataImportManifest` records the
 market-data, calendar, every gap-evidence and every corporate-action-evidence
 preserved ref/hash. Record containment checks at all original-input preflights,
 `preserved-market-read`, `preserved-calendar-read`, `preserved-evidence-read`,
@@ -3607,10 +4114,10 @@ def import_local_dataset(request, runtime):
         )
         validation = validate_daily_dataset(normalized)
     except DataFoundationError as exc:
-        return finalize_failed_import(request, import_id, imported_at, preserved, exc)
+        return finalize_failed_import(runtime.data_root, request, import_id, imported_at, preserved, exc)
     if validation.validated_candidate is None:
         return finalize_nonvalid_import(
-            request, import_id, imported_at, preserved, normalized, validation.report
+            runtime.data_root, request, import_id, imported_at, preserved, normalized, validation.report
         )
     return continue_valid_import(
         request, runtime, imported_at, preserved,
@@ -3623,8 +4130,11 @@ raw input package is atomically published before any parser/calendar/evidence
 loader runs. After `preserve_import_inputs` returns, the request paths are used
 only as lineage strings in the finalized import manifest; every byte read comes
 from `PreservedImportInputs`. Every expected domain exception is translated to
-typed status metadata and immutable evidence; programming errors are not
-converted into success.
+typed status metadata and immutable evidence; all finalizers call
+`finalize_and_publish_import_manifest`, including failures before preservation
+(whose permitted `preserved_inputs` and original hash are `None`) and failures
+after preservation (which retain every preserved ref/hash). Programming errors
+are not converted into success.
 
 - [ ] **Step 4: Implement valid identity/publication/eligibility/registry stages**
 
@@ -3635,9 +4145,11 @@ build the logical-only descriptor, then decide reuse. Call the single
 publication order or reuses canonical artifacts without rewriting them while
 creating a new provenance from the existing manifest's component file hashes.
 Derive a replacement VALID or SMOKE_ONLY eligibility from all provenance
-associations, upsert the one current exact-pair registry binding, and only then
-finalize `DataImportManifest` with all preserved inputs. If registry commit
-fails, no eligibility/binding is returned and staged records remain unreachable.
+associations, upsert the one current exact-pair registry binding, then publish
+the complete `DataImportManifest` containing all preserved inputs and final
+provenance/eligibility/registry refs/hashes. If registry commit fails, no
+eligibility/binding is returned, but a failure import manifest is still
+published and staged records remain unreachable.
 
 ~~~python
 validated = candidate
@@ -3662,22 +4174,45 @@ published = publish_canonical_bundle(
     provenance_inputs(request, preserved, imported_at, report_ref, report_hash),
     report, PARQUET_WRITER_PROFILE,
 )
-provenances = associated_provenances_for_registration(
-    registry, decision, published.provenance
+associations = associated_provenances_for_registration(
+    registry, decision, published.provenance, published.provenance_ref
+)
+prior_binding = registry.binding_for_exact(
+    published.manifest.dataset_identity.dataset_id, published.manifest_hash
 )
 eligibility = derive_eligibility(
-    published.manifest, published.manifest_hash, provenances, check_matrix(report)
+    published.manifest, published.manifest_hash, associations,
+    load_eligibility(prior_binding) if prior_binding is not None else None,
+    check_matrix(report),
 )
 eligibility_ref = publish_eligibility(runtime.data_root, eligibility)
 snapshot = registry.register(
     published.manifest, published.manifest_ref,
     published.provenance, published.provenance_ref, eligibility, eligibility_ref,
 )
+if (
+    eligibility.state is DataEligibilityState.VALID
+    and registry.active_binding_for(published.manifest.dataset_identity.dataset_id) is None
+):
+    _, snapshot = registry.activate_manifest(
+        published.manifest.dataset_identity.dataset_id, published.manifest_hash,
+        snapshot.snapshot_hash, "INITIAL_FORMAL_ACTIVATION", "importer:v2.2a", imported_at,
+    )
 result = finalize_successful_import(
-    request, imported_at, preserved, validated_ref, validated_hash,
+    runtime.data_root, request, imported_at, preserved, validated_ref, validated_hash,
     report, published, eligibility, snapshot
 )
 ~~~
+
+`finalize_successful_import`, `finalize_nonvalid_import`, and
+`finalize_failed_import` each build a complete `DataImportManifest` first and
+call the single `publish_import_manifest` owner before returning
+`ImportLocalDatasetResult`. Success must bind `final_provenance_ref/hash`,
+`final_eligibility_ref/hash`, and the active `final_registry_snapshot_ref/hash`.
+Failure stores `None` only for unreached final stages, never fabricates a
+success binding. A fixed clock is not an identity input: `uuid_factory` must
+produce a fresh import ID for every invocation, and that ID is carried through
+preservation, provenance, manifest and result.
 
 - [ ] **Step 5: Run GREEN**
 
@@ -3750,18 +4285,23 @@ def test_csv_parquet_reimport_query_and_invalidation_lifecycle(tmp_path: Path) -
         )
     )
     assert len(matches) == 1
-    assert len(matches[0].provenance_hashes) == 2
-    binding = find_latest_eligible_dataset(
+    assert len(matches[0].provenance_associations) == 2
+    selection = find_latest_eligible_dataset(
         requirement(), current, current.snapshot.snapshot_hash, capabilities()
     )
-    assert binding.dataset_id == csv_result.canonical_manifest.dataset_identity.dataset_id
-    _, invalidated, _ = invalidate_exact_binding(binding, tmp_path)
+    assert selection.binding.dataset_id == csv_result.canonical_manifest.dataset_identity.dataset_id
+    assert any(
+        association.provenance_hash == selection.selected_provenance_hash
+        and association.qualifies_for_formal
+        for association in selection.binding.provenance_associations
+    )
+    _, invalidated, _ = invalidate_exact_binding(selection.binding, tmp_path)
     assert invalidated.state is DataEligibilityState.INVALIDATED
     after = load_registry(tmp_path)
     exact = tuple(
         item for item in after.snapshot.bindings
         if (item.dataset_id, item.manifest_hash)
-        == (binding.dataset_id, binding.manifest_hash)
+        == (selection.binding.dataset_id, selection.binding.manifest_hash)
     )
     assert len(exact) == 1
     assert exact[0].eligibility_state is DataEligibilityState.INVALIDATED
@@ -3783,7 +4323,9 @@ Test helpers may create roots, local Parquet and requests; they must not call
 private publication or registry mutation helpers to bypass gates. Freeze the
 expected component names, identity equality, eligibility state, binding hashes,
 manifest revision, one-current-binding invariant, two provenance associations
-and post-invalidation lookup result. CSV/Parquet equivalence is asserted over
+and post-invalidation lookup result. Also prove the selected formal provenance
+is returned, an inactive higher revision is never inferred active, and an
+active invalidated revision does not fall back. CSV/Parquet equivalence is asserted over
 the persisted validated-candidate rows, never the parser output.
 
 ~~~python
@@ -3803,8 +4345,9 @@ parse and validate their own input package before the comparison.
 Run: `py -3.14 -m pytest tests/data_foundation/test_end_to_end.py -q`
 
 Expected: PASS for SPY/QQQ validated CSV/Parquet equivalence, legal gaps,
-smoke-only exclusion, one exact-pair binding with two provenances, and an
-invalidation lifecycle whose formal lookup ends in a blocker.
+smoke-only exclusion, one exact-pair binding with two provenance associations,
+selected qualifying provenance handoff, and an invalidation lifecycle whose
+formal lookup ends in a blocker without revision fallback.
 
 - [ ] **Step 6: Refactor fixture factories, then run the complete V2.2A suite twice**
 
@@ -3868,7 +4411,10 @@ is not derived from `__all__` or the implementation under test.
 
 Also reject a second manifest writer, artifact ledger, audit writer, provenance
 owner, decimal normalizer, broker/account/order/webhook/option code and
-V2.2B/V2.2C modules.
+V2.2B/V2.2C modules. Statically reject `default=str` in any JSON writer and
+assert each V2.2A persisted JSON payload constructor routes refs through the
+relative-ref validator; runtime `Path` values may appear only in nonpersisted
+hash/copy/containment parameters.
 
 - [ ] **Step 2: Run RED**
 
@@ -3901,7 +4447,9 @@ __all__ = (
     "DailyDatasetValidationResult", "DatasetIdentity", "DatasetProvenance",
     "DataImportManifest", "CanonicalDatasetDescriptor",
     "CanonicalDatasetManifest", "PublishedCanonicalBundle", "DataEligibility",
-    "InvalidationEvent", "RegistryBinding",
+    "ProvenanceAssociation", "ManifestActivationEvent", "RegistryBinding",
+    "EligibleDatasetSelection", "RegistrySnapshot",
+    "PublishedImportManifest", "InvalidationEvent",
     "import_local_dataset", "find_latest_eligible_dataset", "invalidate_dataset",
 )
 ~~~
@@ -3927,6 +4475,18 @@ TRACEABILITY_REQUIREMENTS = frozenset({
     "cash_dividend_not_implemented",
     "invalidation_no_partial_active_visibility",
     "atomic_invalidation", "windows_path_security", "v21_regression",
+    "canonical_json_rejects_non_json_values",
+    "absolute_root_absent_from_persisted_artifacts",
+    "artifact_paths_separate_from_persisted_refs",
+    "explicit_active_manifest_revision_only",
+    "inactive_higher_revision_not_selected",
+    "active_invalidated_revision_no_fallback",
+    "smoke_then_formal_valid", "formal_then_smoke_valid",
+    "provider_preference_qualifying_only", "selected_provenance_handoff",
+    "unique_provenance_import_id", "success_failure_import_manifests",
+    "finalized_import_manifest_links", "split_effective_date_boundary",
+    "cumulative_split_factors", "split_rounding_deterministic_precision",
+    "dependency_preflight_stops_before_task1",
 })
 assert traceability_test_nodes() == TRACEABILITY_REQUIREMENTS
 ~~~
@@ -3970,7 +4530,8 @@ git commit -m "Complete V2.2A data foundation acceptance."
 ## 6. Task Dependency Order
 
 ~~~text
-1 registration/owners
+0 dependency preflight (`exchange-calendars==4.13.2`, `pyarrow==25.0.0`; no network)
+  -> 1 registration/owners
   -> 2 immutable contracts/runtime isolation
       -> 3 semantic-lineage projections
       -> 4 CSV/Parquet parsing
@@ -3991,7 +4552,9 @@ git commit -m "Complete V2.2A data foundation acceptance."
 
 Tasks 6 and 7 may be implemented after Task 5 in either order, but Task 8
 requires both. Tasks 12 and 13 both require Task 11; Task 15 requires them and
-Task 14. No task may begin V2.2B, formal backtesting or network/provider work.
+Task 14. Task 1 must not begin unless Task 0 passes; a missing dependency stops
+execution before writes, RED tests or package installation. No task may begin
+V2.2B, formal backtesting or network/provider work.
 
 ## 7. Final Acceptance Commands
 
@@ -3999,6 +4562,13 @@ Run from repository root on the implementation branch:
 
 ~~~powershell
 $env:PYTHONPATH = (Join-Path (Get-Location) 'src')
+$required = @{ "exchange-calendars" = "4.13.2"; "pyarrow" = "25.0.0" }
+$missing = foreach ($entry in $required.GetEnumerator()) {
+  $raw = py -3.14 -c "import importlib.metadata as m; print(m.version('$($entry.Key)'))" 2>$null
+  $actual = if ($null -eq $raw) { "" } else { ([string]$raw).Trim() }
+  if ($LASTEXITCODE -ne 0 -or $actual -ne $entry.Value) { "$($entry.Key)==$($entry.Value) (installed: $actual)" }
+}
+if ($missing) { throw "Dependency preflight failed before implementation: $($missing -join '; ')" }
 py -3.14 -m pytest tests/data_foundation tests/integration/test_v2_2a_acceptance.py -q
 py -3.14 -m pytest tests/contracts tests/adapters tests/pipeline/test_v2_cli_gate.py tests/integration/test_v2_1_gate.py tests/integration/test_v2_1_security.py -q
 py -3.14 -m pytest tests/pipeline -q
@@ -4026,42 +4596,45 @@ Expected:
 ## 8. Implementation Review Gates
 
 Each task is accepted only after its RED evidence, minimal GREEN implementation,
-refactor, focused regression and commit are independently reviewable. The final
-review must run and record all sixteen gates:
+refactor, focused regression and commit are independently reviewable. Before
+this plan is implemented, the plan reviewer must execute and record these
+seventeen gates:
 
-1. **Spec coverage:** every frozen design and independent-review requirement
-   maps to Section 5 and a real test.
-2. **Placeholder scan:** none of the writing-plan failure phrases or an
-   undefined implementation step remains.
-3. **Type/signature consistency:** every referenced type and function has one
-   exact signature in Section 3 or an existing frozen owner.
-4. **Task dependency:** Section 6 contains no forward ownership cycle.
-5. **Ownership:** hashes, decimals, artifact binding, containment and registry
-   responsibilities stay with their named owner.
-6. **Identity/lineage:** Section 4 remains an allow-list and logical, physical
-   and lineage hashes stay separate.
-7. **Parser-before-validation:** CSV/Parquet adapters preserve raw order and
-   duplicates; out-of-order input is blocked before canonical sorting.
-8. **Raw-input/TOCTOU:** all declared inputs are contained, copied, hashed and
-   thereafter read only through `PreservedImportInputs`.
-9. **Validated-candidate propagation:** adjustment, identity and canonical
-   publication consume only a non-`None` `ValidatedDatasetCandidate`.
-10. **Publication dependency order:** descriptor reuse decision precedes
-    physical staging; provenance follows component file hashes; the complete
-    manifest follows provenance/report hashes.
-11. **Registry current-binding uniqueness:** every snapshot has at most one
-    current binding per `(dataset_id, manifest_hash)` and re-import replaces its
-    eligibility pointer while merging provenance associations.
-12. **Adjustment method:** `split-only-v1` and the no-actions identity factor
-    are the only implemented paths; cash dividends return NOT_IMPLEMENTED.
-13. **Atomic transaction:** invalidation activates only a verified complete
-    transaction directory by replacing the snapshot pointer last; inactive
-    complete orphans are not deleted or treated as active.
-14. **Design-to-test traceability:** every Section 5 node exists with the exact
-    file/name/result stated.
-15. **Diff check:** `git diff --check` reports no whitespace errors.
-16. **Commit scope:** only the planned files for the implementation task are
-    committed; V2.1 behavior, providers, backtests and V2.2B remain untouched.
+1. **Spec coverage review:** every frozen requirement and both independent
+   reviews map to a Section 5 test node.
+2. **Placeholder scan:** no undefined helper, placeholder return, unstated
+   authority, or forward-owned test remains.
+3. **Type/signature consistency review:** every referenced public/private type
+   and operation has one exact Section 3 signature.
+4. **Task dependency review:** Task 0 preflight precedes Task 1 and no task
+   consumes a later owner.
+5. **JSON serialization fail-closed review:** no `default=str`; recursive
+   validation rejects all prohibited values and writer uses `allow_nan=False`.
+6. **Absolute-path persistence review:** inspect every persisted V2.2A payload
+   for only relative refs; `artifact_paths` remains transient.
+7. **Active manifest revision review:** ensure mapping/event activation is the
+   sole selector and inactive higher revisions cannot be inferred active.
+8. **Qualifying provenance review:** verify one-to-one associations and that
+   provider preference observes only the exact qualifying hash subset.
+9. **Smoke/formal transition review:** prove smoke→local upgrades to VALID,
+   local→smoke keeps VALID, and ordinary re-import cannot clear INVALIDATED.
+10. **Selected provenance handoff review:** formal lookup returns an
+    `EligibleDatasetSelection` with its exact binding/ref/hash/capability.
+11. **Import-manifest persistence review:** every success and failure returns
+    a published immutable import-manifest ref/hash; success binds final records.
+12. **Provenance uniqueness review:** same file/provider/fixed clock with
+    fresh UUIDs produces distinct import IDs and provenance IDs/hashes.
+13. **Split algorithm review:** check effective-date `>`, deterministic event
+    order, cumulative Decimal factors, no intermediate quantize, and final
+    quantum/ROUND_HALF_EVEN conversion against the existing numeric owner.
+14. **Dependency/no-network review:** verify the metadata-only exact-version
+    preflight stops before Task 1 and no install/index/network command exists.
+15. **Design-to-test traceability review:** every Section 5 node has the exact
+    module, test name and expected result stated.
+16. **Diff check:** `git diff --check` reports no whitespace errors.
+17. **Commit scope check:** this revision changes only this plan document; no
+    frozen design, production code, tests, fixtures, requirements, capability
+    registry, V2.1 document, push, PR, or Task 1 implementation is included.
 
-After Task 17, stop and request an independent implementation review. Do not
-start V2.2B.
+After this plan revision, stop and wait for the final independent review. Do
+not start Task 1 or V2.2B.

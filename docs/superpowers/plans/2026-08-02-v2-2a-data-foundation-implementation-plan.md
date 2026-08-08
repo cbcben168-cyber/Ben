@@ -2198,7 +2198,11 @@ canonicalization. Exact ISO date parsing uses
 table = pq.read_table(source_path)
 actual_fingerprint = canonical_hash(arrow_schema_payload(table.schema))
 if actual_fingerprint != profile.arrow_schema_fingerprint:
-    raise DataFoundationError(BlockerCode.DATA_VALIDATION_BLOCKER, "PARQUET_SCHEMA_MISMATCH")
+    raise DataFoundationError(
+        BlockerCode.DATA_VALIDATION_BLOCKER,
+        "PARQUET_SCHEMA_MISMATCH",
+        "Parquet schema fingerprint does not match the frozen parser profile",
+    )
 require_arrow_types(table.schema, expected_arrow_fields())
 return tuple(
     normalize_source_row(row, row_ref=f"parquet:{index}",
@@ -2316,17 +2320,19 @@ Run: `py -3.14 -m pytest tests/data_foundation/test_calendar.py -q`
 
 Expected: PASS with exact half-day and DST UTC values.
 
-- [ ] **Step 6: Refactor snapshot conversion, then prove import-time code cannot refresh it**
+- [ ] **Step 6: Refactor snapshot conversion while keeping Task 5 self-contained**
 
 Extract `schedule_row_to_session(index, row) -> CalendarSession` without moving
-calendar hash ownership. Add an inspection test asserting `importer.py` imports only
-`load_calendar_snapshot`, and monkeypatch
-`exchange_calendars.get_calendar` to raise during import tests.
+calendar hash ownership. Keep this task limited to snapshot materialization and
+loading. No cross-module import integration assertion belongs in this task;
+the separate orchestration acceptance test proves that imports consume only the
+preserved snapshot and cannot refresh `exchange_calendars`.
 
 Run:
 `py -3.14 -m pytest tests/data_foundation/test_calendar.py -q`
 
-Expected: PASS without network or calendar refresh.
+Expected: PASS for offline snapshot materialization/loading with no network
+access.
 
 - [ ] **Step 7: Commit**
 
@@ -2958,7 +2964,8 @@ existing complete manifest for reuse comparison.
 payload and component logical hashes, then compares the recomputed dataset ID.
 If one claimed `dataset_id` is paired with a different `content_hash`, semantic
 dependency set or component logical-hash map, raise
-`DataFoundationError(DATA_VALIDATION_BLOCKER, "IDENTITY_CLAIM_MISMATCH")`
+`DataFoundationError(BlockerCode.DATA_VALIDATION_BLOCKER, "IDENTITY_CLAIM_MISMATCH",
+"claimed dataset identity differs from recomputed logical content")`
 before publication. This gate verifies internal claims and registry
 consistency; it does not claim to detect a general cryptographic SHA-256
 collision.
@@ -3005,7 +3012,8 @@ git commit -m "Finalize V2.2A logical dataset identity."
 **Interfaces:**
 - Consumes: `CanonicalDatasetDescriptor`, `RegistrationDecision`,
   `LogicalDatasetBundle`, `ProvenanceInputs`, `DataValidationReport`,
-  `PreservedImportInputs`, `resolve_under_root`,
+  `PreservedImportInputs`, `resolve_under_root`, `verify_contained_path`,
+  `verify_same_volume_staging` from Task 14,
   `bind_artifact_hashes`, `sha256_file`, typed provenance mode from Task 1.
 - Produces: `DatasetProvenance`, `CanonicalDatasetManifest`,
   `PublishedCanonicalBundle`, `PublishedImportManifest`, `ProvenanceInputs`, `RegistrationDecision`,
@@ -3082,6 +3090,31 @@ def test_preservation_package_contains_and_hashes_every_declared_input(
         "import_id": preserved.import_id, "refs": refs, "hashes": hashes,
     })
 
+def test_preflight_rejects_unsafe_input_before_any_copy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    events = record_input_preflight_and_copy_calls(monkeypatch)
+    with pytest.raises(ValueError):
+        preserve_import_inputs(tmp_path, "import-1", unsafe_last_evidence_request())
+    assert events == [
+        "contain:market-data", "contain:calendar", "contain:gap-evidence:0",
+        "contain:corporate-action-evidence:0",
+    ]
+    assert not any(event.startswith("copy:") for event in events)
+
+def test_source_mutation_during_preservation_fails_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    mutate_during_preserved_copy(monkeypatch)
+    with pytest.raises(DataFoundationError, match="INPUT_CHANGED_DURING_PRESERVATION"):
+        preserve_import_inputs(tmp_path, "import-1", valid_csv_request())
+    assert not (tmp_path / "raw" / "import-1" / "inputs").exists()
+
+def test_artifact_publication_rechecks_task14_containment(monkeypatch) -> None:
+    calls = record_verify_calls(monkeypatch)
+    publish_contained_bundle()
+    assert calls == ["preserved-package-publish", "canonical-publish"]
+
 def test_persisted_v22a_payloads_never_contain_absolute_root(tmp_path: Path) -> None:
     result = publish_bundle(tmp_path, bundle(), writer_profile())
     payloads = (read_manifest(result), provenance_payload(result.provenance))
@@ -3135,7 +3168,9 @@ Expected: FAIL because artifact schemas and atomic publication do not exist.
 Build the complete source set from the market-data, calendar snapshot, every
 gap-evidence and every corporate-action-evidence request ref. Resolve and
 containment-check the entire set before creating a staging directory or copying
-one byte. Copy from already-opened handles into fixed role paths under one
+one byte through Task 14's `verify_contained_path`. Immediately before each
+open and before each atomic publish, repeat that helper's containment/reparse
+check. Copy from already-opened handles into fixed role paths under one
 `raw/<import_id>/inputs/` staging directory. For each handle, compare file
 identity/size/mtime before and after the copy, rewind and hash the source handle,
 and require that hash to equal the copied file's `sha256_file`; a concurrent
@@ -3639,7 +3674,8 @@ binding. This reuse lookup is not an activation lookup: it must neither read
 nor update `active_manifest_by_dataset_id`, and if more than one matching
 descriptor binding exists it fails closed instead of selecting by revision,
 mtime or import time. Any mismatch raises
-`DataFoundationError(DATA_VALIDATION_BLOCKER, "IDENTITY_CLAIM_MISMATCH")`. A
+`DataFoundationError(BlockerCode.DATA_VALIDATION_BLOCKER, "IDENTITY_CLAIM_MISMATCH",
+"claimed dataset identity differs from the registered descriptor")`. A
 normal re-import never creates revision 2. This is a claimed-identity
 consistency check, not a generic cryptographic collision detector.
 
@@ -3903,13 +3939,13 @@ git commit -m "Add atomic exact-binding dataset invalidation."
 - Create: `tests/data_foundation/test_security.py`
 - Modify: `src/tv_quant/contracts/path_safety.py`
 - Modify: `tests/contracts/test_path_safety.py`
-- Modify: `src/tv_quant/data_foundation/artifacts.py`
 - Test: `tests/data_foundation/test_security.py`
 - Test: `tests/contracts/test_path_safety.py`
 
 **Interfaces:**
-- Consumes: existing `resolve_under_root(root, relative_path) -> Path` and Task
-  10 `preserve_import_inputs`.
+- Consumes: existing `resolve_under_root(root, relative_path) -> Path` and
+  `Path` only. This task is a prerequisite for Task 10 and must not import,
+  inspect or test Task 10 artifacts.
 - Produces in the same owner module:
 
 ~~~python
@@ -3924,7 +3960,7 @@ def verify_contained_path(
 def verify_same_volume_staging(root: Path, staging: Path, target: Path) -> None: ...
 ~~~
 
-- [ ] **Step 1: Write RED Windows special-path and repeated-check tests**
+- [ ] **Step 1: Write RED Windows special-path, reparse, and same-volume tests**
 
 ~~~python
 @pytest.mark.parametrize("unsafe", [
@@ -3937,30 +3973,19 @@ def test_windows_special_paths_and_reparse_escape_are_rejected(
     with pytest.raises(ValueError):
         verify_contained_path(tmp_path, unsafe, require_existing=False)
 
-def test_artifact_publication_rechecks_containment(monkeypatch) -> None:
-    calls = record_verify_calls(monkeypatch)
-    publish_contained_bundle()
-    assert calls == ["preserved-package-publish", "canonical-publish"]
-
-def test_all_inputs_are_contained_before_first_copy(
+def test_same_volume_staging_rejects_mismatched_volumes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    events = record_input_preflight_and_copy_calls(monkeypatch)
-    with pytest.raises(ValueError):
-        preserve_import_inputs(tmp_path, "import-1", unsafe_last_evidence_request())
-    assert events == [
-        "contain:market-data", "contain:calendar", "contain:gap-evidence:0",
-        "contain:corporate-action-evidence:0",
-    ]
-    assert not any(event.startswith("copy:") for event in events)
-
-def test_source_mutation_during_preservation_fails_closed(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    mutate_during_preserved_copy(monkeypatch)
-    with pytest.raises(DataFoundationError, match="INPUT_CHANGED_DURING_PRESERVATION"):
-        preserve_import_inputs(tmp_path, "import-1", valid_csv_request())
-    assert not (tmp_path / "raw" / "import-1" / "inputs").exists()
+    staging = tmp_path / "staging"
+    target = tmp_path / "target"
+    staging.mkdir()
+    target.mkdir()
+    monkeypatch.setattr(
+        "tv_quant.contracts.path_safety.volume_identity",
+        lambda path: (1, 1) if path == staging else (2, 2),
+    )
+    with pytest.raises(ValueError, match="same-volume"):
+        verify_same_volume_staging(tmp_path, staging, target)
 ~~~
 
 Create symlink/junction/reparse tests where supported; skip only when the OS
@@ -3993,56 +4018,45 @@ candidate.relative_to(resolved_root)
 return candidate
 ~~~
 
-- [ ] **Step 4: Freeze input-package containment and TOCTOU checks**
+- [ ] **Step 4: Finalize the prerequisite containment and same-volume primitives**
 
-`preflight_all_contained_inputs` resolves the full declared input set before
-the first copy. Immediately before each open, repeat containment/reparse and
-file-identity verification against the preflight result. Open only those
-resolved paths, reject any file identity or
-metadata change observed during copy, verify the preserved byte hash against a
-second pass over the same open handle, and atomically publish the complete raw
-input package. Re-resolve every preserved ref before downstream reads; never
-re-resolve or reopen `DataImportRequest` paths after preservation. A preserved
-package hash mismatch is a blocker, not a reason to fall back to the original.
-
-- [ ] **Step 5: Enforce same-root, same-volume atomic publication**
-
-Compare `Path.anchor` and Windows volume serial/device identity where available.
-Re-run `verify_contained_path` immediately before preserved-package and
-canonical-directory replace. Task 15 adds preserved-source-read and
-registry-commit checks around the orchestrator. Never log `runtime.data_root`
-or the resolved absolute target.
+`verify_contained_path` is the single strengthened path owner for later
+publication tasks. It must provide repeatable containment/reparse checks for a
+declared relative ref, while `verify_same_volume_staging` compares
+`Path.anchor` and Windows volume serial/device identity where available. Both
+helpers fail closed if a required attribute or identity cannot be inspected;
+they do not create, copy, publish or inspect V2.2A artifacts. Task 10 owns the
+input-package TOCTOU and publish-time integration tests that consume these
+already-tested primitives.
 
 ~~~python
 if volume_identity(staging) != volume_identity(target.parent):
     raise ValueError("staging: same-volume publication required")
-verify_contained_path(root, raw_relative, require_existing=False)
-verify_contained_path(root, canonical_relative, require_existing=False)
 ~~~
 
-- [ ] **Step 6: Run GREEN**
+- [ ] **Step 5: Run GREEN**
 
 Run:
 `py -3.14 -m pytest tests/data_foundation/test_security.py tests/contracts/test_path_safety.py -q`
 
-Expected: PASS on Windows; symlink/junction/reparse escape cannot reach read or
-write calls.
+Expected: PASS on Windows; unsafe paths, reparse escape and same-volume
+mismatch fail before any downstream reader or writer exists.
 
-- [ ] **Step 7: Refactor platform probes, then run artifact and confirmation-store regression**
+- [ ] **Step 6: Refactor platform probes, then run path-owner regression**
 
 Isolate Windows attribute/volume inspection behind private functions in the
 existing `path_safety.py` owner so non-Windows code remains deterministic.
 
 Run:
-`py -3.14 -m pytest tests/data_foundation/test_artifacts.py tests/data_foundation/test_security.py tests/contracts/test_artifact_contract.py tests/contracts/test_confirmation_store.py -q`
+`py -3.14 -m pytest tests/data_foundation/test_security.py tests/contracts/test_path_safety.py tests/contracts/test_artifact_contract.py -q`
 
-Expected: PASS with V2.1 root containment and atomic confirmation semantics
+Expected: PASS with V2.1 root containment and artifact-contract semantics
 unchanged.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 7: Commit**
 
 ~~~powershell
-git add src/tv_quant/contracts/path_safety.py tests/contracts/test_path_safety.py src/tv_quant/data_foundation/artifacts.py tests/data_foundation/test_security.py
+git add src/tv_quant/contracts/path_safety.py tests/contracts/test_path_safety.py tests/data_foundation/test_security.py
 git commit -m "Strengthen Windows data-root containment."
 ~~~
 
@@ -4127,6 +4141,19 @@ def test_parser_receives_only_preserved_market_data_path(
     assert result.operation.status is PipelineStatus.SUCCESS
     assert paths == [tmp_path / result.import_manifest.preserved_inputs.market_data_ref]
     assert "raw" in paths[0].parts and "inputs" in paths[0].parts
+
+def test_importer_loads_frozen_calendar_without_refresh(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fail_calendar_refresh(*args: object, **kwargs: object) -> object:
+        raise AssertionError("importer must not refresh XNYS calendar")
+
+    monkeypatch.setattr(exchange_calendars, "get_calendar", fail_calendar_refresh)
+    result = import_local_dataset(valid_csv_request(), runtime(tmp_path))
+    assert result.operation.status is PipelineStatus.SUCCESS
+
+# This test module imports exchange_calendars only as the monkeypatch target;
+# the importer module itself must not import or call it.
 
 def test_original_mutation_after_preservation_cannot_change_import(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -4415,15 +4442,16 @@ Run: `py -3.14 -m pytest tests/data_foundation/test_importer.py -q`
 Expected: PASS for success, smoke, blocker, incomplete, not-implemented,
 repeat, identity-claim mismatch and failure-evidence paths.
 
-- [ ] **Step 6: Refactor stage dispatch, then prove no prohibited execution path**
+- [ ] **Step 6: Refactor stage dispatch, then prove no refresh or prohibited execution path**
 
-Monkeypatch `yfinance`, `futu`, `requests`, `socket.socket`,
+Monkeypatch `exchange_calendars.get_calendar`, `yfinance`, `futu`, `requests`, `socket.socket`,
 `subprocess.run`, `run_pipeline`, `audit_backtest` and `write_reports` to raise.
 
 Run:
 `py -3.14 -m pytest tests/data_foundation/test_importer.py -q`
 
-Expected: PASS; no prohibited callable is reached.
+Expected: PASS; the importer consumes the preserved calendar snapshot and no
+calendar-refresh or prohibited callable is reached.
 
 - [ ] **Step 7: Commit**
 
@@ -4735,19 +4763,22 @@ git commit -m "Complete V2.2A data foundation acceptance."
           -> 7 corporate actions/adjustments
               -> 8 validation
                   -> 9 dataset identity
-                      -> 10 artifacts/manifests
-                          -> 11 eligibility/registry
-                              -> 12 idempotency/query
-                              -> 13 invalidation
-                      -> 14 path security
-                          -> 15 import orchestration
-                              -> 16 end-to-end fixtures
-                                  -> 17 final acceptance
+                      -> 14 path-security primitives
+                          -> 10 artifacts/manifests
+                              -> 11 eligibility/registry
+                                  -> 12 idempotency/query
+                                  -> 13 invalidation
+                                      -> 15 import orchestration
+                                          -> 16 end-to-end fixtures
+                                              -> 17 final acceptance
 ~~~
 
 Tasks 6 and 7 may be implemented after Task 5 in either order, but Task 8
-requires both. Tasks 12 and 13 both require Task 11; Task 15 requires them and
-Task 14. Task 1 must not begin unless Task 0 passes; a missing dependency stops
+requires both. Task 14 is self-contained and supplies the containment and
+same-volume primitives before Task 10 first uses them; Task 10 owns the
+preservation/publication integration checks. Tasks 12 and 13 both require Task
+11; Task 15 requires Task 13 and receives the moved importer/calendar-refresh
+check. Task 1 must not begin unless Task 0 passes; a missing dependency stops
 execution before writes, RED tests or package installation. No task may begin
 V2.2B, formal backtesting or network/provider work.
 

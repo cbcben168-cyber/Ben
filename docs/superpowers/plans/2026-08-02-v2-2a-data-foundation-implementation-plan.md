@@ -3012,8 +3012,8 @@ git commit -m "Finalize V2.2A logical dataset identity."
 **Interfaces:**
 - Consumes: `CanonicalDatasetDescriptor`, `RegistrationDecision`,
   `LogicalDatasetBundle`, `ProvenanceInputs`, `DataValidationReport`,
-  `PreservedImportInputs`, `resolve_under_root`, `verify_contained_path`,
-  `verify_same_volume_staging` from Task 14,
+  `PreservedImportInputs`, and the frozen V2.1
+  `resolve_under_root(root, relative_path) -> Path` containment boundary,
   `bind_artifact_hashes`, `sha256_file`, typed provenance mode from Task 1.
 - Produces: `DatasetProvenance`, `CanonicalDatasetManifest`,
   `PublishedCanonicalBundle`, `PublishedImportManifest`, `ProvenanceInputs`, `RegistrationDecision`,
@@ -3110,7 +3110,7 @@ def test_source_mutation_during_preservation_fails_closed(
         preserve_import_inputs(tmp_path, "import-1", valid_csv_request())
     assert not (tmp_path / "raw" / "import-1" / "inputs").exists()
 
-def test_artifact_publication_rechecks_task14_containment(monkeypatch) -> None:
+def test_artifact_publication_rechecks_frozen_containment(monkeypatch) -> None:
     calls = record_verify_calls(monkeypatch)
     publish_contained_bundle()
     assert calls == ["preserved-package-publish", "canonical-publish"]
@@ -3167,10 +3167,10 @@ Expected: FAIL because artifact schemas and atomic publication do not exist.
 
 Build the complete source set from the market-data, calendar snapshot, every
 gap-evidence and every corporate-action-evidence request ref. Resolve and
-containment-check the entire set before creating a staging directory or copying
-one byte through Task 14's `verify_contained_path`. Immediately before each
-open and before each atomic publish, repeat that helper's containment/reparse
-check. Copy from already-opened handles into fixed role paths under one
+containment-check the entire set through the frozen `resolve_under_root` boundary
+before creating a staging directory or copying one byte. Immediately before each
+open and before each atomic publish, repeat that containment check. Copy from
+already-opened handles into fixed role paths under one
 `raw/<import_id>/inputs/` staging directory. For each handle, compare file
 identity/size/mtime before and after the copy, rewind and hash the source handle,
 and require that hash to equal the copied file's `sha256_file`; a concurrent
@@ -3219,24 +3219,26 @@ resolved root string.
 
 - [ ] **Step 5: Implement descriptor-driven publication in frozen dependency order**
 
-Create an exclusive staging directory under the contained root. Re-resolve
-containment before each write and immediately before `Path.replace`. The caller
-must already have constructed the logical bundle, identity, descriptor and
-reuse decision, in that order. `CanonicalDatasetDescriptor` is the only reuse
-input and contains no physical refs/hashes, provenance/report refs/hashes or
-writer result.
+Create an exclusive staging directory under the contained root. Re-resolve the
+frozen containment boundary before each write and immediately before
+`Path.replace`. The caller must already have constructed the logical bundle,
+identity, descriptor and reuse decision, in that order.
+`CanonicalDatasetDescriptor` is the only reuse input and contains no physical
+refs/hashes, provenance/report refs/hashes or writer result. The staging
+directory is created beneath that same resolved root, so Task 10 does not own a
+second same-volume or reparse-point policy.
 
 For a new dataset: stage physical components, compute and verify their file
 hashes, build `DatasetProvenance`, then build the complete
 `CanonicalDatasetManifest`, verify all cross-references and hashes, and publish
 the canonical directory atomically. No partially populated manifest object is
-constructed. Reject an existing final directory,
-cross-volume staging, partial target or hash mismatch. On failure retain the
+constructed. Reject an existing final directory, partial target or hash mismatch.
+On failure retain the
 raw/validated evidence and write only quarantine references.
 
 ~~~python
+target = resolve_under_root(root, target_relative)
 staging = create_exclusive_staging(root, dataset_id, revision)
-verify_same_volume_staging(root, staging, target)
 write_and_verify_components(staging, bundle, writer_profile)
 component_file_hashes = hash_staged_components(staging)
 provenance = build_dataset_provenance(
@@ -3253,7 +3255,6 @@ write_canonical_json_artifact(
     canonical_manifest_payload(manifest),
 )
 verify_published_hashes(staging, manifest)
-verify_contained_path(root, target_relative, require_existing=False)
 if target.exists():
     raise DataFoundationError(BlockerCode.DATA_VALIDATION_BLOCKER,
                               "IMMUTABLE_TARGET_EXISTS", str(target_relative))
@@ -3944,8 +3945,9 @@ git commit -m "Add atomic exact-binding dataset invalidation."
 
 **Interfaces:**
 - Consumes: existing `resolve_under_root(root, relative_path) -> Path` and
-  `Path` only. This task is a prerequisite for Task 10 and must not import,
-  inspect or test Task 10 artifacts.
+  `Path` only. This is a later hardening task, not an implementation
+  prerequisite for Task 10; it must not import, inspect or test Task 10
+  artifacts.
 - Produces in the same owner module:
 
 ~~~python
@@ -4018,16 +4020,16 @@ candidate.relative_to(resolved_root)
 return candidate
 ~~~
 
-- [ ] **Step 4: Finalize the prerequisite containment and same-volume primitives**
+- [ ] **Step 4: Finalize the containment and same-volume primitives**
 
-`verify_contained_path` is the single strengthened path owner for later
-publication tasks. It must provide repeatable containment/reparse checks for a
-declared relative ref, while `verify_same_volume_staging` compares
+`verify_contained_path` is the single strengthened path owner for the later
+import pipeline. It must provide repeatable containment/reparse
+checks for a declared relative ref, while `verify_same_volume_staging` compares
 `Path.anchor` and Windows volume serial/device identity where available. Both
 helpers fail closed if a required attribute or identity cannot be inspected;
-they do not create, copy, publish or inspect V2.2A artifacts. Task 10 owns the
-input-package TOCTOU and publish-time integration tests that consume these
-already-tested primitives.
+they do not create, copy, publish or inspect V2.2A artifacts. Task 10 remains
+self-contained: it invokes only the frozen `resolve_under_root` boundary and
+does not consume or require either Task 14 helper.
 
 ~~~python
 if volume_identity(staging) != volume_identity(target.parent):
@@ -4763,22 +4765,24 @@ git commit -m "Complete V2.2A data foundation acceptance."
           -> 7 corporate actions/adjustments
               -> 8 validation
                   -> 9 dataset identity
-                      -> 14 path-security primitives
-                          -> 10 artifacts/manifests
-                              -> 11 eligibility/registry
-                                  -> 12 idempotency/query
+                      -> 10 artifacts/manifests
+                          -> 11 eligibility/registry
+                              -> 12 idempotency/query
                                   -> 13 invalidation
-                                      -> 15 import orchestration
-                                          -> 16 end-to-end fixtures
-                                              -> 17 final acceptance
+                                      -> 14 path-security primitives
+                                          -> 15 import orchestration
+                                              -> 16 end-to-end fixtures
+                                                  -> 17 final acceptance
 ~~~
 
 Tasks 6 and 7 may be implemented after Task 5 in either order, but Task 8
-requires both. Task 14 is self-contained and supplies the containment and
-same-volume primitives before Task 10 first uses them; Task 10 owns the
-preservation/publication integration checks. Tasks 12 and 13 both require Task
-11; Task 15 requires Task 13 and receives the moved importer/calendar-refresh
-check. Task 1 must not begin unless Task 0 passes; a missing dependency stops
+requires both. Task 10 is self-contained and uses only the frozen V2.1
+`resolve_under_root` boundary for preservation/publication containment. Task 14
+later hardens the same existing owner without becoming a Task 10 prerequisite
+or testing Task 10 artifacts; Task 15 is the first downstream consumer of the
+new helper capabilities. Tasks 12 and 13 both require Task 11; Task 15 requires
+Task 14 and receives the moved importer/calendar-refresh check. Task 1 must not
+begin unless Task 0 passes; a missing dependency stops
 execution before writes, RED tests or package installation. No task may begin
 V2.2B, formal backtesting or network/provider work.
 

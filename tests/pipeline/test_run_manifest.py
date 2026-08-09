@@ -1,3 +1,4 @@
+from copy import deepcopy
 from datetime import datetime
 
 from tv_quant.run_manifest import (
@@ -80,11 +81,31 @@ def test_build_manifest_records_reproducibility_evidence(tmp_path):
     assert manifest["benchmark"] == spec.benchmark
     assert manifest["smoke_test_marker"] is None
     assert manifest["fill_timing"] == "next_bar"
-    assert manifest["commission_bps"] == 5.0
-    assert manifest["slippage_bps"] == 5.0
+    assert manifest["commission_bps"] == "5"
+    assert manifest["slippage_bps"] == "5"
     assert manifest["optimization_allowed"] is False
     assert manifest["artifact_paths"]["summary"] == str(artifact_paths["summary"])
     assert datetime.fromisoformat(manifest["generated_at_utc"]).tzinfo is not None
+
+
+def test_build_manifest_canonicalizes_finite_legacy_float_costs_and_raw_hash(tmp_path):
+    payload = valid_payload()
+    payload["commission_model"]["value"] = 0.5
+    payload["slippage_model"]["value"] = 1e-7
+    spec = validate_strategy_mapping(payload)
+    data_path = tmp_path / "SPY_daily.csv"
+    data_path.write_text("deterministic-data\n", encoding="utf-8")
+
+    manifest = build_manifest(spec, data_path, "cache", {}, "abc", None)
+    canonical_payload = deepcopy(dict(spec.raw))
+    canonical_payload["commission_model"]["value"] = "0.5"
+    canonical_payload["slippage_model"]["value"] = "0.0000001"
+
+    assert spec.raw["commission_model"]["value"] == 0.5
+    assert spec.raw["slippage_model"]["value"] == 1e-7
+    assert manifest["commission_bps"] == "0.5"
+    assert manifest["slippage_bps"] == "0.0000001"
+    assert manifest["strategy_config_hash"] == canonical_hash(canonical_payload)
 
 
 def test_build_manifest_binds_report_paths_and_smoke_provenance(tmp_path):

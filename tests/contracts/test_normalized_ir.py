@@ -192,6 +192,17 @@ def test_ir_preserves_explicit_disabled_stop_target_and_empty_filters(
         result.ir.symbol = "MSFT"  # type: ignore[misc]
 
 
+def test_normalized_config_payload_converts_immutable_tuples_to_json_lists(
+    spec: StrategySpecV2, registry: _FixedRegistry
+) -> None:
+    """The frozen IR tuple representation must not escape its hash payload boundary."""
+    result = _result(spec, registry)
+
+    assert result.ir is not None
+    assert result.ir.filters == ()
+    assert normalized_config_payload(result.ir)["filters"] == []
+
+
 def test_node_ids_and_units_are_canonical(spec: StrategySpecV2, registry: _FixedRegistry) -> None:
     result = _result(spec, registry)
 

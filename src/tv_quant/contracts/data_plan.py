@@ -202,9 +202,17 @@ def _auxiliary_requirements(
 
 def _dataset_payload(requirement: DatasetRequirement) -> dict[str, object]:
     return {
-        field: getattr(requirement, field)
+        field: _canonical_payload_value(getattr(requirement, field))
         for field in DatasetRequirement.__dataclass_fields__
     }
+
+
+def _canonical_payload_value(value: object) -> object:
+    if isinstance(value, Mapping):
+        return {key: _canonical_payload_value(value[key]) for key in sorted(value)}
+    if isinstance(value, tuple):
+        return [_canonical_payload_value(item) for item in value]
+    return value
 
 
 def _payload(plan: DataPlan) -> dict[str, object]:
@@ -212,7 +220,7 @@ def _payload(plan: DataPlan) -> dict[str, object]:
         "schema_version": plan.schema_version,
         "primary": _dataset_payload(plan.primary),
         "auxiliary": [_dataset_payload(requirement) for requirement in plan.auxiliary],
-        "requested_range": dict(plan.requested_range),
+        "requested_range": _canonical_payload_value(plan.requested_range),
     }
 
 

@@ -141,6 +141,12 @@ def test_adapter_preserves_distinct_accepted_legacy_cost_values(tmp_path: Path) 
     assert result.generated_v2_payload["data"]["legacy_costs"]["commission_bps"] == "5.000000000000001"
 
 
+def test_adapter_formats_small_legacy_float_without_exponent():
+    from tv_quant.adapters.phase1_config_adapter import _basis_points_text
+
+    assert _basis_points_text(1e-7) == "0.0000001"
+
+
 @pytest.mark.parametrize(
     ("field", "value", "status"),
     (

@@ -74,6 +74,55 @@ _EXPECTED_ARTIFACT_OWNERS = (
         "write_data_provenance",
         True,
     ),
+    ("raw_source", "tv_quant.run_manifest", "sha256_file", True),
+    (
+        "validated_candidate",
+        "tv_quant.run_manifest",
+        "write_canonical_json_artifact",
+        True,
+    ),
+    (
+        "validation_report",
+        "tv_quant.run_manifest",
+        "write_canonical_json_artifact",
+        True,
+    ),
+    (
+        "canonical_component",
+        "tv_quant.run_manifest",
+        "bind_artifact_hashes",
+        True,
+    ),
+    (
+        "import_manifest",
+        "tv_quant.run_manifest",
+        "write_canonical_json_artifact",
+        True,
+    ),
+    (
+        "dataset_manifest",
+        "tv_quant.run_manifest",
+        "write_canonical_json_artifact",
+        True,
+    ),
+    (
+        "data_eligibility",
+        "tv_quant.run_manifest",
+        "write_canonical_json_artifact",
+        True,
+    ),
+    (
+        "registry_snapshot",
+        "tv_quant.run_manifest",
+        "write_canonical_json_artifact",
+        True,
+    ),
+    (
+        "invalidation_event",
+        "tv_quant.run_manifest",
+        "write_canonical_json_artifact",
+        True,
+    ),
     ("backtest_audit", "tv_quant.backtest_audit", "audit_backtest", True),
     ("formal_report", "tv_quant.reporting", "write_reports", True),
 )
@@ -122,7 +171,7 @@ _POST_PHASE1_TESTS = {
 }
 _PHASE1_FILE_COUNT = 18
 _PHASE1_FULL_AST_SHA256 = (
-    "3f4b9a1a4a113555d84793a3e98dbbb9a02dcc28672348e8d021fc058e52ff09"
+    "7973239a7fcd538a58743aac8cb049e260cce42abce318ad5083377b2942e312"
 )
 
 

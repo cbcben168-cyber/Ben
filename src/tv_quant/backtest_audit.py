@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal
 import hashlib
 import math
 from pathlib import Path
@@ -11,6 +12,7 @@ from typing import Any, Mapping
 import pandas as pd
 
 from .data_quality import DataQualityError, validate_ohlcv
+from .contracts.numeric import canonical_decimal
 from .pipeline_models import (
     AuditIssue,
     AuditReport,
@@ -20,6 +22,13 @@ from .pipeline_models import (
     StrategySpec,
 )
 from .run_manifest import HASHED_ARTIFACT_NAMES, canonical_hash
+
+
+def _legacy_basis_points_text(value: float) -> str:
+    decimal = Decimal(str(value))
+    if not decimal.is_finite() or decimal < 0:
+        raise ValueError("legacy basis points: finite non-negative float required")
+    return canonical_decimal(format(decimal, "f"), "legacy basis points")
 
 
 @dataclass(frozen=True)
@@ -334,8 +343,8 @@ def _check_benchmark(context: AuditContext) -> tuple[bool, list[AuditIssue], lis
         "timeframe": context.spec.timeframe,
         "start_date": context.spec.start_date.isoformat(),
         "end_date": context.spec.end_date.isoformat(),
-        "commission_bps": context.spec.commission_bps,
-        "slippage_bps": context.spec.slippage_bps,
+        "commission_bps": _legacy_basis_points_text(context.spec.commission_bps),
+        "slippage_bps": _legacy_basis_points_text(context.spec.slippage_bps),
     }
     matches = all(manifest.get(field) == value for field, value in expected.items())
     try:

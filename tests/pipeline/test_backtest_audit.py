@@ -80,7 +80,7 @@ def valid_context(tmp_path: Path):
         "data_hash": "data-hash", "code_commit": "abc",
         "provider": "Futu_LOCAL_CACHE", "symbol": "SPY", "timeframe": "1d",
         "start_date": "2020-01-01", "end_date": "2024-12-31", "fill_timing": "next_bar",
-        "commission_bps": 5.0, "slippage_bps": 5.0, "optimization_allowed": False,
+        "commission_bps": "5", "slippage_bps": "5", "optimization_allowed": False,
         "benchmark": "buy_and_hold", "generated_at_utc": "2024-01-01T00:00:00+00:00",
         "oos_locked": True, "locked_oos_start": "2021-01-01", "locked_oos_end": "2021-12-31",
         "artifact_paths": {name: str(path) for name, path in paths.items()},
@@ -148,6 +148,34 @@ def test_cost_mismatch_is_fail(tmp_path):
     report = audit_backtest(context)
     assert report.status is AuditStatus.FAIL
     assert any(issue.code == "COST_MISMATCH" for issue in report.issues)
+
+
+def test_benchmark_accepts_canonical_manifest_cost_strings(tmp_path):
+    context = valid_context(tmp_path)
+    manifest = dict(context.manifest)
+    manifest.update({"commission_bps": "5", "slippage_bps": "5"})
+
+    passed, issues, warnings = backtest_audit._check_benchmark(
+        replace(context, manifest=manifest)
+    )
+
+    assert passed is True
+    assert issues == []
+    assert warnings == []
+
+
+def test_benchmark_rejects_noncanonical_manifest_cost_strings(tmp_path):
+    context = valid_context(tmp_path)
+    manifest = dict(context.manifest)
+    manifest.update({"commission_bps": "5.0", "slippage_bps": "5"})
+
+    passed, issues, warnings = backtest_audit._check_benchmark(
+        replace(context, manifest=manifest)
+    )
+
+    assert passed is False
+    assert [issue.code for issue in issues] == ["BENCHMARK_MISMATCH"]
+    assert warnings == []
 
 
 def test_empty_trades_are_conditional(tmp_path):

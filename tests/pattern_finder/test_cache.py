@@ -230,7 +230,7 @@ def test_flat_base_scan_rows_are_quality_gated_and_keep_fixed_pilot_order(
     assert aapl["Base Length"] == 30
     assert aapl["Base Depth"] == pytest.approx((102.0 - 99.0) / 99.0)
     assert aapl["Bottom Tests"] == 2
-    assert aapl["Slope"] == pytest.approx(0.0)
+    assert aapl["Normalized Slope"] == pytest.approx(0.0)
     assert aapl["Support"] == pytest.approx(99.0)
     assert aapl["Resistance"] == pytest.approx(102.0)
     assert aapl["Detector Version"] == "phase1-v1"

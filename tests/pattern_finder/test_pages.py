@@ -45,7 +45,7 @@ def test_today_scan_page_loads_all_three_fixture_rows() -> None:
         "Base Length",
         "Base Depth",
         "Bottom Tests",
-        "Slope",
+        "Normalized Slope",
         "Support",
         "Resistance",
     )
@@ -62,6 +62,7 @@ def test_chart_review_loads_chart_and_can_switch_fixture() -> None:
     assert len(app.get("plotly_chart")) == 1
     assert "Flat Base: YES" in _visible_text(app)
     assert "Bottom Tests:" in _visible_text(app)
+    assert "Normalized Slope:" in _visible_text(app)
     assert "Resistance Spike Adjusted:" in _visible_text(app)
 
     app.selectbox[0].select("TEST_READY").run()

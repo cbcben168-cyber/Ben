@@ -43,7 +43,7 @@ if source == "Fixture":
                 "Base Length": selected.base_length,
                 "Base Depth": selected.base_depth_pct,
                 "Bottom Tests": selected.bottom_test_count,
-                "Slope": selected.normalized_slope,
+                "Normalized Slope": selected.normalized_slope,
                 "Support": selected.support_level,
                 "Resistance": selected.resistance_level,
             }
@@ -78,7 +78,7 @@ else:
         "Base Length",
         "Base Depth",
         "Bottom Tests",
-        "Slope",
+        "Normalized Slope",
         "Rows",
         "Data Quality",
         "Issues",

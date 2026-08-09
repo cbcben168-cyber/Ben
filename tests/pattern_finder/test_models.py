@@ -114,6 +114,21 @@ def test_chart_fixture_rejects_short_unsorted_or_duplicate_bars() -> None:
         ChartFixture(bars=bars[:-1] + (bars[-2],), **common)
 
 
+def test_chart_fixture_rejects_mutable_bar_container() -> None:
+    bars = _bars()
+
+    with pytest.raises(ValueError, match="immutable tuple"):
+        ChartFixture(
+            symbol="TEST_FLAT",
+            pattern_label="Flat fixture",
+            bars=list(bars),  # type: ignore[arg-type]
+            base_start=bars[90].timestamp_utc,
+            base_end=bars[-1].timestamp_utc,
+            support=98.0,
+            resistance=103.0,
+        )
+
+
 def test_phase1_models_have_only_milestone_1_fields() -> None:
     assert {field.name for field in fields(DailyBar)} == {
         "timestamp_utc",

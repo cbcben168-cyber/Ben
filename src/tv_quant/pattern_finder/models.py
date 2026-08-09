@@ -48,6 +48,8 @@ class ChartFixture:
             raise ValueError("symbol must be non-empty uppercase text")
         if not self.pattern_label.strip():
             raise ValueError("pattern_label must be non-empty")
+        if not isinstance(self.bars, tuple):
+            raise ValueError("bars must use an immutable tuple")
         if len(self.bars) < 120 or not all(isinstance(bar, DailyBar) for bar in self.bars):
             raise ValueError("bars must contain at least 120 DailyBar values")
 

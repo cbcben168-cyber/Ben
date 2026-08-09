@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal
 from pathlib import Path
 from typing import Mapping
 
@@ -57,7 +58,10 @@ class _SingleValidatedSpecRegistry:
 
 def _basis_points_text(value: float) -> str:
     """Keep legacy costs explicit without introducing binary floats into V2."""
-    return canonical_decimal(str(value), "legacy basis points")
+    decimal = Decimal(str(value))
+    if not decimal.is_finite() or decimal < 0:
+        raise ValueError("legacy basis points: finite non-negative float required")
+    return canonical_decimal(format(decimal, "f"), "legacy basis points")
 
 
 def _v2_payload(spec) -> dict[str, object]:

@@ -1,6 +1,7 @@
 import hashlib
 import json
 from datetime import datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -17,7 +18,25 @@ HASHED_ARTIFACT_NAMES = (
 def _legacy_basis_points_text(value: float) -> str:
     from tv_quant.contracts.numeric import canonical_decimal
 
-    return canonical_decimal(str(value), "legacy basis points")
+    decimal = Decimal(str(value))
+    if not decimal.is_finite() or decimal < 0:
+        raise ValueError("legacy basis points: finite non-negative float required")
+    return canonical_decimal(format(decimal, "f"), "legacy basis points")
+
+
+def _canonical_spec_value(value: object) -> object:
+    if isinstance(value, Mapping):
+        return {key: _canonical_spec_value(value[key]) for key in sorted(value)}
+    if isinstance(value, (list, tuple)):
+        return [_canonical_spec_value(item) for item in value]
+    if type(value) is float:
+        from tv_quant.contracts.numeric import canonical_decimal
+
+        decimal = Decimal(str(value))
+        if not decimal.is_finite():
+            raise ValueError("strategy config: finite float required")
+        return canonical_decimal(format(decimal, "f"), "strategy config")
+    return value
 
 
 def validate_canonical_json_value(value: object, path: str = "payload") -> None:
@@ -70,7 +89,7 @@ def build_manifest(
     strategy_config_path: Path | None = None,
 ) -> dict[str, object]:
     manifest = {
-        "strategy_config_hash": canonical_hash(spec.raw),
+        "strategy_config_hash": canonical_hash(_canonical_spec_value(spec.raw)),
         "data_hash": sha256_file(data_path),
         "code_commit": code_commit,
         "strategy_name": spec.strategy_name,

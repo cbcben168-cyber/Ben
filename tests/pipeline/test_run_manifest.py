@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import datetime
 
 from tv_quant.run_manifest import (
@@ -85,6 +86,18 @@ def test_build_manifest_records_reproducibility_evidence(tmp_path):
     assert manifest["optimization_allowed"] is False
     assert manifest["artifact_paths"]["summary"] == str(artifact_paths["summary"])
     assert datetime.fromisoformat(manifest["generated_at_utc"]).tzinfo is not None
+
+
+def test_build_manifest_canonicalizes_finite_legacy_float_costs_and_raw_hash(tmp_path):
+    spec = replace(validate_strategy_mapping(valid_payload()), commission_bps=0.5, slippage_bps=1e-7)
+    data_path = tmp_path / "SPY_daily.csv"
+    data_path.write_text("deterministic-data\n", encoding="utf-8")
+
+    manifest = build_manifest(spec, data_path, "cache", {}, "abc", None)
+
+    assert manifest["commission_bps"] == "0.5"
+    assert manifest["slippage_bps"] == "0.0000001"
+    assert len(manifest["strategy_config_hash"]) == 64
 
 
 def test_build_manifest_binds_report_paths_and_smoke_provenance(tmp_path):

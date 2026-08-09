@@ -1,8 +1,11 @@
+from dataclasses import replace
 from datetime import UTC, datetime
 
 import plotly.graph_objects as go
+import pandas as pd
 
 from tv_quant.pattern_finder.charts import build_candlestick_figure
+from tv_quant.pattern_finder.flat_base import detect_flat_base
 from tv_quant.pattern_finder.fixtures import load_fixture
 from tv_quant.pattern_finder.models import ChartSeries, DailyBar
 
@@ -91,3 +94,42 @@ def test_real_chart_uses_literal_daily_bars_without_detector_overlays() -> None:
     assert tuple(figure.layout.shapes) == ()
     assert tuple(figure.layout.annotations) == ()
     assert figure.layout.title.text == "AAPL — Futu QFQ daily"
+
+
+def _fixture_detection(symbol: str):
+    fixture = load_fixture(symbol)
+    frame = pd.DataFrame(
+        {
+            "timestamp_utc": [bar.timestamp_utc for bar in fixture.bars],
+            "ticker": [symbol] * len(fixture.bars),
+            "open": [bar.open for bar in fixture.bars],
+            "high": [bar.high for bar in fixture.bars],
+            "low": [bar.low for bar in fixture.bars],
+            "close": [bar.close for bar in fixture.bars],
+            "volume": [bar.volume for bar in fixture.bars],
+        }
+    )
+    return fixture, detect_flat_base(frame)
+
+
+def test_chart_uses_detector_selected_flat_base_overlays() -> None:
+    fixture, result = _fixture_detection("TEST_FLAT")
+
+    figure = build_candlestick_figure(fixture, flat_base=result)
+    shapes = {shape.name: shape for shape in figure.layout.shapes}
+
+    assert result.pattern_flat_base is True
+    assert shapes["Base Window"].x0 == result.selected.base_start
+    assert shapes["Base Window"].x1 == result.selected.base_end
+    assert shapes["Support"].y0 == result.selected.support_level
+    assert shapes["Resistance"].y0 == result.selected.resistance_level
+
+
+def test_chart_hides_detector_overlays_for_flat_base_no() -> None:
+    fixture, result = _fixture_detection("TEST_FLAT")
+    rejected = replace(result, pattern_flat_base=False)
+
+    figure = build_candlestick_figure(fixture, flat_base=rejected)
+
+    assert tuple(figure.layout.shapes) == ()
+    assert tuple(figure.layout.annotations) == ()

@@ -41,11 +41,16 @@ def test_today_scan_page_loads_all_three_fixture_rows() -> None:
         "Symbol",
         "Pattern",
         "Bars",
-        "Base Start",
-        "Base End",
+        "Flat Base",
+        "Base Length",
+        "Base Depth",
+        "Bottom Tests",
+        "Slope",
         "Support",
         "Resistance",
     )
+    assert tuple(table["Flat Base"]) == ("YES", "YES", "YES")
+    assert table.loc[table["Symbol"] == "TEST_FLAT", "Bottom Tests"].iloc[0] >= 2
 
 
 def test_chart_review_loads_chart_and_can_switch_fixture() -> None:
@@ -55,11 +60,14 @@ def test_chart_review_loads_chart_and_can_switch_fixture() -> None:
     assert app.title[0].value == "Chart Review"
     assert tuple(app.selectbox[0].options) == ("TEST_FLAT", "TEST_ROUNDED", "TEST_READY")
     assert len(app.get("plotly_chart")) == 1
+    assert "Flat Base: YES" in _visible_text(app)
+    assert "Bottom Tests:" in _visible_text(app)
+    assert "Resistance Spike Adjusted:" in _visible_text(app)
 
     app.selectbox[0].select("TEST_READY").run()
     assert not app.exception
     assert app.selectbox[0].value == "TEST_READY"
-    assert "Resistance: 105.50" in _visible_text(app)
+    assert "Detector Version: phase1-v1" in _visible_text(app)
 
 
 def test_rendered_pages_do_not_expose_later_phase_fields() -> None:
@@ -118,6 +126,8 @@ def test_today_scan_cache_mode_lists_pilot_and_requires_explicit_refresh(
     table = app.dataframe[0].value
     assert tuple(table["Symbol"]) == PILOT_SYMBOLS
     assert table.loc[table["Symbol"] == "AAPL", "Cache"].iloc[0] == "Present"
+    assert table.loc[table["Symbol"] == "AAPL", "Flat Base"].iloc[0] == "NO"
+    assert "Base Length" in table.columns
     assert any(button.label == "Refresh pilot from Futu OpenD" for button in app.button)
 
 
@@ -136,3 +146,4 @@ def test_chart_review_cache_mode_renders_real_qfq_bars(
     assert app.selectbox[0].value == "AAPL"
     assert len(app.get("plotly_chart")) == 1
     assert "Futu QFQ" in _visible_text(app)
+    assert "Flat Base diagnostics unavailable" in _visible_text(app)

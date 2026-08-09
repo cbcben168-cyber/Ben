@@ -48,7 +48,7 @@ def _render_flat_base_diagnostics(result: FlatBaseResult | None) -> None:
         f"Base Depth: {selected.base_depth_pct:.6f} | "
         f"Bottom Tests: {selected.bottom_test_count} | "
         f"Bottom Tolerance: {selected.bottom_tolerance_pct:.6f} | "
-        f"Slope: {selected.normalized_slope:.8f}"
+        f"Normalized Slope: {selected.normalized_slope:.8f}"
     )
     st.caption(
         f"Support: {selected.support_level:.4f} | "

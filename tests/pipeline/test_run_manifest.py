@@ -80,8 +80,8 @@ def test_build_manifest_records_reproducibility_evidence(tmp_path):
     assert manifest["benchmark"] == spec.benchmark
     assert manifest["smoke_test_marker"] is None
     assert manifest["fill_timing"] == "next_bar"
-    assert manifest["commission_bps"] == 5.0
-    assert manifest["slippage_bps"] == 5.0
+    assert manifest["commission_bps"] == "5"
+    assert manifest["slippage_bps"] == "5"
     assert manifest["optimization_allowed"] is False
     assert manifest["artifact_paths"]["summary"] == str(artifact_paths["summary"])
     assert datetime.fromisoformat(manifest["generated_at_utc"]).tzinfo is not None

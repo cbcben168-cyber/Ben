@@ -14,6 +14,12 @@ HASHED_ARTIFACT_NAMES = (
 )
 
 
+def _legacy_basis_points_text(value: float) -> str:
+    from tv_quant.contracts.numeric import canonical_decimal
+
+    return canonical_decimal(str(value), "legacy basis points")
+
+
 def validate_canonical_json_value(value: object, path: str = "payload") -> None:
     """Reject values that cannot be represented by canonical JSON."""
     if value is None or type(value) in {bool, int, str}:
@@ -74,8 +80,8 @@ def build_manifest(
         "start_date": spec.start_date.isoformat(),
         "end_date": spec.end_date.isoformat(),
         "fill_timing": spec.fill_timing,
-        "commission_bps": spec.commission_bps,
-        "slippage_bps": spec.slippage_bps,
+        "commission_bps": _legacy_basis_points_text(spec.commission_bps),
+        "slippage_bps": _legacy_basis_points_text(spec.slippage_bps),
         "optimization_allowed": spec.optimization_allowed,
         "benchmark": spec.benchmark,
         "data_path": str(data_path),

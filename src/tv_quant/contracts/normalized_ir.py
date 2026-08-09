@@ -336,7 +336,7 @@ def _payload_value(value: object) -> object:
     if isinstance(value, Mapping):
         return {key: _payload_value(value[key]) for key in sorted(value)}
     if isinstance(value, tuple):
-        return tuple(_payload_value(item) for item in value)
+        return [_payload_value(item) for item in value]
     if isinstance(value, ValueExpression):
         return {
             "node_id": value.node_id,

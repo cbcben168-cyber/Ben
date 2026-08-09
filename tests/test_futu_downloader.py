@@ -20,6 +20,43 @@ def test_conversion_rejects_unsupported_or_mismatched_ticker():
     with pytest.raises(FutuDownloadError, match="supported ticker"):
         download_futu_daily("US.SPY", date(2024, 1, 1), date(2024, 1, 2), Context([(0, bad, None)]), sleep=lambda _: None)
 
+
+def test_pattern_finder_may_explicitly_allow_aapl_without_weakening_default_allowlist():
+    aapl = page("2024-01-02").assign(code="US.AAPL")
+
+    data = download_futu_daily(
+        "US.AAPL",
+        date(2024, 1, 1),
+        date(2024, 1, 2),
+        Context([(0, aapl, None)]),
+        allowed_tickers={"AAPL"},
+        sleep=lambda _: None,
+    )
+
+    assert data["ticker"].tolist() == ["AAPL"]
+    with pytest.raises(FutuDownloadError, match="supported ticker"):
+        download_futu_daily(
+            "US.AAPL",
+            date(2024, 1, 1),
+            date(2024, 1, 2),
+            Context([(0, aapl, None)]),
+            sleep=lambda _: None,
+        )
+
+
+def test_explicit_allowlist_still_rejects_response_for_another_symbol():
+    wrong = page("2024-01-02").assign(code="US.MSFT")
+
+    with pytest.raises(FutuDownloadError, match="requested US.AAPL"):
+        download_futu_daily(
+            "US.AAPL",
+            date(2024, 1, 1),
+            date(2024, 1, 2),
+            Context([(0, wrong, None)]),
+            allowed_tickers={"AAPL", "MSFT"},
+            sleep=lambda _: None,
+        )
+
 def test_failure_is_explicit_and_preserves_csv(tmp_path):
     target=tmp_path/"SPY_daily.csv"; page("2024-01-01").assign(ticker="SPY").to_csv(target,index=False)
     with pytest.raises(FutuDownloadError,match="unavailable"):

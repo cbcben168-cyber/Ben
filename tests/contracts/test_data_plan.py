@@ -229,3 +229,59 @@ def test_auxiliary_capability_uses_honest_registry_status_without_discarding_req
         "intraday.15m.30m.60m@v2.1",
         "BLOCKED:DATA_CAPABILITY_BLOCKER",
     )
+
+
+def test_data_plan_hash_canonicalizes_immutable_tuples_at_payload_boundary() -> None:
+    """Immutable tuple fields must hash as their canonical JSON list equivalents."""
+    from tv_quant.contracts.data_plan import DataPlan, DatasetRequirement, data_plan_hash
+    from tv_quant.run_manifest import canonical_hash
+
+    requirement = DatasetRequirement(
+        dataset_role="primary",
+        provider_preference=("validated_local_cache_first", "yfinance_smoke_only"),
+        symbol="AAPL",
+        market="US_EQUITY",
+        timeframe="1d",
+        session={"timezone": "America/New_York", "days": ("mon", "fri")},
+        timezone="UTC",
+        requested_start="2024-01-02",
+        requested_end="2024-12-31",
+        warmup_bars=0,
+        adjustment_requirement="adjusted_ohlcv",
+        corporate_action_requirement="corporate_actions_required",
+        cost_profile_requirement="cost_profile_required",
+        capability_requirements=("daily_ohlcv_utc", "STRUCTURAL_ONLY"),
+    )
+    plan = DataPlan(
+        schema_version="v2.1",
+        primary=requirement,
+        auxiliary=(),
+        requested_range={"start": "2024-01-02", "windows": (("2024-06-01", "2024-06-30"),)},
+        data_plan_hash="",
+    )
+    expected_payload = {
+        "schema_version": "v2.1",
+        "primary": {
+            "dataset_role": "primary",
+            "provider_preference": ["validated_local_cache_first", "yfinance_smoke_only"],
+            "symbol": "AAPL",
+            "market": "US_EQUITY",
+            "timeframe": "1d",
+            "session": {"timezone": "America/New_York", "days": ["mon", "fri"]},
+            "timezone": "UTC",
+            "requested_start": "2024-01-02",
+            "requested_end": "2024-12-31",
+            "warmup_bars": 0,
+            "adjustment_requirement": "adjusted_ohlcv",
+            "corporate_action_requirement": "corporate_actions_required",
+            "cost_profile_requirement": "cost_profile_required",
+            "capability_requirements": ["daily_ohlcv_utc", "STRUCTURAL_ONLY"],
+        },
+        "auxiliary": [],
+        "requested_range": {
+            "start": "2024-01-02",
+            "windows": [["2024-06-01", "2024-06-30"]],
+        },
+    }
+
+    assert data_plan_hash(plan) == canonical_hash(expected_payload)

@@ -4,7 +4,14 @@ from math import nan
 
 import pytest
 
-from tv_quant.pattern_finder.models import ChartFixture, DailyBar
+import pandas as pd
+
+from tv_quant.pattern_finder.models import (
+    ChartFixture,
+    ChartSeries,
+    DailyBar,
+    chart_series_from_frame,
+)
 
 
 def _bar(day: int, **changes: object) -> DailyBar:
@@ -147,3 +154,46 @@ def test_phase1_models_have_only_milestone_1_fields() -> None:
         "support",
         "resistance",
     }
+
+
+def test_real_chart_series_uses_literal_recent_standardized_bars() -> None:
+    frame = pd.DataFrame(
+        {
+            "timestamp_utc": pd.to_datetime(
+                ["2026-08-05", "2026-08-06", "2026-08-07"], utc=True
+            ),
+            "ticker": ["AAPL"] * 3,
+            "open": [201.0, 202.0, 203.0],
+            "high": [203.0, 204.0, 205.0],
+            "low": [200.0, 201.0, 202.0],
+            "close": [202.0, 203.0, 204.0],
+            "volume": [1_000_001, 1_000_002, 1_000_003],
+        }
+    )
+
+    series = chart_series_from_frame(frame, "AAPL", max_bars=2)
+
+    assert isinstance(series, ChartSeries)
+    assert series.symbol == "AAPL"
+    assert series.label == "Futu QFQ daily"
+    assert tuple(bar.close for bar in series.bars) == (203.0, 204.0)
+    assert tuple(bar.volume for bar in series.bars) == (1_000_002, 1_000_003)
+    with pytest.raises(FrozenInstanceError):
+        series.label = "changed"  # type: ignore[misc]
+
+
+def test_real_chart_series_rejects_symbol_mismatch() -> None:
+    frame = pd.DataFrame(
+        {
+            "timestamp_utc": pd.to_datetime(["2026-08-07"], utc=True),
+            "ticker": ["MSFT"],
+            "open": [100.0],
+            "high": [102.0],
+            "low": [99.0],
+            "close": [101.0],
+            "volume": [1_000_000],
+        }
+    )
+
+    with pytest.raises(ValueError, match="symbol mismatch"):
+        chart_series_from_frame(frame, "AAPL")

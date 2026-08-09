@@ -274,6 +274,21 @@ def test_prepare_confirmation_writes_only_provisional_evidence(
     assert response.report_summary_path is None
 
 
+def test_prepare_writes_normalized_ir_json_lists(
+    config_path: Path,
+    evidence_root: Path,
+) -> None:
+    """A normalized IR list must be serializable as provisional JSON evidence."""
+    response, request_path = _prepare(config_path, evidence_root)
+
+    normalized_ir = json.loads(
+        request_path.with_name("normalized-ir.json").read_text(encoding="utf-8")
+    )
+
+    assert response.status == "SUCCESS"
+    assert normalized_ir["filters"] == []
+
+
 def test_prepare_does_not_require_directory_rename_on_windows(
     config_path: Path,
     evidence_root: Path,

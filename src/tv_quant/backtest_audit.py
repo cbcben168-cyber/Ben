@@ -11,6 +11,7 @@ from typing import Any, Mapping
 import pandas as pd
 
 from .data_quality import DataQualityError, validate_ohlcv
+from .contracts.numeric import canonical_decimal
 from .pipeline_models import (
     AuditIssue,
     AuditReport,
@@ -334,8 +335,12 @@ def _check_benchmark(context: AuditContext) -> tuple[bool, list[AuditIssue], lis
         "timeframe": context.spec.timeframe,
         "start_date": context.spec.start_date.isoformat(),
         "end_date": context.spec.end_date.isoformat(),
-        "commission_bps": context.spec.commission_bps,
-        "slippage_bps": context.spec.slippage_bps,
+        "commission_bps": canonical_decimal(
+            str(context.spec.commission_bps), "legacy basis points"
+        ),
+        "slippage_bps": canonical_decimal(
+            str(context.spec.slippage_bps), "legacy basis points"
+        ),
     }
     matches = all(manifest.get(field) == value for field, value in expected.items())
     try:

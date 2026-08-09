@@ -337,7 +337,7 @@ def _json_value(value: object) -> object:
         }
     if isinstance(value, Mapping):
         return {str(key): _json_value(item) for key, item in value.items()}
-    if isinstance(value, tuple):
+    if isinstance(value, (list, tuple)):
         return [_json_value(item) for item in value]
     if value is None or type(value) in (bool, int, str):
         return value

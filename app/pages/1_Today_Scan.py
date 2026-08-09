@@ -21,4 +21,3 @@ rows = [
     for fixture in load_fixtures()
 ]
 st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
-

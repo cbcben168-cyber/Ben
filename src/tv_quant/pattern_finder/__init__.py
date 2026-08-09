@@ -1,5 +1,5 @@
-"""Local-only Pattern Finder Milestone 1 building blocks."""
+"""Pattern Finder fixture and pilot-market-data building blocks."""
 
-from .models import ChartFixture, DailyBar
+from .models import ChartFixture, ChartSeries, DailyBar
 
-__all__ = ["ChartFixture", "DailyBar"]
+__all__ = ["ChartFixture", "ChartSeries", "DailyBar"]

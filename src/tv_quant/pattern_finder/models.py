@@ -4,6 +4,10 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from math import isfinite
 
+import pandas as pd
+
+from tv_quant.data_quality import validate_ohlcv
+
 
 def _is_utc(value: datetime) -> bool:
     return value.tzinfo is not None and value.utcoffset() == timedelta(0)
@@ -67,3 +71,63 @@ class ChartFixture:
             or self.support >= self.resistance
         ):
             raise ValueError("support and resistance must be positive and ordered")
+
+
+@dataclass(frozen=True, slots=True)
+class ChartSeries:
+    symbol: str
+    label: str
+    bars: tuple[DailyBar, ...]
+
+    def __post_init__(self) -> None:
+        if not self.symbol or self.symbol != self.symbol.strip().upper():
+            raise ValueError("symbol must be non-empty uppercase text")
+        if not self.label.strip():
+            raise ValueError("label must be non-empty")
+        if not isinstance(self.bars, tuple) or not self.bars:
+            raise ValueError("bars must use a non-empty immutable tuple")
+        if not all(isinstance(bar, DailyBar) for bar in self.bars):
+            raise ValueError("bars must contain DailyBar values")
+        timestamps = tuple(bar.timestamp_utc for bar in self.bars)
+        if any(left >= right for left, right in zip(timestamps, timestamps[1:])):
+            raise ValueError("bars must be strictly sorted without duplicate timestamps")
+
+
+def chart_series_from_frame(
+    data: pd.DataFrame,
+    symbol: str,
+    *,
+    max_bars: int = 150,
+) -> ChartSeries:
+    if max_bars <= 0:
+        raise ValueError("max_bars must be positive")
+    validate_ohlcv(data)
+    normalized_symbol = symbol.strip().upper()
+    tickers = set(data["ticker"].astype(str).str.strip().str.upper())
+    if tickers != {normalized_symbol}:
+        raise ValueError(
+            f"symbol mismatch: expected {normalized_symbol}, got {sorted(tickers)}"
+        )
+
+    recent = data.tail(max_bars)
+    bars: list[DailyBar] = []
+    for row in recent.itertuples(index=False):
+        volume = float(row.volume)
+        if not volume.is_integer():
+            raise ValueError("volume must be a whole number for chart bars")
+        timestamp = pd.Timestamp(row.timestamp_utc).tz_convert("UTC").to_pydatetime()
+        bars.append(
+            DailyBar(
+                timestamp_utc=timestamp,
+                open=float(row.open),
+                high=float(row.high),
+                low=float(row.low),
+                close=float(row.close),
+                volume=int(volume),
+            )
+        )
+    return ChartSeries(
+        symbol=normalized_symbol,
+        label="Futu QFQ daily",
+        bars=tuple(bars),
+    )

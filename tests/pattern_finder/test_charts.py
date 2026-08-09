@@ -1,7 +1,32 @@
+from datetime import UTC, datetime
+
 import plotly.graph_objects as go
 
 from tv_quant.pattern_finder.charts import build_candlestick_figure
 from tv_quant.pattern_finder.fixtures import load_fixture
+from tv_quant.pattern_finder.models import ChartSeries, DailyBar
+
+
+def _real_series() -> ChartSeries:
+    bars = (
+        DailyBar(
+            timestamp_utc=datetime(2026, 8, 6, tzinfo=UTC),
+            open=201.0,
+            high=203.0,
+            low=200.0,
+            close=202.0,
+            volume=1_000_001,
+        ),
+        DailyBar(
+            timestamp_utc=datetime(2026, 8, 7, tzinfo=UTC),
+            open=202.0,
+            high=204.0,
+            low=201.0,
+            close=203.0,
+            volume=1_000_002,
+        ),
+    )
+    return ChartSeries(symbol="AAPL", label="Futu QFQ daily", bars=bars)
 
 
 def test_chart_uses_fixture_dates_and_ohlcv_values() -> None:
@@ -53,3 +78,16 @@ def test_chart_marks_base_window_support_and_resistance() -> None:
         "Support",
         "Resistance",
     }
+
+
+def test_real_chart_uses_literal_daily_bars_without_detector_overlays() -> None:
+    series = _real_series()
+
+    figure = build_candlestick_figure(series)
+
+    assert len(figure.data) == 2
+    assert tuple(figure.data[0].close) == (202.0, 203.0)
+    assert tuple(figure.data[1].y) == (1_000_001, 1_000_002)
+    assert tuple(figure.layout.shapes) == ()
+    assert tuple(figure.layout.annotations) == ()
+    assert figure.layout.title.text == "AAPL — Futu QFQ daily"

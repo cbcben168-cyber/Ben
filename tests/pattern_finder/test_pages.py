@@ -1,6 +1,9 @@
 from pathlib import Path
 
+import pandas as pd
 from streamlit.testing.v1 import AppTest
+
+from tv_quant.pattern_finder.universe import PILOT_SYMBOLS
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -79,5 +82,57 @@ def test_rendered_pages_do_not_expose_later_phase_fields() -> None:
         "future 20d",
         "machine learning",
         "ml score",
+        "candidate scanner",
     ):
         assert forbidden not in rendered
+
+
+def _write_cached_aapl(cache_root: Path) -> None:
+    cache_root.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(
+        {
+            "timestamp_utc": pd.to_datetime(
+                ["2026-08-05", "2026-08-06", "2026-08-07"], utc=True
+            ),
+            "ticker": ["AAPL"] * 3,
+            "open": [201.0, 202.0, 203.0],
+            "high": [203.0, 204.0, 205.0],
+            "low": [200.0, 201.0, 202.0],
+            "close": [202.0, 203.0, 204.0],
+            "volume": [1_000_001, 1_000_002, 1_000_003],
+        }
+    ).to_csv(cache_root / "AAPL_daily.csv", index=False)
+
+
+def test_today_scan_cache_mode_lists_pilot_and_requires_explicit_refresh(
+    tmp_path: Path, monkeypatch
+) -> None:
+    cache_root = tmp_path / "qfq"
+    _write_cached_aapl(cache_root)
+    monkeypatch.setenv("PATTERN_FINDER_CACHE_ROOT", str(cache_root))
+    app = _load("app/pages/1_Today_Scan.py")
+
+    app.segmented_control[0].set_value("Cache / Futu").run()
+
+    assert not app.exception
+    table = app.dataframe[0].value
+    assert tuple(table["Symbol"]) == PILOT_SYMBOLS
+    assert table.loc[table["Symbol"] == "AAPL", "Cache"].iloc[0] == "Present"
+    assert any(button.label == "Refresh pilot from Futu OpenD" for button in app.button)
+
+
+def test_chart_review_cache_mode_renders_real_qfq_bars(
+    tmp_path: Path, monkeypatch
+) -> None:
+    cache_root = tmp_path / "qfq"
+    _write_cached_aapl(cache_root)
+    monkeypatch.setenv("PATTERN_FINDER_CACHE_ROOT", str(cache_root))
+    app = _load("app/pages/2_Chart_Review.py")
+
+    app.segmented_control[0].set_value("Cache / Futu").run()
+
+    assert not app.exception
+    assert tuple(app.selectbox[0].options) == PILOT_SYMBOLS
+    assert app.selectbox[0].value == "AAPL"
+    assert len(app.get("plotly_chart")) == 1
+    assert "Futu QFQ" in _visible_text(app)

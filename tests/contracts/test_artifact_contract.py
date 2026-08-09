@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import datetime
 import hashlib
 import inspect
 import json
@@ -13,6 +14,7 @@ import pytest
 import tv_quant.contracts.artifact_contract as artifact_contract
 from tv_quant.contracts.artifact_contract import (
     ARTIFACT_OWNERS,
+    ArtifactContract,
     DependencyFingerprint,
     FormalResultContract,
     ProvisionalEvidence,
@@ -20,6 +22,7 @@ from tv_quant.contracts.artifact_contract import (
     formal_eligibility,
 )
 import tv_quant.run_manifest as run_manifest
+from tv_quant.run_manifest import bind_artifact_hashes, write_canonical_json_artifact
 
 
 SHA_A = "a" * 64
@@ -181,3 +184,45 @@ def test_contract_does_not_define_second_hash_or_manifest_writer() -> None:
     assert "import json" not in source
     assert ".write_text(" not in source
     assert ".write_bytes(" not in source
+
+
+def test_extended_artifact_binding_preserves_legacy_default() -> None:
+    assert (
+        inspect.signature(bind_artifact_hashes).parameters["hashed_names"].kind.name
+        == "KEYWORD_ONLY"
+    )
+    assert ArtifactContract().owners == ARTIFACT_OWNERS
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        Path("x"),
+        datetime(2026, 8, 2),
+        {"x"},
+        b"x",
+        float("nan"),
+        float("inf"),
+        object(),
+    ],
+)
+def test_canonical_json_rejects_non_json_values(tmp_path: Path, value: object) -> None:
+    with pytest.raises(TypeError, match="canonical JSON"):
+        write_canonical_json_artifact(tmp_path / "x.json", {"value": value})
+
+
+def test_v22a_artifact_refs_are_relative_and_separate_from_hash_paths(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "artifact.json"
+    path.write_text("{}", encoding="utf-8")
+
+    bound = bind_artifact_hashes(
+        {"schema_version": "v2.2a"},
+        {"report": path},
+        persisted_refs={"report": "reports/import-1/report.json"},
+        hashed_names=("report",),
+    )
+
+    assert bound["artifact_refs"] == {"report": "reports/import-1/report.json"}
+    assert "artifact_paths" not in bound and str(tmp_path) not in json.dumps(bound)

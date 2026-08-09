@@ -155,6 +155,96 @@
       ],
       "last_verified": "2026-07-27",
       "implementation_owner": "unassigned"
+    },
+    {
+      "capability_id": "market-data.local-csv.daily",
+      "version": "v2.2a",
+      "implementation_status": "not_implemented",
+      "supported_market": [
+        "US_EQUITY",
+        "US_ETF"
+      ],
+      "supported_timeframes": [
+        "1d"
+      ],
+      "provider": "local",
+      "required_dependencies": [
+        "exchange-calendars",
+        "pyarrow"
+      ],
+      "formal_status": "unavailable",
+      "structural_availability": "available",
+      "implementation_availability": "unavailable",
+      "formal_eligibility": "not_eligible",
+      "smoke_only_status": "not_smoke_only",
+      "blocker_code": "DATA_CAPABILITY_BLOCKER",
+      "evidence": [
+        "boundary:local-files-only",
+        "code:data-foundation-contracts",
+        "test:v22a-registration"
+      ],
+      "last_verified": "2026-08-02",
+      "implementation_owner": "tv_quant.data_foundation.importer"
+    },
+    {
+      "capability_id": "market-data.local-parquet.daily",
+      "version": "v2.2a",
+      "implementation_status": "not_implemented",
+      "supported_market": [
+        "US_EQUITY",
+        "US_ETF"
+      ],
+      "supported_timeframes": [
+        "1d"
+      ],
+      "provider": "local",
+      "required_dependencies": [
+        "exchange-calendars",
+        "pyarrow"
+      ],
+      "formal_status": "unavailable",
+      "structural_availability": "available",
+      "implementation_availability": "unavailable",
+      "formal_eligibility": "not_eligible",
+      "smoke_only_status": "not_smoke_only",
+      "blocker_code": "DATA_CAPABILITY_BLOCKER",
+      "evidence": [
+        "boundary:local-files-only",
+        "code:data-foundation-contracts",
+        "test:v22a-registration"
+      ],
+      "last_verified": "2026-08-02",
+      "implementation_owner": "tv_quant.data_foundation.importer"
+    },
+    {
+      "capability_id": "market-data.yfinance-smoke.local",
+      "version": "v2.2a",
+      "implementation_status": "not_implemented",
+      "supported_market": [
+        "US_EQUITY",
+        "US_ETF"
+      ],
+      "supported_timeframes": [
+        "1d"
+      ],
+      "provider": "local",
+      "required_dependencies": [
+        "exchange-calendars",
+        "pyarrow"
+      ],
+      "formal_status": "unavailable",
+      "structural_availability": "available",
+      "implementation_availability": "unavailable",
+      "formal_eligibility": "not_eligible",
+      "smoke_only_status": "not_smoke_only",
+      "blocker_code": "DATA_CAPABILITY_BLOCKER",
+      "evidence": [
+        "boundary:local-files-only",
+        "code:data-foundation-contracts",
+        "test:v22a-registration"
+      ],
+      "last_verified": "2026-08-02",
+      "implementation_owner": "tv_quant.data_foundation.importer"
     }
   ]
 }

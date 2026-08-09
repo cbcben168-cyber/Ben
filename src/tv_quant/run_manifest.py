@@ -14,9 +14,29 @@ HASHED_ARTIFACT_NAMES = (
 )
 
 
+def validate_canonical_json_value(value: object, path: str = "payload") -> None:
+    """Reject values that cannot be represented by canonical JSON."""
+    if value is None or type(value) in {bool, int, str}:
+        return
+    if type(value) is float:
+        raise TypeError(f"{path}: canonical JSON does not allow float values")
+    if type(value) is list:
+        for index, item in enumerate(value):
+            validate_canonical_json_value(item, f"{path}[{index}]")
+        return
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            if type(key) is not str:
+                raise TypeError(f"{path}: canonical JSON mapping keys must be strings")
+            validate_canonical_json_value(item, f"{path}.{key}")
+        return
+    raise TypeError(f"{path}: canonical JSON value required")
+
+
 def canonical_hash(value: Mapping[str, Any]) -> str:
+    validate_canonical_json_value(value)
     payload = json.dumps(
-        value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False
     )
     return sha256_bytes(payload.encode("utf-8"))
 
@@ -76,29 +96,75 @@ def build_manifest(
 def bind_artifact_hashes(
     manifest: Mapping[str, Any],
     artifact_paths: Mapping[str, Path],
+    *,
+    persisted_refs: Mapping[str, str] | None = None,
+    hashed_names: tuple[str, ...] = HASHED_ARTIFACT_NAMES,
 ) -> dict[str, object]:
+    names = tuple(hashed_names)
+    missing = tuple(name for name in names if name not in artifact_paths)
+    if missing:
+        raise ValueError(f"artifact_paths: missing {missing!r}")
     bound = dict(manifest)
-    bound["artifact_paths"] = {
-        name: str(path) for name, path in artifact_paths.items()
-    }
     bound["artifact_hashes"] = {
-        name: sha256_file(Path(artifact_paths[name]))
-        for name in HASHED_ARTIFACT_NAMES
+        name: sha256_file(Path(artifact_paths[name])) for name in names
     }
-    strategy_config_path = Path(artifact_paths["strategy_config"])
-    bound["strategy_config_path"] = str(strategy_config_path)
-    bound["strategy_config_file_hash"] = sha256_file(strategy_config_path)
+    if persisted_refs is None:
+        bound["artifact_paths"] = {
+            name: str(artifact_paths[name]) for name in sorted(artifact_paths)
+        }
+        if "strategy_config" in artifact_paths:
+            strategy_config_path = Path(artifact_paths["strategy_config"])
+            bound["strategy_config_path"] = str(strategy_config_path)
+            bound["strategy_config_file_hash"] = sha256_file(strategy_config_path)
+    else:
+        if set(persisted_refs) != set(artifact_paths):
+            raise ValueError("persisted_refs: exact artifact key set required")
+        bound["artifact_refs"] = {
+            name: validate_persisted_relative_ref(
+                persisted_refs[name], f"artifact_refs.{name}"
+            )
+            for name in sorted(persisted_refs)
+        }
     return bound
 
 
+def validate_persisted_relative_ref(value: object, path: str) -> str:
+    if type(value) is not str:
+        raise ValueError(f"{path}: relative path string required")
+    from tv_quant.contracts.path_safety import _validated_relative_path
+
+    try:
+        _validated_relative_path(value)
+    except ValueError as exc:
+        raise ValueError(f"{path}: validated relative path required") from exc
+    return value
+
+
+def write_canonical_json_artifact(path: Path, payload: Mapping[str, Any]) -> None:
+    validate_canonical_json_value(payload)
+    path.write_text(
+        json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
+        + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+
+
 def write_manifest(path: Path, manifest: Mapping[str, Any]) -> None:
+    validate_canonical_json_value(manifest)
     path.write_text(
         json.dumps(
             manifest,
             ensure_ascii=False,
             sort_keys=True,
             indent=2,
-            default=str,
+            allow_nan=False,
         )
         + "\n",
         encoding="utf-8",

@@ -107,6 +107,19 @@ def test_phase1_ema_is_only_formal_golden_capability() -> None:
     ).formal_status == "formal_verified"
 
 
+def test_v22a_data_foundation_records_are_present_but_not_formal() -> None:
+    registry = load_capability_registry(REGISTRY_PATH)
+
+    for capability_id in (
+        "market-data.local-csv.daily",
+        "market-data.local-parquet.daily",
+        "market-data.yfinance-smoke.local",
+    ):
+        record = registry.require(capability_id, "v2.2a")
+        assert record.formal_status == "unavailable"
+        assert record.blocker_code is BlockerCode.DATA_CAPABILITY_BLOCKER
+
+
 def test_symbol_structural_support_is_not_phase1_execution_support() -> None:
     registry = load_capability_registry(REGISTRY_PATH)
     phase1 = registry.require("phase1.ema.daily.golden", "v2.1")

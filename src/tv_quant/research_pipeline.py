@@ -31,6 +31,7 @@ from .run_manifest import (
     build_manifest,
     canonical_hash,
     sha256_file,
+    write_canonical_json_artifact,
     write_manifest,
 )
 from .strategy import BacktestResult, run_backtest
@@ -136,20 +137,30 @@ def mark_data_provenance_pending(data_path: Path) -> None:
     pending_path.write_text("pending\n", encoding="utf-8")
 
 
-def write_data_provenance(data_path: Path, source: str) -> None:
-    try:
-        provider = _PROVIDER_BY_SOURCE[source]
-    except KeyError as error:
-        raise ValueError(f"unsupported data provenance source: {source}") from error
-    payload = {
-        "schema_version": _PROVENANCE_SCHEMA_VERSION,
-        "source": source,
-        "provider": provider,
-    }
-    data_provenance_path(data_path).write_text(
-        json.dumps(payload, sort_keys=True, indent=2) + "\n",
-        encoding="utf-8",
-    )
+def write_data_provenance(
+    data_path: Path,
+    source: str | None = None,
+    *,
+    payload: Mapping[str, object] | None = None,
+) -> None:
+    if payload is None:
+        try:
+            provider = _PROVIDER_BY_SOURCE[source]
+        except KeyError as error:
+            raise ValueError(f"unsupported data provenance source: {source}") from error
+        legacy_payload = {
+            "schema_version": _PROVENANCE_SCHEMA_VERSION,
+            "source": source,
+            "provider": provider,
+        }
+        data_provenance_path(data_path).write_text(
+            json.dumps(legacy_payload, sort_keys=True, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        return
+    if not isinstance(payload, Mapping) or payload.get("schema_version") != "v2.2a":
+        raise ValueError("payload.schema_version: must equal v2.2a")
+    write_canonical_json_artifact(data_provenance_path(data_path), payload)
 
 
 def clear_data_provenance_pending(data_path: Path, source: str) -> None:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
+import hashlib
 import json
 from pathlib import Path
 from types import MappingProxyType
@@ -15,6 +16,10 @@ DEFAULT_VALIDATION_PATH = Path(
 )
 LEGACY_VALIDATION_PATH = Path(
     "data/processed/pattern_finder/manual_validation/flat_base_validation.jsonl"
+)
+DEFAULT_MIGRATION_LEDGER_PATH = Path(
+    "data/processed/pattern_finder/manual_validation/"
+    "pattern_validation_migration_ledger.jsonl"
 )
 HUMAN_LABELS = ("像", "勉强像", "不像")
 REASON_TAGS = (
@@ -61,6 +66,14 @@ def derive_validation_result(computer_result: str, human_label: str) -> str:
 
 class ValidationStoreError(RuntimeError):
     pass
+
+
+@dataclass(frozen=True, slots=True)
+class MigrationSummary:
+    scanned: int
+    migrated: int
+    already_migrated: int
+    ledger_repaired: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -479,6 +492,185 @@ def append_validation(
     target.parent.mkdir(parents=True, exist_ok=True)
     with target.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(record.to_dict(), ensure_ascii=False) + "\n")
+
+
+def _normalized_source_path(path: Path, repository_root: Path) -> str:
+    try:
+        return path.resolve().relative_to(repository_root.resolve()).as_posix()
+    except ValueError as error:
+        raise ValueError("legacy path must be inside repository_root") from error
+
+
+def _migration_provenance(
+    source_path: str,
+    source_line_number: int,
+    source_line: bytes,
+) -> MigrationProvenance:
+    content_hash = hashlib.sha256(source_line).hexdigest()
+    fingerprint_input = (
+        f"{source_path}\n{source_line_number}\n{content_hash}".encode("utf-8")
+    )
+    return MigrationProvenance(
+        source_path=source_path,
+        source_line_number=source_line_number,
+        source_line_content_sha256=content_hash,
+        migration_fingerprint=hashlib.sha256(fingerprint_input).hexdigest(),
+    )
+
+
+def _read_migration_ledger(path: Path) -> tuple[MigrationProvenance, ...]:
+    if not path.exists():
+        return ()
+    entries: list[MigrationProvenance] = []
+    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            payload = json.loads(line)
+            if not isinstance(payload, dict):
+                raise ValueError("ledger record must be a JSON object")
+            entries.append(MigrationProvenance.from_dict(payload))
+        except (json.JSONDecodeError, TypeError, ValueError) as error:
+            raise ValidationStoreError(
+                f"invalid migration ledger JSON at line {line_number}: {error}"
+            ) from error
+    return tuple(entries)
+
+
+def _append_migration_ledger(path: Path, provenance: MigrationProvenance) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(provenance.to_dict(), ensure_ascii=False) + "\n")
+
+
+def _legacy_payload_to_pattern_validation(
+    payload: Mapping[str, Any],
+    provenance: MigrationProvenance,
+) -> PatternValidation:
+    required = (
+        "recorded_at_utc",
+        "symbol",
+        "detector_version",
+        "scan_as_of_date",
+        "computer_flat_base",
+        "base_length",
+        "base_depth",
+        "bottom_tests",
+        "normalized_slope",
+        "human_label",
+        "reason_tags",
+        "note",
+    )
+    missing = tuple(key for key in required if key not in payload)
+    if missing:
+        raise ValueError("missing legacy validation fields: " + ", ".join(missing))
+    tags = payload["reason_tags"]
+    if not isinstance(tags, list | tuple):
+        raise ValueError("reason_tags must be a list")
+    computer_result = str(payload["computer_flat_base"])
+    human_label = str(payload["human_label"])
+    return PatternValidation(
+        recorded_at_utc=datetime.fromisoformat(str(payload["recorded_at_utc"])),
+        symbol=str(payload["symbol"]),
+        pattern_type="flat_base",
+        pattern_display_name=get_pattern_profile("flat_base").display_name_zh,
+        detector_version=str(payload["detector_version"]),
+        scan_as_of_date=str(payload["scan_as_of_date"]),
+        computer_result=computer_result,
+        human_label=human_label,
+        validation_result=derive_validation_result(computer_result, human_label),
+        reason_tags=tuple(str(tag) for tag in tags),
+        note=str(payload["note"]),
+        review_window_start=None,
+        review_window_end=None,
+        diagnostics={
+            "base_length": int(payload["base_length"]),
+            "base_depth": float(payload["base_depth"]),
+            "bottom_tests": int(payload["bottom_tests"]),
+            "normalized_slope": float(payload["normalized_slope"]),
+        },
+        migration_provenance=provenance,
+    )
+
+
+def migrate_legacy_validations(
+    legacy_path: str | Path = LEGACY_VALIDATION_PATH,
+    target_path: str | Path = DEFAULT_VALIDATION_PATH,
+    ledger_path: str | Path = DEFAULT_MIGRATION_LEDGER_PATH,
+    *,
+    repository_root: str | Path,
+) -> MigrationSummary:
+    legacy = Path(legacy_path)
+    target = Path(target_path)
+    ledger = Path(ledger_path)
+    if not legacy.exists():
+        return MigrationSummary(0, 0, 0, 0)
+
+    source_path = _normalized_source_path(legacy, Path(repository_root))
+    target_records = read_validation_history(target)
+    target_provenance = {
+        record.migration_provenance.migration_fingerprint: record.migration_provenance
+        for record in target_records
+        if isinstance(record, PatternValidation)
+        and record.migration_provenance is not None
+    }
+    ledger_entries = _read_migration_ledger(ledger)
+    ledger_provenance = {
+        entry.migration_fingerprint: entry for entry in ledger_entries
+    }
+    seen_lines: dict[tuple[str, int], str] = {}
+    for provenance in (*target_provenance.values(), *ledger_provenance.values()):
+        key = (provenance.source_path, provenance.source_line_number)
+        previous_hash = seen_lines.setdefault(key, provenance.source_line_content_sha256)
+        if previous_hash != provenance.source_line_content_sha256:
+            raise ValidationStoreError("migration history contains conflicting source line hashes")
+
+    scanned = migrated = already_migrated = ledger_repaired = 0
+    for line_number, source_line in enumerate(legacy.read_bytes().splitlines(), 1):
+        if not source_line.strip():
+            continue
+        scanned += 1
+        provenance = _migration_provenance(source_path, line_number, source_line)
+        line_key = (source_path, line_number)
+        prior_hash = seen_lines.get(line_key)
+        if prior_hash is not None and prior_hash != provenance.source_line_content_sha256:
+            raise ValidationStoreError(
+                f"source line changed after migration: {source_path}:{line_number}"
+            )
+
+        fingerprint = provenance.migration_fingerprint
+        in_target = fingerprint in target_provenance
+        in_ledger = fingerprint in ledger_provenance
+        if in_ledger and not in_target:
+            raise ValidationStoreError(
+                f"migration ledger has no matching target record: {source_path}:{line_number}"
+            )
+        if in_target:
+            already_migrated += 1
+            if not in_ledger:
+                _append_migration_ledger(ledger, provenance)
+                ledger_provenance[fingerprint] = provenance
+                ledger_repaired += 1
+            continue
+
+        try:
+            payload = json.loads(source_line.decode("utf-8"))
+            if not isinstance(payload, dict):
+                raise ValueError("legacy record must be a JSON object")
+            record = _legacy_payload_to_pattern_validation(payload, provenance)
+        except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError) as error:
+            raise ValidationStoreError(
+                f"invalid legacy validation JSON at line {line_number}: {error}"
+            ) from error
+
+        append_validation(target, record)
+        target_provenance[fingerprint] = provenance
+        _append_migration_ledger(ledger, provenance)
+        ledger_provenance[fingerprint] = provenance
+        seen_lines[line_key] = provenance.source_line_content_sha256
+        migrated += 1
+
+    return MigrationSummary(scanned, migrated, already_migrated, ledger_repaired)
 
 
 def read_validation_history(

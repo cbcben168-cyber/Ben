@@ -5,7 +5,11 @@ import exchange_calendars as xcals
 import pandas as pd
 from streamlit.testing.v1 import AppTest
 
-from tv_quant.pattern_finder.review import SCAN_FILTERS
+from tv_quant.pattern_finder.review import (
+    COMPUTER_FILTERS,
+    HUMAN_FILTERS,
+    VALIDATION_FILTERS,
+)
 from tv_quant.pattern_finder.validation import (
     FlatBaseValidation,
     HUMAN_LABELS,
@@ -44,32 +48,35 @@ def test_home_page_loads_as_fixture_only_shell() -> None:
     app = _load("app/Home.py")
 
     assert not app.exception
-    assert app.title[0].value == "Pattern Finder"
-    assert "local fixture" in _visible_text(app).lower()
+    assert app.title[0].value == "形态发现器"
+    assert "本地" in _visible_text(app)
 
 
 def test_today_scan_page_loads_all_three_fixture_rows() -> None:
     app = _load("app/pages/1_Today_Scan.py")
 
     assert not app.exception
-    assert app.title[0].value == "Today Scan"
+    assert app.title[0].value == "今日扫描"
+    pattern = next(box for box in app.selectbox if box.label == "当前查看形态")
+    assert tuple(pattern.options) == ("平底形态",)
     assert len(app.dataframe) == 1
     table = app.dataframe[0].value
-    assert tuple(table["Symbol"]) == ("TEST_FLAT", "TEST_ROUNDED", "TEST_READY")
+    assert tuple(table["股票代码"]) == ("TEST_FLAT", "TEST_ROUNDED", "TEST_READY")
     assert tuple(table.columns) == (
-        "Symbol",
-        "Pattern",
-        "Bars",
-        "Flat Base",
-        "Base Length",
-        "Base Depth",
-        "Bottom Tests",
-        "Normalized Slope",
-        "Support",
-        "Resistance",
+        "股票代码",
+        "样例名称",
+        "K线数量",
+        "平底形态",
+        "底部周期",
+        "底部深度",
+        "底部测试次数",
+        "标准化斜率",
+        "支撑位",
+        "阻力位",
     )
-    assert tuple(table["Flat Base"]) == ("YES", "YES", "YES")
-    assert table.loc[table["Symbol"] == "TEST_FLAT", "Bottom Tests"].iloc[0] >= 2
+    assert tuple(table["平底形态"]) == ("是", "是", "是")
+    assert table.loc[table["股票代码"] == "TEST_FLAT", "底部测试次数"].iloc[0] >= 2
+    assert "Today Scan" not in _visible_text(app)
 
 
 def test_chart_review_loads_chart_and_can_switch_fixture() -> None:
@@ -224,34 +231,35 @@ def test_today_scan_cache_mode_filters_computer_and_human_states(
         ("XOM", False),
     ):
         _write_cached_symbol(cache_root, symbol, too_deep=too_deep)
-    validation_path = tmp_path / "flat_base_validation.jsonl"
-    _write_review_history(validation_path)
+    legacy_path = tmp_path / "flat_base_validation.jsonl"
+    validation_path = tmp_path / "pattern_validation.jsonl"
+    ledger_path = tmp_path / "pattern_validation_migration_ledger.jsonl"
+    _write_review_history(legacy_path)
     monkeypatch.setenv("PATTERN_FINDER_CACHE_ROOT", str(cache_root))
     monkeypatch.setenv("PATTERN_FINDER_VALIDATION_PATH", str(validation_path))
+    monkeypatch.setenv("PATTERN_FINDER_LEGACY_VALIDATION_PATH", str(legacy_path))
+    monkeypatch.setenv("PATTERN_FINDER_MIGRATION_LEDGER_PATH", str(ledger_path))
+    monkeypatch.setenv("PATTERN_FINDER_REPOSITORY_ROOT", str(tmp_path))
     app = _load("app/pages/1_Today_Scan.py")
 
-    app.segmented_control[0].set_value("Cache / Futu").run()
+    app.segmented_control[0].set_value("缓存 / Futu").run()
 
     assert not app.exception
-    assert tuple(app.selectbox[0].options) == SCAN_FILTERS
+    selectors = {box.label: box for box in app.selectbox}
+    assert tuple(selectors["当前查看形态"].options) == ("平底形态",)
+    assert tuple(selectors["电脑判断"].options) == COMPUTER_FILTERS
+    assert tuple(selectors["人工复核"].options) == HUMAN_FILTERS
+    assert tuple(selectors["验证结论"].options) == VALIDATION_FILTERS
     table = app.dataframe[0].value
-    assert tuple(table["Symbol"]) == ("AAPL", "MSFT", "JPM", "XOM")
-    assert table.loc[table["Symbol"] == "AAPL", "Cache"].iloc[0] == "Present"
-    assert table.loc[table["Symbol"] == "AAPL", "Human Label"].iloc[0] == "像"
-    assert {"Base Length", "Detector Version", "Reason Tags"} <= set(table.columns)
-    assert any(button.label == "Refresh pilot from Futu OpenD" for button in app.button)
+    assert tuple(table["股票代码"]) == ("AAPL", "MSFT", "JPM", "XOM")
+    assert table.loc[table["股票代码"] == "AAPL", "人工形态判断"].iloc[0] == "像"
+    assert {"底部周期", "检测器版本", "原因标签", "验证结论"} <= set(table.columns)
+    assert any(button.label == "从 Futu OpenD 刷新试点数据" for button in app.button)
 
-    expected = {
-        "Flat Base YES": ("AAPL", "XOM"),
-        "Flat Base NO": ("MSFT", "JPM"),
-        "未人工验证": ("XOM",),
-        "像": ("AAPL",),
-        "勉强像": ("JPM",),
-        "不像": ("MSFT",),
-    }
-    for selected_filter, symbols in expected.items():
-        app.selectbox[0].select(selected_filter).run()
-        assert tuple(app.dataframe[0].value["Symbol"]) == symbols
+    selectors["电脑判断"].select("否").run()
+    next(box for box in app.selectbox if box.label == "人工复核").select("勉强像").run()
+    next(box for box in app.selectbox if box.label == "验证结论").select("边界案例").run()
+    assert tuple(app.dataframe[0].value["股票代码"]) == ("JPM",)
 
 
 def test_chart_review_cache_mode_renders_real_qfq_bars(

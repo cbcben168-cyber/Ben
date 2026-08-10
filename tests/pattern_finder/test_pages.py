@@ -1,8 +1,15 @@
+from datetime import UTC, datetime
 from pathlib import Path
 
+import exchange_calendars as xcals
 import pandas as pd
 from streamlit.testing.v1 import AppTest
 
+from tv_quant.pattern_finder.review import SCAN_FILTERS
+from tv_quant.pattern_finder.validation import (
+    FlatBaseValidation,
+    append_validation,
+)
 from tv_quant.pattern_finder.universe import PILOT_SYMBOLS
 
 
@@ -14,7 +21,17 @@ def _load(relative_path: str) -> AppTest:
 
 
 def _visible_text(app: AppTest) -> str:
-    element_types = ("title", "header", "subheader", "caption", "markdown", "info")
+    element_types = (
+        "title",
+        "header",
+        "subheader",
+        "caption",
+        "markdown",
+        "info",
+        "success",
+        "warning",
+        "error",
+    )
     values: list[str] = []
     for element_type in element_types:
         values.extend(str(element.value) for element in app.get(element_type))
@@ -96,40 +113,143 @@ def test_rendered_pages_do_not_expose_later_phase_fields() -> None:
         assert forbidden not in rendered
 
 
-def _write_cached_aapl(cache_root: Path) -> None:
+def _write_cached_symbol(
+    cache_root: Path,
+    symbol: str,
+    *,
+    too_deep: bool = False,
+) -> None:
     cache_root.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame(
-        {
-            "timestamp_utc": pd.to_datetime(
-                ["2026-08-05", "2026-08-06", "2026-08-07"], utc=True
-            ),
-            "ticker": ["AAPL"] * 3,
-            "open": [201.0, 202.0, 203.0],
-            "high": [203.0, 204.0, 205.0],
-            "low": [200.0, 201.0, 202.0],
-            "close": [202.0, 203.0, 204.0],
-            "volume": [1_000_001, 1_000_002, 1_000_003],
-        }
-    ).to_csv(cache_root / "AAPL_daily.csv", index=False)
+    days = [
+        session.date().isoformat()
+        for session in xcals.get_calendar("XNYS").sessions_in_range(
+            "2026-01-02", "2026-08-07"
+        )
+    ]
+    base_start = len(days) - 30
+    rows: list[dict[str, object]] = []
+    for index, day in enumerate(days):
+        if index < base_start:
+            close = 120.0 - 0.12 * index
+            high = close + 1.0
+            low = close - 1.0
+        else:
+            offset = index - base_start
+            close = 101.0
+            high = 102.0
+            low = 101.0 - 0.1 * offset if offset < 5 else 100.5
+            if offset in (5, 20):
+                low = (
+                    82.0 + 0.5 * (offset == 20)
+                    if too_deep
+                    else 99.0 + 0.5 * (offset == 20)
+                )
+        rows.append(
+            {
+                "timestamp_utc": pd.Timestamp(day, tz="UTC"),
+                "ticker": symbol,
+                "open": close,
+                "high": high,
+                "low": low,
+                "close": close,
+                "volume": 1_000_000,
+            }
+        )
+    pd.DataFrame(rows).to_csv(cache_root / f"{symbol}_daily.csv", index=False)
 
 
-def test_today_scan_cache_mode_lists_pilot_and_requires_explicit_refresh(
+def _write_cached_aapl(cache_root: Path) -> None:
+    _write_cached_symbol(cache_root, "AAPL")
+
+
+def _write_review_history(path: Path) -> None:
+    records = (
+        FlatBaseValidation(
+            datetime(2026, 8, 10, 4, 0, tzinfo=UTC),
+            "AAPL",
+            "phase1-v1",
+            "2026-08-07",
+            "YES",
+            30,
+            0.03,
+            2,
+            0.0,
+            "像",
+            (),
+            "looks flat",
+        ),
+        FlatBaseValidation(
+            datetime(2026, 8, 10, 4, 1, tzinfo=UTC),
+            "MSFT",
+            "phase1-v1",
+            "2026-08-07",
+            "NO",
+            30,
+            0.25,
+            2,
+            0.0,
+            "不像",
+            ("底部太深",),
+            "too deep",
+        ),
+        FlatBaseValidation(
+            datetime(2026, 8, 10, 4, 2, tzinfo=UTC),
+            "JPM",
+            "phase1-v1",
+            "2026-08-07",
+            "NO",
+            30,
+            0.25,
+            2,
+            0.0,
+            "勉强像",
+            ("宽幅震荡",),
+            "borderline",
+        ),
+    )
+    for record in records:
+        append_validation(path, record)
+
+
+def test_today_scan_cache_mode_filters_computer_and_human_states(
     tmp_path: Path, monkeypatch
 ) -> None:
     cache_root = tmp_path / "qfq"
-    _write_cached_aapl(cache_root)
+    for symbol, too_deep in (
+        ("AAPL", False),
+        ("MSFT", True),
+        ("JPM", True),
+        ("XOM", False),
+    ):
+        _write_cached_symbol(cache_root, symbol, too_deep=too_deep)
+    validation_path = tmp_path / "flat_base_validation.jsonl"
+    _write_review_history(validation_path)
     monkeypatch.setenv("PATTERN_FINDER_CACHE_ROOT", str(cache_root))
+    monkeypatch.setenv("PATTERN_FINDER_VALIDATION_PATH", str(validation_path))
     app = _load("app/pages/1_Today_Scan.py")
 
     app.segmented_control[0].set_value("Cache / Futu").run()
 
     assert not app.exception
+    assert tuple(app.selectbox[0].options) == SCAN_FILTERS
     table = app.dataframe[0].value
-    assert tuple(table["Symbol"]) == PILOT_SYMBOLS
+    assert tuple(table["Symbol"]) == ("AAPL", "MSFT", "JPM", "XOM")
     assert table.loc[table["Symbol"] == "AAPL", "Cache"].iloc[0] == "Present"
-    assert table.loc[table["Symbol"] == "AAPL", "Flat Base"].iloc[0] == "NO"
-    assert "Base Length" in table.columns
+    assert table.loc[table["Symbol"] == "AAPL", "Human Label"].iloc[0] == "像"
+    assert {"Base Length", "Detector Version", "Reason Tags"} <= set(table.columns)
     assert any(button.label == "Refresh pilot from Futu OpenD" for button in app.button)
+
+    expected = {
+        "Flat Base YES": ("AAPL", "XOM"),
+        "Flat Base NO": ("MSFT", "JPM"),
+        "未人工验证": ("XOM",),
+        "像": ("AAPL",),
+        "勉强像": ("JPM",),
+        "不像": ("MSFT",),
+    }
+    for selected_filter, symbols in expected.items():
+        app.selectbox[0].select(selected_filter).run()
+        assert tuple(app.dataframe[0].value["Symbol"]) == symbols
 
 
 def test_chart_review_cache_mode_renders_real_qfq_bars(
@@ -147,4 +267,4 @@ def test_chart_review_cache_mode_renders_real_qfq_bars(
     assert app.selectbox[0].value == "AAPL"
     assert len(app.get("plotly_chart")) == 1
     assert "Futu QFQ" in _visible_text(app)
-    assert "Flat Base diagnostics unavailable" in _visible_text(app)
+    assert "Detector Version: phase1-v1" in _visible_text(app)

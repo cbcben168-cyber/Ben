@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
+from .pattern_registry import get_pattern_profile
+
 
 DEFAULT_VALIDATION_PATH = Path(
     "data/processed/pattern_finder/manual_validation/flat_base_validation.jsonl"
@@ -23,10 +25,213 @@ REASON_TAGS = (
     "其他",
 )
 MAX_NOTE_LENGTH = 280
+JSONScalar = str | int | float | bool | None
 
 
 class ValidationStoreError(RuntimeError):
     pass
+
+
+@dataclass(frozen=True, slots=True)
+class MigrationProvenance:
+    source_path: str
+    source_line_number: int
+    source_line_content_sha256: str
+    migration_fingerprint: str
+
+    def __post_init__(self) -> None:
+        if not self.source_path or "\\" in self.source_path:
+            raise ValueError("migration source_path must be a relative POSIX path")
+        if self.source_line_number <= 0:
+            raise ValueError("migration source_line_number must be positive")
+        for name, value in (
+            ("source_line_content_sha256", self.source_line_content_sha256),
+            ("migration_fingerprint", self.migration_fingerprint),
+        ):
+            if len(value) != 64 or any(character not in "0123456789abcdef" for character in value):
+                raise ValueError(f"{name} must be a lowercase SHA-256")
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "source_path": self.source_path,
+            "source_line_number": self.source_line_number,
+            "source_line_content_sha256": self.source_line_content_sha256,
+            "migration_fingerprint": self.migration_fingerprint,
+        }
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, Any]) -> MigrationProvenance:
+        required = (
+            "source_path",
+            "source_line_number",
+            "source_line_content_sha256",
+            "migration_fingerprint",
+        )
+        missing = tuple(key for key in required if key not in value)
+        if missing:
+            raise ValueError("missing migration provenance fields: " + ", ".join(missing))
+        return cls(
+            source_path=str(value["source_path"]),
+            source_line_number=int(value["source_line_number"]),
+            source_line_content_sha256=str(value["source_line_content_sha256"]),
+            migration_fingerprint=str(value["migration_fingerprint"]),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class PatternValidation:
+    recorded_at_utc: datetime
+    symbol: str
+    pattern_type: str
+    pattern_display_name: str
+    detector_version: str
+    scan_as_of_date: str
+    computer_result: str
+    human_label: str
+    validation_result: str
+    reason_tags: tuple[str, ...]
+    note: str
+    review_window_start: str | None
+    review_window_end: str | None
+    diagnostics: dict[str, JSONScalar]
+    migration_provenance: MigrationProvenance | None
+
+    def __post_init__(self) -> None:
+        if self.recorded_at_utc.utcoffset() != timedelta(0):
+            raise ValueError("recorded_at_utc must be UTC")
+        if not self.symbol or self.symbol != self.symbol.strip().upper():
+            raise ValueError("symbol must be a normalized ticker")
+        profile = get_pattern_profile(self.pattern_type)
+        if self.pattern_display_name != profile.display_name_zh:
+            raise ValueError("pattern_display_name must match the Pattern Profile")
+        try:
+            date.fromisoformat(self.scan_as_of_date)
+        except (TypeError, ValueError) as error:
+            raise ValueError("scan_as_of_date must be an ISO date") from error
+        if self.computer_result not in {"YES", "NO"}:
+            raise ValueError("computer_result must be YES or NO")
+        if self.human_label not in HUMAN_LABELS:
+            raise ValueError(f"human_label must be one of {HUMAN_LABELS}")
+        if not self.validation_result:
+            raise ValueError("validation_result is required")
+        if len(self.note) > MAX_NOTE_LENGTH:
+            raise ValueError(f"note must not exceed {MAX_NOTE_LENGTH} characters")
+
+        if self.migration_provenance is None:
+            if self.review_window_start is None or self.review_window_end is None:
+                raise ValueError("review window is required for new validation records")
+        if (self.review_window_start is None) != (self.review_window_end is None):
+            raise ValueError("review window dates must both be set or both be null")
+        if self.review_window_start is not None and self.review_window_end is not None:
+            try:
+                start = date.fromisoformat(self.review_window_start)
+                end = date.fromisoformat(self.review_window_end)
+            except (TypeError, ValueError) as error:
+                raise ValueError("review window dates must be ISO dates") from error
+            if start > end:
+                raise ValueError("review window start must not follow end")
+
+        normalized_diagnostics: dict[str, JSONScalar] = {}
+        for key, value in self.diagnostics.items():
+            if not isinstance(key, str) or not key:
+                raise ValueError("diagnostic keys must be non-empty strings")
+            if value is not None and not isinstance(value, str | int | float | bool):
+                raise ValueError("diagnostic values must be JSON scalars")
+            normalized_diagnostics[key] = value
+        object.__setattr__(self, "diagnostics", normalized_diagnostics)
+
+    @property
+    def key(self) -> tuple[str, str, str, str]:
+        return (
+            self.symbol,
+            self.pattern_type,
+            self.detector_version,
+            self.scan_as_of_date,
+        )
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "recorded_at_utc": self.recorded_at_utc.isoformat(),
+            "symbol": self.symbol,
+            "pattern_type": self.pattern_type,
+            "pattern_display_name": self.pattern_display_name,
+            "detector_version": self.detector_version,
+            "scan_as_of_date": self.scan_as_of_date,
+            "computer_result": self.computer_result,
+            "human_label": self.human_label,
+            "validation_result": self.validation_result,
+            "reason_tags": list(self.reason_tags),
+            "note": self.note,
+            "review_window_start": self.review_window_start,
+            "review_window_end": self.review_window_end,
+            "diagnostics": dict(self.diagnostics),
+            "migration_provenance": (
+                self.migration_provenance.to_dict()
+                if self.migration_provenance is not None
+                else None
+            ),
+        }
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, Any]) -> PatternValidation:
+        required = (
+            "recorded_at_utc",
+            "symbol",
+            "pattern_type",
+            "pattern_display_name",
+            "detector_version",
+            "scan_as_of_date",
+            "computer_result",
+            "human_label",
+            "validation_result",
+            "reason_tags",
+            "note",
+            "review_window_start",
+            "review_window_end",
+            "diagnostics",
+            "migration_provenance",
+        )
+        missing = tuple(key for key in required if key not in value)
+        if missing:
+            raise ValueError("missing validation fields: " + ", ".join(missing))
+        tags = value["reason_tags"]
+        diagnostics = value["diagnostics"]
+        provenance = value["migration_provenance"]
+        if not isinstance(tags, list | tuple):
+            raise ValueError("reason_tags must be a list")
+        if not isinstance(diagnostics, Mapping):
+            raise ValueError("diagnostics must be an object")
+        if provenance is not None and not isinstance(provenance, Mapping):
+            raise ValueError("migration_provenance must be an object or null")
+        return cls(
+            recorded_at_utc=datetime.fromisoformat(str(value["recorded_at_utc"])),
+            symbol=str(value["symbol"]),
+            pattern_type=str(value["pattern_type"]),
+            pattern_display_name=str(value["pattern_display_name"]),
+            detector_version=str(value["detector_version"]),
+            scan_as_of_date=str(value["scan_as_of_date"]),
+            computer_result=str(value["computer_result"]),
+            human_label=str(value["human_label"]),
+            validation_result=str(value["validation_result"]),
+            reason_tags=tuple(str(tag) for tag in tags),
+            note=str(value["note"]),
+            review_window_start=(
+                str(value["review_window_start"])
+                if value["review_window_start"] is not None
+                else None
+            ),
+            review_window_end=(
+                str(value["review_window_end"])
+                if value["review_window_end"] is not None
+                else None
+            ),
+            diagnostics={str(key): item for key, item in diagnostics.items()},
+            migration_provenance=(
+                MigrationProvenance.from_dict(provenance)
+                if isinstance(provenance, Mapping)
+                else None
+            ),
+        )
 
 
 @dataclass(frozen=True, slots=True)

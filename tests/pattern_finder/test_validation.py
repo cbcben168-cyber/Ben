@@ -6,6 +6,7 @@ import pytest
 
 from tv_quant.pattern_finder.validation import (
     FlatBaseValidation,
+    PatternValidation,
     ValidationStoreError,
     append_validation,
     build_validation,
@@ -25,6 +26,57 @@ SCAN_ROW = {
 }
 RECORDED_1 = datetime(2026, 8, 10, 4, 0, tzinfo=UTC)
 RECORDED_2 = RECORDED_1 + timedelta(minutes=5)
+
+
+def test_pattern_validation_round_trips_generic_schema() -> None:
+    record = PatternValidation(
+        recorded_at_utc=RECORDED_1,
+        symbol="AAPL",
+        pattern_type="flat_base",
+        pattern_display_name="平底形态",
+        detector_version="phase1-v1",
+        scan_as_of_date="2026-08-07",
+        computer_result="YES",
+        human_label="像",
+        validation_result="true_positive_like",
+        reason_tags=(),
+        note="",
+        review_window_start="2026-07-06",
+        review_window_end="2026-08-07",
+        diagnostics={
+            "base_length": 25,
+            "base_depth": 0.14,
+            "bottom_tests": 2,
+            "normalized_slope": 0.0,
+            "support": 99.0,
+            "resistance": 102.0,
+        },
+        migration_provenance=None,
+    )
+
+    assert record.key == ("AAPL", "flat_base", "phase1-v1", "2026-08-07")
+    assert PatternValidation.from_dict(record.to_dict()) == record
+
+
+def test_new_pattern_validation_requires_complete_review_window() -> None:
+    with pytest.raises(ValueError, match="review window"):
+        PatternValidation(
+            recorded_at_utc=RECORDED_1,
+            symbol="AAPL",
+            pattern_type="flat_base",
+            pattern_display_name="平底形态",
+            detector_version="phase1-v1",
+            scan_as_of_date="2026-08-07",
+            computer_result="YES",
+            human_label="像",
+            validation_result="true_positive_like",
+            reason_tags=(),
+            note="",
+            review_window_start=None,
+            review_window_end=None,
+            diagnostics={},
+            migration_provenance=None,
+        )
 
 
 def test_validation_appends_history_and_selects_latest_record(tmp_path: Path) -> None:

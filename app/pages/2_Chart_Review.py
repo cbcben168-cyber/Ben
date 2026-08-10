@@ -11,6 +11,7 @@ from tv_quant.pattern_finder.flat_base import FlatBaseResult, detect_flat_base
 from tv_quant.pattern_finder.fixtures import load_fixture, load_fixtures
 from tv_quant.pattern_finder.models import chart_series_from_frame, ohlcv_frame_from_series
 from tv_quant.pattern_finder.pattern_registry import enabled_pattern_profiles
+from tv_quant.pattern_finder.review import flat_base_review_input
 from tv_quant.pattern_finder.validation import (
     DEFAULT_MIGRATION_LEDGER_PATH,
     DEFAULT_VALIDATION_PATH,
@@ -52,18 +53,6 @@ def _cached_validation_history(path: str, modified_ns: int):
     return read_validation_history(path)
 
 
-def _diagnostics(result: FlatBaseResult) -> dict[str, int | float]:
-    selected = result.selected
-    return {
-        "base_length": selected.base_length,
-        "base_depth": selected.base_depth_pct,
-        "bottom_tests": selected.bottom_test_count,
-        "normalized_slope": selected.normalized_slope,
-        "support": selected.support_level,
-        "resistance": selected.resistance_level,
-    }
-
-
 def _format_diagnostic(value: int | float, format_spec: str | None) -> str:
     if format_spec == "integer":
         return str(int(value))
@@ -78,12 +67,13 @@ def _render_diagnostics(result: FlatBaseResult | None) -> None:
     if result is None:
         st.info("无法显示平底形态诊断：需要数据质量通过且至少有 120 根日K。")
         return
-    computer_result = "YES" if result.pattern_flat_base else "NO"
+    review_input = flat_base_review_input(result)
+    computer_result = review_input.computer_result
     st.caption(
         f"电脑判断：{'是' if computer_result == 'YES' else '否'}｜"
         f"检测器版本：{result.detector_version}"
     )
-    values = _diagnostics(result)
+    values = review_input.diagnostics
     st.caption("｜".join(
         f"{field.display_name_zh}：{_format_diagnostic(values[field.key], field.format_spec)}"
         for field in profile.diagnostic_fields
@@ -160,8 +150,8 @@ else:
                     st.error(f"验证历史无效：{error}")
                 else:
                     validation_store_ok = True
-                selected = flat_base.selected
-                scan_date = selected.base_end.date().isoformat()
+                review_input = flat_base_review_input(flat_base)
+                scan_date = review_input.scan_as_of_date.isoformat()
                 key = (selected_symbol, profile.pattern_type, flat_base.detector_version, scan_date)
                 current = latest_validations(history).get(key)
                 history_count = sum(record.key == key for record in history)
@@ -194,13 +184,14 @@ else:
                         record = build_pattern_validation(
                             recorded_at_utc=datetime.now(UTC), symbol=selected_symbol,
                             pattern_type=profile.pattern_type,
-                            detector_version=flat_base.detector_version,
-                            scan_as_of_date=selected.base_end.date(),
-                            computer_result="YES" if flat_base.pattern_flat_base else "NO",
+                            detector_version=review_input.detector_version,
+                            scan_as_of_date=review_input.scan_as_of_date,
+                            computer_result=review_input.computer_result,
                             human_label=human_label,
                             reason_tags=() if human_label == "像" else tuple(reason_tags or ()),
-                            note=note or "", review_window_start=selected.base_start.date(),
-                            review_window_end=selected.base_end.date(), diagnostics=_diagnostics(flat_base),
+                            note=note or "", review_window_start=review_input.review_window_start,
+                            review_window_end=review_input.review_window_end,
+                            diagnostics=review_input.diagnostics,
                         )
                     except ValueError as error:
                         st.error(f"人工复核未保存：{error}")

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from collections import Counter
+from dataclasses import dataclass
+from datetime import date
 from typing import Iterable, Mapping
 
+from .flat_base import FlatBaseResult
 from .validation import (
     PatternValidation,
     VALIDATION_RESULT_LABELS,
@@ -20,6 +23,35 @@ VALIDATION_FILTERS = (
     "疑似漏报",
     "边界案例",
 )
+
+
+@dataclass(frozen=True, slots=True)
+class PatternReviewInput:
+    computer_result: str
+    detector_version: str
+    scan_as_of_date: date
+    review_window_start: date
+    review_window_end: date
+    diagnostics: dict[str, int | float]
+
+
+def flat_base_review_input(result: FlatBaseResult) -> PatternReviewInput:
+    selected = result.selected
+    return PatternReviewInput(
+        computer_result="YES" if result.pattern_flat_base else "NO",
+        detector_version=result.detector_version,
+        scan_as_of_date=selected.base_end.date(),
+        review_window_start=selected.base_start.date(),
+        review_window_end=selected.base_end.date(),
+        diagnostics={
+            "base_length": selected.base_length,
+            "base_depth": selected.base_depth_pct,
+            "bottom_tests": selected.bottom_test_count,
+            "normalized_slope": selected.normalized_slope,
+            "support": selected.support_level,
+            "resistance": selected.resistance_level,
+        },
+    )
 
 
 def _row_key(

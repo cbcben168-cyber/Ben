@@ -22,7 +22,7 @@ def build_candlestick_figure(
     )
     figure.add_trace(
         go.Candlestick(
-            name="Daily OHLC",
+            name="日K（OHLC）",
             x=timestamps,
             open=tuple(bar.open for bar in series.bars),
             high=tuple(bar.high for bar in series.bars),
@@ -34,7 +34,7 @@ def build_candlestick_figure(
     )
     figure.add_trace(
         go.Bar(
-            name="Volume",
+            name="成交量",
             x=timestamps,
             y=tuple(bar.volume for bar in series.bars),
             marker_color="#64748b",
@@ -58,7 +58,7 @@ def build_candlestick_figure(
             support = series.support
             resistance = series.resistance
         figure.add_shape(
-            name="Base Window",
+            name="底部区间",
             type="rect",
             x0=base_start,
             x1=base_end,
@@ -72,8 +72,8 @@ def build_candlestick_figure(
             layer="below",
         )
         for name, value, color in (
-            ("Support", support, "#16a34a"),
-            ("Resistance", resistance, "#dc2626"),
+            ("支撑位", support, "#16a34a"),
+            ("阻力位", resistance, "#dc2626"),
         ):
             figure.add_shape(
                 name=name,
@@ -88,14 +88,14 @@ def build_candlestick_figure(
             )
         for text, x, y, yshift, xanchor in (
             (
-                "Base Window",
+                "底部区间",
                 base_start + (base_end - base_start) / 2,
                 resistance,
                 12,
                 "center",
             ),
-            ("Support", timestamps[-1], support, -12, "right"),
-            ("Resistance", timestamps[-1], resistance, 12, "right"),
+            ("支撑位", timestamps[-1], support, -12, "right"),
+            ("阻力位", timestamps[-1], resistance, 12, "right"),
         ):
             figure.add_annotation(
                 text=text,
@@ -109,7 +109,7 @@ def build_candlestick_figure(
             )
     figure.update_layout(
         title=f"{series.symbol} — "
-        f"{series.pattern_label if isinstance(series, ChartFixture) else series.label}",
+        f"{series.pattern_label if isinstance(series, ChartFixture) else 'Futu 前复权日线'}",
         dragmode="zoom",
         hovermode="x unified",
         height=720,
@@ -117,7 +117,7 @@ def build_candlestick_figure(
         showlegend=True,
         xaxis_rangeslider_visible=False,
     )
-    figure.update_yaxes(title_text="Price", row=1, col=1)
-    figure.update_yaxes(title_text="Volume", row=2, col=1)
-    figure.update_xaxes(title_text="Date", row=2, col=1)
+    figure.update_yaxes(title_text="价格", row=1, col=1)
+    figure.update_yaxes(title_text="成交量", row=2, col=1)
+    figure.update_xaxes(title_text="日期", row=2, col=1)
     return figure

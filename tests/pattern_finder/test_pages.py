@@ -83,18 +83,19 @@ def test_chart_review_loads_chart_and_can_switch_fixture() -> None:
     app = _load("app/pages/2_Chart_Review.py")
 
     assert not app.exception
-    assert app.title[0].value == "Chart Review"
-    assert tuple(app.selectbox[0].options) == ("TEST_FLAT", "TEST_ROUNDED", "TEST_READY")
+    assert app.title[0].value == "图表复核"
+    assert tuple(app.selectbox[0].options) == ("平底形态",)
+    assert tuple(app.selectbox[1].options) == ("TEST_FLAT", "TEST_ROUNDED", "TEST_READY")
     assert len(app.get("plotly_chart")) == 1
-    assert "Flat Base: YES" in _visible_text(app)
-    assert "Bottom Tests:" in _visible_text(app)
-    assert "Normalized Slope:" in _visible_text(app)
-    assert "Resistance Spike Adjusted:" in _visible_text(app)
+    assert "当前评价形态：平底形态" in _visible_text(app)
+    assert "这段价格结构是否像一个平底形态？" in _visible_text(app)
+    assert "底部测试次数：" in _visible_text(app)
+    assert "标准化斜率：" in _visible_text(app)
 
-    app.selectbox[0].select("TEST_READY").run()
+    app.selectbox[1].select("TEST_READY").run()
     assert not app.exception
-    assert app.selectbox[0].value == "TEST_READY"
-    assert "Detector Version: phase1-v1" in _visible_text(app)
+    assert app.selectbox[1].value == "TEST_READY"
+    assert "检测器版本：phase1-v1" in _visible_text(app)
 
 
 def test_rendered_pages_do_not_expose_later_phase_fields() -> None:
@@ -169,6 +170,52 @@ def _write_cached_symbol(
 
 def _write_cached_aapl(cache_root: Path) -> None:
     _write_cached_symbol(cache_root, "AAPL")
+
+
+def _load_cache_review(
+    tmp_path: Path,
+    monkeypatch,
+    *,
+    too_deep: bool,
+) -> AppTest:
+    cache_root = tmp_path / "qfq"
+    _write_cached_symbol(cache_root, "AAPL", too_deep=too_deep)
+    monkeypatch.setenv("PATTERN_FINDER_CACHE_ROOT", str(cache_root))
+    monkeypatch.setenv(
+        "PATTERN_FINDER_VALIDATION_PATH", str(tmp_path / "pattern_validation.jsonl")
+    )
+    monkeypatch.setenv(
+        "PATTERN_FINDER_LEGACY_VALIDATION_PATH",
+        str(tmp_path / "flat_base_validation.jsonl"),
+    )
+    monkeypatch.setenv(
+        "PATTERN_FINDER_MIGRATION_LEDGER_PATH",
+        str(tmp_path / "pattern_validation_migration_ledger.jsonl"),
+    )
+    monkeypatch.setenv("PATTERN_FINDER_REPOSITORY_ROOT", str(tmp_path))
+    app = _load("app/pages/2_Chart_Review.py")
+    app.segmented_control[0].set_value("缓存 / Futu").run()
+    return app
+
+
+def test_chart_review_states_current_pattern_and_yes_question(
+    tmp_path: Path, monkeypatch
+) -> None:
+    app = _load_cache_review(tmp_path, monkeypatch, too_deep=False)
+    text = _visible_text(app)
+
+    assert app.title[0].value == "图表复核"
+    assert "当前评价形态：平底形态" in text
+    assert "这段价格结构是否像一个平底形态？" in text
+    assert "不要考虑未来涨跌" in text
+
+
+def test_chart_review_no_asks_for_missed_flat_base(
+    tmp_path: Path, monkeypatch
+) -> None:
+    app = _load_cache_review(tmp_path, monkeypatch, too_deep=True)
+
+    assert "是否存在电脑漏掉的明显平底形态？" in _visible_text(app)
 
 
 def _write_review_history(path: Path) -> None:
@@ -270,14 +317,14 @@ def test_chart_review_cache_mode_renders_real_qfq_bars(
     monkeypatch.setenv("PATTERN_FINDER_CACHE_ROOT", str(cache_root))
     app = _load("app/pages/2_Chart_Review.py")
 
-    app.segmented_control[0].set_value("Cache / Futu").run()
+    app.segmented_control[0].set_value("缓存 / Futu").run()
 
     assert not app.exception
-    assert tuple(app.selectbox[0].options) == ("AAPL",)
-    assert app.selectbox[0].value == "AAPL"
+    assert tuple(app.selectbox[1].options) == ("AAPL",)
+    assert app.selectbox[1].value == "AAPL"
     assert len(app.get("plotly_chart")) == 1
-    assert "Futu QFQ" in _visible_text(app)
-    assert "Detector Version: phase1-v1" in _visible_text(app)
+    assert "Futu 前复权" in _visible_text(app)
+    assert "检测器版本：phase1-v1" in _visible_text(app)
     assert tuple(app.segmented_control[1].options) == HUMAN_LABELS
 
 
@@ -285,22 +332,17 @@ def test_chart_review_appends_validation_only_when_form_is_submitted(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    cache_root = tmp_path / "qfq"
-    validation_path = tmp_path / "flat_base_validation.jsonl"
-    _write_cached_aapl(cache_root)
-    monkeypatch.setenv("PATTERN_FINDER_CACHE_ROOT", str(cache_root))
-    monkeypatch.setenv("PATTERN_FINDER_VALIDATION_PATH", str(validation_path))
-    app = _load("app/pages/2_Chart_Review.py")
-    app.segmented_control[0].set_value("Cache / Futu").run()
+    validation_path = tmp_path / "pattern_validation.jsonl"
+    app = _load_cache_review(tmp_path, monkeypatch, too_deep=False)
 
     assert not validation_path.exists()
     app.run()
     assert not validation_path.exists()
 
     app.segmented_control[1].set_value("不像").run()
-    app.pills[0].set_value(["整体仍在下降", "阻力不清楚"])
+    app.pills[0].set_value(["整体仍明显向下", "阻力区域不清晰"])
     app.text_area[0].input("  下降趋势仍明显  ")
-    save = next(button for button in app.button if button.label == "Save validation")
+    save = next(button for button in app.button if button.label == "保存人工复核")
     save.click().run()
 
     assert not app.exception
@@ -308,26 +350,19 @@ def test_chart_review_appends_validation_only_when_form_is_submitted(
     assert len(history) == 1
     assert history[0].symbol == "AAPL"
     assert history[0].detector_version == "phase1-v1"
-    assert history[0].computer_flat_base == "YES"
+    assert history[0].pattern_type == "flat_base"
+    assert history[0].computer_result == "YES"
     assert history[0].human_label == "不像"
-    assert history[0].reason_tags == ("整体仍在下降", "阻力不清楚")
+    assert history[0].reason_tags == ("整体仍明显向下", "阻力区域不清晰")
     assert history[0].note == "下降趋势仍明显"
-    assert "Validation saved" in _visible_text(app)
+    assert "人工复核已保存：疑似误报" in _visible_text(app)
 
     app.run()
     assert len(read_validation_history(validation_path)) == 1
 
 
 def test_chart_review_like_disables_reason_tags(tmp_path: Path, monkeypatch) -> None:
-    cache_root = tmp_path / "qfq"
-    _write_cached_aapl(cache_root)
-    monkeypatch.setenv("PATTERN_FINDER_CACHE_ROOT", str(cache_root))
-    monkeypatch.setenv(
-        "PATTERN_FINDER_VALIDATION_PATH",
-        str(tmp_path / "flat_base_validation.jsonl"),
-    )
-    app = _load("app/pages/2_Chart_Review.py")
-    app.segmented_control[0].set_value("Cache / Futu").run()
+    app = _load_cache_review(tmp_path, monkeypatch, too_deep=False)
 
     app.segmented_control[1].set_value("像").run()
 

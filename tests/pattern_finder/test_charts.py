@@ -40,14 +40,14 @@ def test_chart_uses_fixture_dates_and_ohlcv_values() -> None:
     assert len(figure.data) == 2
     price, volume = figure.data
     assert price.type == "candlestick"
-    assert price.name == "Daily OHLC"
+    assert price.name == "日K（OHLC）"
     assert tuple(price.x) == tuple(bar.timestamp_utc for bar in fixture.bars)
     assert tuple(price.open) == tuple(bar.open for bar in fixture.bars)
     assert tuple(price.high) == tuple(bar.high for bar in fixture.bars)
     assert tuple(price.low) == tuple(bar.low for bar in fixture.bars)
     assert tuple(price.close) == tuple(bar.close for bar in fixture.bars)
     assert volume.type == "bar"
-    assert volume.name == "Volume"
+    assert volume.name == "成交量"
     assert tuple(volume.y) == tuple(bar.volume for bar in fixture.bars)
 
 
@@ -66,20 +66,20 @@ def test_chart_marks_base_window_support_and_resistance() -> None:
     figure = build_candlestick_figure(fixture)
     shapes = {shape.name: shape for shape in figure.layout.shapes}
 
-    assert set(shapes) == {"Base Window", "Support", "Resistance"}
-    assert shapes["Base Window"].type == "rect"
-    assert shapes["Base Window"].x0 == fixture.base_start
-    assert shapes["Base Window"].x1 == fixture.base_end
-    assert shapes["Support"].type == "line"
-    assert shapes["Support"].y0 == fixture.support
-    assert shapes["Support"].y1 == fixture.support
-    assert shapes["Resistance"].type == "line"
-    assert shapes["Resistance"].y0 == fixture.resistance
-    assert shapes["Resistance"].y1 == fixture.resistance
+    assert set(shapes) == {"底部区间", "支撑位", "阻力位"}
+    assert shapes["底部区间"].type == "rect"
+    assert shapes["底部区间"].x0 == fixture.base_start
+    assert shapes["底部区间"].x1 == fixture.base_end
+    assert shapes["支撑位"].type == "line"
+    assert shapes["支撑位"].y0 == fixture.support
+    assert shapes["支撑位"].y1 == fixture.support
+    assert shapes["阻力位"].type == "line"
+    assert shapes["阻力位"].y0 == fixture.resistance
+    assert shapes["阻力位"].y1 == fixture.resistance
     assert {annotation.text for annotation in figure.layout.annotations} == {
-        "Base Window",
-        "Support",
-        "Resistance",
+        "底部区间",
+        "支撑位",
+        "阻力位",
     }
 
 
@@ -93,7 +93,7 @@ def test_real_chart_uses_literal_daily_bars_without_detector_overlays() -> None:
     assert tuple(figure.data[1].y) == (1_000_001, 1_000_002)
     assert tuple(figure.layout.shapes) == ()
     assert tuple(figure.layout.annotations) == ()
-    assert figure.layout.title.text == "AAPL — Futu QFQ daily"
+    assert figure.layout.title.text == "AAPL — Futu 前复权日线"
 
 
 def _fixture_detection(symbol: str):
@@ -119,10 +119,10 @@ def test_chart_uses_detector_selected_flat_base_overlays() -> None:
     shapes = {shape.name: shape for shape in figure.layout.shapes}
 
     assert result.pattern_flat_base is True
-    assert shapes["Base Window"].x0 == result.selected.base_start
-    assert shapes["Base Window"].x1 == result.selected.base_end
-    assert shapes["Support"].y0 == result.selected.support_level
-    assert shapes["Resistance"].y0 == result.selected.resistance_level
+    assert shapes["底部区间"].x0 == result.selected.base_start
+    assert shapes["底部区间"].x1 == result.selected.base_end
+    assert shapes["支撑位"].y0 == result.selected.support_level
+    assert shapes["阻力位"].y0 == result.selected.resistance_level
 
 
 def test_chart_hides_detector_overlays_for_flat_base_no() -> None:

@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from tv_quant.pattern_finder.validation import (
+    DEFAULT_VALIDATION_PATH,
     FlatBaseValidation,
     PatternValidation,
     ValidationStoreError,
@@ -107,6 +108,35 @@ def test_new_record_reason_quality_rules_are_strict() -> None:
             reason_tags=("低点不稳定",),
         )
     assert _build_new_pattern_validation().reason_tags == ()
+
+
+def test_generic_store_appends_and_keeps_pattern_type_in_latest_key(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "pattern_validation.jsonl"
+    first = _build_new_pattern_validation()
+    second = build_pattern_validation(
+        recorded_at_utc=RECORDED_2,
+        symbol="AAPL",
+        pattern_type="flat_base",
+        detector_version="phase1-v1",
+        scan_as_of_date=date(2026, 8, 7),
+        computer_result="YES",
+        human_label="不像",
+        reason_tags=("结构不像平底",),
+        note="second",
+        review_window_start=date(2026, 7, 6),
+        review_window_end=date(2026, 8, 7),
+        diagnostics=first.diagnostics,
+    )
+
+    append_validation(path, first)
+    append_validation(path, second)
+
+    assert DEFAULT_VALIDATION_PATH.name == "pattern_validation.jsonl"
+    assert read_validation_history(path) == (first, second)
+    assert latest_validations((first, second))[first.key] == second
+    assert len(path.read_text(encoding="utf-8").splitlines()) == 2
 
 
 def test_pattern_validation_round_trips_generic_schema() -> None:

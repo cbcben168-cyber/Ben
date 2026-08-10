@@ -11,6 +11,9 @@ from .pattern_registry import get_pattern_profile
 
 
 DEFAULT_VALIDATION_PATH = Path(
+    "data/processed/pattern_finder/manual_validation/pattern_validation.jsonl"
+)
+LEGACY_VALIDATION_PATH = Path(
     "data/processed/pattern_finder/manual_validation/flat_base_validation.jsonl"
 )
 HUMAN_LABELS = ("像", "勉强像", "不像")
@@ -468,7 +471,10 @@ def build_validation(
     )
 
 
-def append_validation(path: str | Path, record: FlatBaseValidation) -> None:
+def append_validation(
+    path: str | Path,
+    record: PatternValidation | FlatBaseValidation,
+) -> None:
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     with target.open("a", encoding="utf-8") as handle:
@@ -477,11 +483,11 @@ def append_validation(path: str | Path, record: FlatBaseValidation) -> None:
 
 def read_validation_history(
     path: str | Path = DEFAULT_VALIDATION_PATH,
-) -> tuple[FlatBaseValidation, ...]:
+) -> tuple[PatternValidation | FlatBaseValidation, ...]:
     target = Path(path)
     if not target.exists():
         return ()
-    records: list[FlatBaseValidation] = []
+    records: list[PatternValidation | FlatBaseValidation] = []
     for line_number, line in enumerate(
         target.read_text(encoding="utf-8").splitlines(), start=1
     ):
@@ -491,7 +497,10 @@ def read_validation_history(
             payload = json.loads(line)
             if not isinstance(payload, dict):
                 raise ValueError("record must be a JSON object")
-            records.append(FlatBaseValidation.from_dict(payload))
+            if "pattern_type" in payload:
+                records.append(PatternValidation.from_dict(payload))
+            else:
+                records.append(FlatBaseValidation.from_dict(payload))
         except (json.JSONDecodeError, TypeError, ValueError) as error:
             raise ValidationStoreError(
                 f"invalid validation JSON at line {line_number}: {error}"
@@ -500,9 +509,15 @@ def read_validation_history(
 
 
 def latest_validations(
-    records: Iterable[FlatBaseValidation],
-) -> dict[tuple[str, str, str], FlatBaseValidation]:
-    latest: dict[tuple[str, str, str], FlatBaseValidation] = {}
+    records: Iterable[PatternValidation | FlatBaseValidation],
+) -> dict[
+    tuple[str, str, str] | tuple[str, str, str, str],
+    PatternValidation | FlatBaseValidation,
+]:
+    latest: dict[
+        tuple[str, str, str] | tuple[str, str, str, str],
+        PatternValidation | FlatBaseValidation,
+    ] = {}
     for record in records:
         previous = latest.get(record.key)
         if previous is None or record.recorded_at_utc > previous.recorded_at_utc:

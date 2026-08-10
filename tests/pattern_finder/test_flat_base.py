@@ -4,6 +4,12 @@ import pandas as pd
 import pytest
 
 from tv_quant.pattern_finder.flat_base import (
+    BOTTOM_TOLERANCE_PCT,
+    MAX_ABS_NORMALIZED_SLOPE,
+    MAX_BASE_DEPTH_PCT,
+    MAX_BASE_LENGTH,
+    MIN_BASE_LENGTH,
+    MIN_BOTTOM_TESTS,
     PATTERN_DETECTOR_VERSION,
     detect_flat_base,
 )
@@ -64,6 +70,15 @@ def test_clean_flat_base_passes_with_literal_frozen_diagnostics() -> None:
     assert result.selected.base_end == pd.Timestamp(
         "2025-06-18", tz="UTC"
     ).to_pydatetime()
+
+
+def test_m3b_keeps_phase1_v1_detector_contract_frozen() -> None:
+    assert PATTERN_DETECTOR_VERSION == "phase1-v1"
+    assert (MIN_BASE_LENGTH, MAX_BASE_LENGTH) == (25, 90)
+    assert MAX_BASE_DEPTH_PCT == 0.18
+    assert BOTTOM_TOLERANCE_PCT == 0.04
+    assert MIN_BOTTOM_TESTS == 2
+    assert MAX_ABS_NORMALIZED_SLOPE == 0.0015
 
 
 def test_too_deep_base_is_a_negative_fixture() -> None:

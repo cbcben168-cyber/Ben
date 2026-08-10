@@ -5,12 +5,26 @@ from pathlib import Path
 import streamlit as st
 
 from tv_quant.data_quality import load_standardized_csv
-from tv_quant.pattern_finder.cache import DEFAULT_CACHE_ROOT, load_cache_entry
+from tv_quant.pattern_finder.cache import (
+    DEFAULT_CACHE_ROOT,
+    cached_symbols,
+    load_cache_entry,
+)
 from tv_quant.pattern_finder.charts import build_candlestick_figure
 from tv_quant.pattern_finder.flat_base import FlatBaseResult, detect_flat_base
 from tv_quant.pattern_finder.fixtures import load_fixture, load_fixtures
 from tv_quant.pattern_finder.models import chart_series_from_frame, ohlcv_frame_from_series
-from tv_quant.pattern_finder.universe import PILOT_SYMBOLS
+from tv_quant.pattern_finder.validation import (
+    DEFAULT_VALIDATION_PATH,
+    HUMAN_LABELS,
+    MAX_NOTE_LENGTH,
+    REASON_TAGS,
+    ValidationStoreError,
+    append_validation,
+    build_validation,
+    latest_validations,
+    read_validation_history,
+)
 
 
 st.set_page_config(page_title="Chart Review", page_icon="🕯️", layout="wide")
@@ -28,6 +42,12 @@ source = st.segmented_control(
 def _cached_frame(path: str, modified_ns: int):
     del modified_ns
     return load_standardized_csv(Path(path))[0]
+
+
+@st.cache_data(ttl="30s", max_entries=8, show_spinner=False)
+def _cached_validation_history(path: str, modified_ns: int):
+    del modified_ns
+    return read_validation_history(path)
 
 
 def _render_flat_base_diagnostics(result: FlatBaseResult | None) -> None:
@@ -77,7 +97,14 @@ if source == "Fixture":
 else:
     st.caption("Futu QFQ daily candlestick and volume from the local per-symbol cache")
     cache_root = Path(os.getenv("PATTERN_FINDER_CACHE_ROOT", str(DEFAULT_CACHE_ROOT)))
-    selected_symbol = st.selectbox("Pilot symbol", PILOT_SYMBOLS)
+    validation_path = Path(
+        os.getenv("PATTERN_FINDER_VALIDATION_PATH", str(DEFAULT_VALIDATION_PATH))
+    )
+    symbols = cached_symbols(cache_root)
+    if not symbols:
+        st.info("No local M3B cache is available. Run the staged expansion CLI first.")
+        st.stop()
+    selected_symbol = st.selectbox("Cached symbol", symbols)
     try:
         entry = load_cache_entry(
             selected_symbol,
@@ -114,3 +141,87 @@ else:
                 width="stretch",
                 config={"displayModeBar": True, "scrollZoom": True},
             )
+            if flat_base is not None:
+                try:
+                    history = _cached_validation_history(
+                        validation_path.as_posix(),
+                        validation_path.stat().st_mtime_ns
+                        if validation_path.exists()
+                        else 0,
+                    )
+                except ValidationStoreError as error:
+                    history = ()
+                    validation_store_ok = False
+                    st.error(f"Validation history is invalid: {error}")
+                else:
+                    validation_store_ok = True
+
+                scan_date = flat_base.selected.base_end.date().isoformat()
+                key = (selected_symbol, flat_base.detector_version, scan_date)
+                current = latest_validations(history).get(key)
+                history_count = sum(record.key == key for record in history)
+                if current is None:
+                    st.caption("Human validation: 未人工验证 | History: 0")
+                else:
+                    st.caption(
+                        f"Human validation: {current.human_label} | "
+                        f"History: {history_count} | "
+                        f"Reason Tags: {', '.join(current.reason_tags) or '-'} | "
+                        f"Note: {current.note or '-'}"
+                    )
+
+                with st.form(
+                    f"flat_base_review_{selected_symbol}",
+                    clear_on_submit=True,
+                ):
+                    human_label = st.segmented_control(
+                        "Human label",
+                        HUMAN_LABELS,
+                        default=None,
+                        required=True,
+                        key=f"human_label_{selected_symbol}",
+                    )
+                    reason_tags = st.pills(
+                        "Reason tags",
+                        REASON_TAGS,
+                        selection_mode="multi",
+                        disabled=human_label not in HUMAN_LABELS[1:],
+                        key=f"reason_tags_{selected_symbol}",
+                    )
+                    note = st.text_area(
+                        "Note",
+                        max_chars=MAX_NOTE_LENGTH,
+                        key=f"human_note_{selected_symbol}",
+                    )
+                    submitted = st.form_submit_button(
+                        "Save validation",
+                        icon=":material/save:",
+                        disabled=not validation_store_ok,
+                    )
+
+                if submitted and human_label is not None:
+                    selected = flat_base.selected
+                    scan_row = {
+                        "Symbol": selected_symbol,
+                        "Detector Version": flat_base.detector_version,
+                        "Flat Base": "YES" if flat_base.pattern_flat_base else "NO",
+                        "Base Length": selected.base_length,
+                        "Base Depth": selected.base_depth_pct,
+                        "Bottom Tests": selected.bottom_test_count,
+                        "Normalized Slope": selected.normalized_slope,
+                    }
+                    try:
+                        record = build_validation(
+                            scan_row,
+                            selected.base_end.date(),
+                            human_label,
+                            () if human_label == "像" else tuple(reason_tags or ()),
+                            note or "",
+                            datetime.now(UTC),
+                        )
+                    except ValueError as error:
+                        st.error(f"Validation rejected: {error}")
+                    else:
+                        append_validation(validation_path, record)
+                        st.cache_data.clear()
+                        st.success("Validation saved")

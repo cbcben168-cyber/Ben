@@ -11,20 +11,8 @@ from tv_quant.pattern_finder.fixtures import load_fixtures
 from tv_quant.pattern_finder.futu_service import refresh_pilot_universe
 from tv_quant.pattern_finder.models import ohlcv_frame_from_series
 from tv_quant.pattern_finder.pattern_registry import enabled_pattern_profiles
-from tv_quant.pattern_finder.review import (
-    COMPUTER_FILTERS,
-    HUMAN_FILTERS,
-    VALIDATION_FILTERS,
-    attach_latest_validations,
-    filter_review_rows,
-)
-from tv_quant.pattern_finder.validation import (
-    DEFAULT_MIGRATION_LEDGER_PATH,
-    DEFAULT_VALIDATION_PATH,
-    LEGACY_VALIDATION_PATH,
-    migrate_legacy_validations,
-    read_validation_history,
-)
+from tv_quant.pattern_finder import review
+from tv_quant.pattern_finder import validation
 
 
 st.set_page_config(page_title="今日扫描", page_icon="📋", layout="wide")
@@ -47,7 +35,7 @@ def _cached_scan(cache_root: str, as_of_iso: str, symbols: tuple[str, ...]):
 @st.cache_data(ttl="30s", max_entries=8, show_spinner=False)
 def _cached_validation_history(path: str, modified_ns: int):
     del modified_ns
-    return read_validation_history(path)
+    return validation.read_validation_history(path)
 
 
 if source == "本地样例":
@@ -90,11 +78,11 @@ else:
             st.cache_data.clear()
             st.success(f"已更新 {len(entries)} 只试点股票。")
 
-    validation_path = Path(os.getenv("PATTERN_FINDER_VALIDATION_PATH", str(DEFAULT_VALIDATION_PATH)))
-    legacy_path = Path(os.getenv("PATTERN_FINDER_LEGACY_VALIDATION_PATH", str(LEGACY_VALIDATION_PATH)))
-    ledger_path = Path(os.getenv("PATTERN_FINDER_MIGRATION_LEDGER_PATH", str(DEFAULT_MIGRATION_LEDGER_PATH)))
+    validation_path = Path(os.getenv("PATTERN_FINDER_VALIDATION_PATH", str(validation.DEFAULT_VALIDATION_PATH)))
+    legacy_path = Path(os.getenv("PATTERN_FINDER_LEGACY_VALIDATION_PATH", str(validation.LEGACY_VALIDATION_PATH)))
+    ledger_path = Path(os.getenv("PATTERN_FINDER_MIGRATION_LEDGER_PATH", str(validation.DEFAULT_MIGRATION_LEDGER_PATH)))
     repository_root = Path(os.getenv("PATTERN_FINDER_REPOSITORY_ROOT", Path.cwd()))
-    migrate_legacy_validations(
+    validation.migrate_legacy_validations(
         legacy_path, validation_path, ledger_path, repository_root=repository_root
     )
     symbols = cached_symbols(cache_root)
@@ -103,11 +91,11 @@ else:
         validation_path.as_posix(),
         validation_path.stat().st_mtime_ns if validation_path.exists() else 0,
     )
-    computer_filter = st.selectbox("电脑判断", COMPUTER_FILTERS)
-    human_filter = st.selectbox("人工复核", HUMAN_FILTERS)
-    validation_filter = st.selectbox("验证结论", VALIDATION_FILTERS)
-    rows = filter_review_rows(
-        attach_latest_validations(
+    computer_filter = st.selectbox("电脑判断", review.COMPUTER_FILTERS)
+    human_filter = st.selectbox("人工复核", review.HUMAN_FILTERS)
+    validation_filter = st.selectbox("验证结论", review.VALIDATION_FILTERS)
+    rows = review.filter_review_rows(
+        review.attach_latest_validations(
             rows, history, pattern_type=profile.pattern_type,
             computer_result_field="Flat Base", scan_date_field="Base End",
         ),

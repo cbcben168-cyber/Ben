@@ -11,21 +11,8 @@ from tv_quant.pattern_finder.flat_base import FlatBaseResult, detect_flat_base
 from tv_quant.pattern_finder.fixtures import load_fixture, load_fixtures
 from tv_quant.pattern_finder.models import chart_series_from_frame, ohlcv_frame_from_series
 from tv_quant.pattern_finder.pattern_registry import enabled_pattern_profiles
-from tv_quant.pattern_finder.review import flat_base_review_input
-from tv_quant.pattern_finder.validation import (
-    DEFAULT_MIGRATION_LEDGER_PATH,
-    DEFAULT_VALIDATION_PATH,
-    HUMAN_LABELS,
-    LEGACY_VALIDATION_PATH,
-    MAX_NOTE_LENGTH,
-    VALIDATION_RESULT_LABELS,
-    ValidationStoreError,
-    append_validation,
-    build_pattern_validation,
-    latest_validations,
-    migrate_legacy_validations,
-    read_validation_history,
-)
+from tv_quant.pattern_finder import review
+from tv_quant.pattern_finder import validation
 
 
 st.set_page_config(page_title="图表复核", page_icon="🕯️", layout="wide")
@@ -50,7 +37,7 @@ def _cached_frame(path: str, modified_ns: int):
 @st.cache_data(ttl="30s", max_entries=8, show_spinner=False)
 def _cached_validation_history(path: str, modified_ns: int):
     del modified_ns
-    return read_validation_history(path)
+    return validation.read_validation_history(path)
 
 
 def _format_diagnostic(value: int | float, format_spec: str | None) -> str:
@@ -67,7 +54,7 @@ def _render_diagnostics(result: FlatBaseResult | None) -> None:
     if result is None:
         st.info("无法显示平底形态诊断：需要数据质量通过且至少有 120 根日K。")
         return
-    review_input = flat_base_review_input(result)
+    review_input = review.flat_base_review_input(result)
     computer_result = review_input.computer_result
     st.caption(
         f"电脑判断：{'是' if computer_result == 'YES' else '否'}｜"
@@ -102,11 +89,11 @@ if source == "本地样例":
 else:
     st.caption("来自本地逐股票缓存的 Futu 前复权日K与成交量")
     cache_root = Path(os.getenv("PATTERN_FINDER_CACHE_ROOT", str(DEFAULT_CACHE_ROOT)))
-    validation_path = Path(os.getenv("PATTERN_FINDER_VALIDATION_PATH", str(DEFAULT_VALIDATION_PATH)))
-    legacy_path = Path(os.getenv("PATTERN_FINDER_LEGACY_VALIDATION_PATH", str(LEGACY_VALIDATION_PATH)))
-    ledger_path = Path(os.getenv("PATTERN_FINDER_MIGRATION_LEDGER_PATH", str(DEFAULT_MIGRATION_LEDGER_PATH)))
+    validation_path = Path(os.getenv("PATTERN_FINDER_VALIDATION_PATH", str(validation.DEFAULT_VALIDATION_PATH)))
+    legacy_path = Path(os.getenv("PATTERN_FINDER_LEGACY_VALIDATION_PATH", str(validation.LEGACY_VALIDATION_PATH)))
+    ledger_path = Path(os.getenv("PATTERN_FINDER_MIGRATION_LEDGER_PATH", str(validation.DEFAULT_MIGRATION_LEDGER_PATH)))
     repository_root = Path(os.getenv("PATTERN_FINDER_REPOSITORY_ROOT", Path.cwd()))
-    migrate_legacy_validations(
+    validation.migrate_legacy_validations(
         legacy_path, validation_path, ledger_path, repository_root=repository_root
     )
     symbols = cached_symbols(cache_root)
@@ -144,30 +131,30 @@ else:
                         validation_path.as_posix(),
                         validation_path.stat().st_mtime_ns if validation_path.exists() else 0,
                     )
-                except ValidationStoreError as error:
+                except validation.ValidationStoreError as error:
                     history = ()
                     validation_store_ok = False
                     st.error(f"验证历史无效：{error}")
                 else:
                     validation_store_ok = True
-                review_input = flat_base_review_input(flat_base)
+                review_input = review.flat_base_review_input(flat_base)
                 scan_date = review_input.scan_as_of_date.isoformat()
                 key = (selected_symbol, profile.pattern_type, flat_base.detector_version, scan_date)
-                current = latest_validations(history).get(key)
+                current = validation.latest_validations(history).get(key)
                 history_count = sum(record.key == key for record in history)
                 if current is None:
                     st.caption("人工复核：未人工复核｜历史次数：0")
                 else:
                     st.caption(
                         f"人工复核：{current.human_label}｜验证结论："
-                        f"{VALIDATION_RESULT_LABELS[current.validation_result]}｜"
+                        f"{validation.VALIDATION_RESULT_LABELS[current.validation_result]}｜"
                         f"历史次数：{history_count}｜原因标签："
                         f"{', '.join(current.reason_tags) or '-'}｜备注：{current.note or '-'}"
                     )
                 with st.form(f"pattern_review_{profile.pattern_type}_{selected_symbol}", clear_on_submit=True):
                     human_label = st.segmented_control(
                         f"针对{profile.display_name_zh}的人工判断",
-                        HUMAN_LABELS, default=None, required=True,
+                        validation.HUMAN_LABELS, default=None, required=True,
                         key=f"human_label_{profile.pattern_type}_{selected_symbol}",
                     )
                     reason_tags = st.pills(
@@ -175,13 +162,13 @@ else:
                         selection_mode="multi", disabled=human_label == "像",
                         key=f"reason_tags_{profile.pattern_type}_{selected_symbol}",
                     )
-                    note = st.text_area("备注", max_chars=MAX_NOTE_LENGTH, key=f"human_note_{selected_symbol}")
+                    note = st.text_area("备注", max_chars=validation.MAX_NOTE_LENGTH, key=f"human_note_{selected_symbol}")
                     submitted = st.form_submit_button(
                         "保存人工复核", icon=":material/save:", disabled=not validation_store_ok
                     )
                 if submitted and human_label is not None:
                     try:
-                        record = build_pattern_validation(
+                        record = validation.build_pattern_validation(
                             recorded_at_utc=datetime.now(UTC), symbol=selected_symbol,
                             pattern_type=profile.pattern_type,
                             detector_version=review_input.detector_version,
@@ -196,6 +183,6 @@ else:
                     except ValueError as error:
                         st.error(f"人工复核未保存：{error}")
                     else:
-                        append_validation(validation_path, record)
+                        validation.append_validation(validation_path, record)
                         st.cache_data.clear()
-                        st.success(f"人工复核已保存：{VALIDATION_RESULT_LABELS[record.validation_result]}")
+                        st.success(f"人工复核已保存：{validation.VALIDATION_RESULT_LABELS[record.validation_result]}")

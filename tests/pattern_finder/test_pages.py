@@ -51,6 +51,7 @@ def test_home_page_loads_as_fixture_only_shell() -> None:
     assert not app.exception
     assert app.title[0].value == "形态发现器"
     assert "本地" in _visible_text(app)
+    assert tuple(page.title for page in app.get("page_link")) == ()
 
 
 def test_today_scan_page_loads_all_three_fixture_rows() -> None:

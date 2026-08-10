@@ -3,10 +3,15 @@ from __future__ import annotations
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+from .flat_base import FlatBaseResult
 from .models import ChartFixture, ChartSeries
 
 
-def build_candlestick_figure(series: ChartFixture | ChartSeries) -> go.Figure:
+def build_candlestick_figure(
+    series: ChartFixture | ChartSeries,
+    *,
+    flat_base: FlatBaseResult | None = None,
+) -> go.Figure:
     timestamps = tuple(bar.timestamp_utc for bar in series.bars)
     figure = make_subplots(
         rows=2,
@@ -38,12 +43,25 @@ def build_candlestick_figure(series: ChartFixture | ChartSeries) -> go.Figure:
         col=1,
     )
 
-    if isinstance(series, ChartFixture):
+    detector_overlay = flat_base is not None and flat_base.pattern_flat_base
+    legacy_fixture_overlay = flat_base is None and isinstance(series, ChartFixture)
+    if detector_overlay or legacy_fixture_overlay:
+        if detector_overlay:
+            selected = flat_base.selected
+            base_start = selected.base_start
+            base_end = selected.base_end
+            support = selected.support_level
+            resistance = selected.resistance_level
+        else:
+            base_start = series.base_start
+            base_end = series.base_end
+            support = series.support
+            resistance = series.resistance
         figure.add_shape(
             name="Base Window",
             type="rect",
-            x0=series.base_start,
-            x1=series.base_end,
+            x0=base_start,
+            x1=base_end,
             y0=0,
             y1=1,
             xref="x",
@@ -54,8 +72,8 @@ def build_candlestick_figure(series: ChartFixture | ChartSeries) -> go.Figure:
             layer="below",
         )
         for name, value, color in (
-            ("Support", series.support, "#16a34a"),
-            ("Resistance", series.resistance, "#dc2626"),
+            ("Support", support, "#16a34a"),
+            ("Resistance", resistance, "#dc2626"),
         ):
             figure.add_shape(
                 name=name,
@@ -71,13 +89,13 @@ def build_candlestick_figure(series: ChartFixture | ChartSeries) -> go.Figure:
         for text, x, y, yshift, xanchor in (
             (
                 "Base Window",
-                series.base_start + (series.base_end - series.base_start) / 2,
-                series.resistance,
+                base_start + (base_end - base_start) / 2,
+                resistance,
                 12,
                 "center",
             ),
-            ("Support", timestamps[-1], series.support, -12, "right"),
-            ("Resistance", timestamps[-1], series.resistance, 12, "right"),
+            ("Support", timestamps[-1], support, -12, "right"),
+            ("Resistance", timestamps[-1], resistance, 12, "right"),
         ):
             figure.add_annotation(
                 text=text,

@@ -1,7 +1,9 @@
 from datetime import timedelta
 
+import pandas as pd
 import pytest
 
+from tv_quant.pattern_finder.flat_base import detect_flat_base
 from tv_quant.pattern_finder.fixtures import load_fixture, load_fixtures
 
 
@@ -63,3 +65,25 @@ def test_fixture_shapes_are_visually_distinct_without_running_detectors() -> Non
 def test_unknown_fixture_symbol_is_rejected() -> None:
     with pytest.raises(ValueError, match="unknown fixture symbol"):
         load_fixture("AAPL")
+
+
+def test_test_flat_is_identified_by_detector_logic_not_its_label() -> None:
+    fixture = load_fixture("TEST_FLAT")
+    frame = pd.DataFrame(
+        {
+            "timestamp_utc": [bar.timestamp_utc for bar in fixture.bars],
+            "ticker": ["TEST_FLAT"] * len(fixture.bars),
+            "open": [bar.open for bar in fixture.bars],
+            "high": [bar.high for bar in fixture.bars],
+            "low": [bar.low for bar in fixture.bars],
+            "close": [bar.close for bar in fixture.bars],
+            "volume": [bar.volume for bar in fixture.bars],
+        }
+    )
+
+    result = detect_flat_base(frame)
+
+    assert fixture.pattern_label == "Flat fixture"
+    assert result.pattern_flat_base is True
+    assert 25 <= result.selected.base_length <= 90
+    assert result.selected.base_end == fixture.base_end

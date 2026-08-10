@@ -10,6 +10,7 @@ from tv_quant.pattern_finder.cache import (
     PatternCacheError,
     cache_path,
     cache_status_rows,
+    flat_base_scan_rows,
     refresh_cache_entry,
 )
 from tv_quant.pattern_finder.universe import PILOT_SYMBOLS
@@ -159,3 +160,91 @@ def test_cache_status_reports_missing_pass_and_stale_without_network(tmp_path: P
     assert by_symbol["MSFT"]["Data Quality"] == "FAIL"
     assert by_symbol["NVDA"]["Cache"] == "Missing"
     assert by_symbol["AAPL"]["Adjustment"] == "QFQ"
+
+
+def _flat_frame(symbol: str, days: list[str], *, too_deep: bool = False) -> pd.DataFrame:
+    rows = len(days)
+    base_start = rows - 30
+    values: list[dict[str, object]] = []
+    for index, day in enumerate(days):
+        if index < base_start:
+            close = 120.0 - 0.12 * index
+            high = close + 1.0
+            low = close - 1.0
+        else:
+            offset = index - base_start
+            close = 101.0
+            high = 102.0
+            low = (
+                101.0 - 0.1 * offset
+                if offset < 5
+                else 100.5 + 0.02 * (offset - (5 if offset < 20 else 20))
+            )
+            if offset in (5, 20):
+                low = (
+                    (82.0 if offset == 5 else 82.5)
+                    if too_deep
+                    else (99.0 if offset == 5 else 99.5)
+                )
+        values.append(
+            {
+                "timestamp_utc": pd.Timestamp(day, tz="UTC"),
+                "ticker": symbol,
+                "open": close,
+                "high": high,
+                "low": low,
+                "close": close,
+                "volume": 1_000_000,
+            }
+        )
+    return pd.DataFrame(values)
+
+
+def test_flat_base_scan_rows_are_quality_gated_and_keep_fixed_pilot_order(
+    tmp_path: Path,
+) -> None:
+    as_of = datetime(2026, 8, 10, 1, 30, tzinfo=UTC)
+    days = _xnys_days("2026-01-02", "2026-08-07")
+    for symbol in PILOT_SYMBOLS:
+        target = cache_path(tmp_path, symbol)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        _flat_frame(symbol, days, too_deep=symbol != "AAPL").to_csv(
+            target, index=False
+        )
+
+    rows = flat_base_scan_rows(tmp_path, as_of)
+
+    assert tuple(row["Symbol"] for row in rows) == PILOT_SYMBOLS
+    assert tuple(row["Flat Base"] for row in rows) == (
+        "YES",
+        "NO",
+        "NO",
+        "NO",
+        "NO",
+        "NO",
+        "NO",
+        "NO",
+    )
+    aapl = rows[0]
+    assert aapl["Data Quality"] == "PASS"
+    assert aapl["Base Length"] == 30
+    assert aapl["Base Depth"] == pytest.approx((102.0 - 99.0) / 99.0)
+    assert aapl["Bottom Tests"] == 2
+    assert aapl["Normalized Slope"] == pytest.approx(0.0)
+    assert aapl["Support"] == pytest.approx(99.0)
+    assert aapl["Resistance"] == pytest.approx(102.0)
+    assert aapl["Detector Version"] == "phase1-v1"
+
+
+def test_flat_base_scan_rows_do_not_treat_missing_cache_as_candidate(
+    tmp_path: Path,
+) -> None:
+    rows = flat_base_scan_rows(
+        tmp_path,
+        datetime(2026, 8, 10, 1, 30, tzinfo=UTC),
+    )
+
+    assert len(rows) == 8
+    assert all(row["Flat Base"] == "NO" for row in rows)
+    assert all(row["Data Quality"] == "MISSING" for row in rows)
+    assert all(row["Base Length"] is None for row in rows)

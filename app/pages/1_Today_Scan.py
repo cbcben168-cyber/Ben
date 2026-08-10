@@ -5,9 +5,11 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from tv_quant.pattern_finder.cache import DEFAULT_CACHE_ROOT, cache_status_rows
+from tv_quant.pattern_finder.cache import DEFAULT_CACHE_ROOT, flat_base_scan_rows
+from tv_quant.pattern_finder.flat_base import detect_flat_base
 from tv_quant.pattern_finder.fixtures import load_fixtures
 from tv_quant.pattern_finder.futu_service import refresh_pilot_universe
+from tv_quant.pattern_finder.models import ohlcv_frame_from_series
 
 
 st.set_page_config(page_title="Today Scan", page_icon="📋", layout="wide")
@@ -22,24 +24,30 @@ source = st.segmented_control(
 
 
 @st.cache_data(ttl="30s", max_entries=4, show_spinner=False)
-def _cached_status(cache_root: str, as_of_iso: str) -> tuple[dict[str, object], ...]:
-    return cache_status_rows(cache_root, datetime.fromisoformat(as_of_iso))
+def _cached_scan(cache_root: str, as_of_iso: str) -> tuple[dict[str, object], ...]:
+    return flat_base_scan_rows(cache_root, datetime.fromisoformat(as_of_iso))
 
 
 if source == "Fixture":
     st.caption("Deterministic local fixture data")
-    rows = [
-        {
-            "Symbol": fixture.symbol,
-            "Pattern": fixture.pattern_label,
-            "Bars": len(fixture.bars),
-            "Base Start": fixture.base_start.date().isoformat(),
-            "Base End": fixture.base_end.date().isoformat(),
-            "Support": fixture.support,
-            "Resistance": fixture.resistance,
-        }
-        for fixture in load_fixtures()
-    ]
+    rows = []
+    for fixture in load_fixtures():
+        result = detect_flat_base(ohlcv_frame_from_series(fixture))
+        selected = result.selected
+        rows.append(
+            {
+                "Symbol": fixture.symbol,
+                "Pattern": fixture.pattern_label,
+                "Bars": len(fixture.bars),
+                "Flat Base": "YES" if result.pattern_flat_base else "NO",
+                "Base Length": selected.base_length,
+                "Base Depth": selected.base_depth_pct,
+                "Bottom Tests": selected.bottom_test_count,
+                "Normalized Slope": selected.normalized_slope,
+                "Support": selected.support_level,
+                "Resistance": selected.resistance_level,
+            }
+        )
     st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
 else:
     cache_root = Path(os.getenv("PATTERN_FINDER_CACHE_ROOT", str(DEFAULT_CACHE_ROOT)))
@@ -62,5 +70,18 @@ else:
             st.cache_data.clear()
             st.success(f"Updated {len(entries)} pilot symbols.")
 
-    rows = _cached_status(cache_root.as_posix(), as_of.isoformat())
-    st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+    rows = _cached_scan(cache_root.as_posix(), as_of.isoformat())
+    columns = (
+        "Symbol",
+        "Cache",
+        "Flat Base",
+        "Base Length",
+        "Base Depth",
+        "Bottom Tests",
+        "Normalized Slope",
+        "Rows",
+        "Data Quality",
+        "Issues",
+        "Adjustment",
+    )
+    st.dataframe(pd.DataFrame(rows).loc[:, columns], hide_index=True, width="stretch")

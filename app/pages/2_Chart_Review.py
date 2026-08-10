@@ -7,8 +7,9 @@ import streamlit as st
 from tv_quant.data_quality import load_standardized_csv
 from tv_quant.pattern_finder.cache import DEFAULT_CACHE_ROOT, load_cache_entry
 from tv_quant.pattern_finder.charts import build_candlestick_figure
+from tv_quant.pattern_finder.flat_base import FlatBaseResult, detect_flat_base
 from tv_quant.pattern_finder.fixtures import load_fixture, load_fixtures
-from tv_quant.pattern_finder.models import chart_series_from_frame
+from tv_quant.pattern_finder.models import chart_series_from_frame, ohlcv_frame_from_series
 from tv_quant.pattern_finder.universe import PILOT_SYMBOLS
 
 
@@ -29,19 +30,47 @@ def _cached_frame(path: str, modified_ns: int):
     return load_standardized_csv(Path(path))[0]
 
 
+def _render_flat_base_diagnostics(result: FlatBaseResult | None) -> None:
+    if result is None:
+        st.info(
+            "Flat Base diagnostics unavailable: data quality and 120-bar history "
+            "are required."
+        )
+        return
+    selected = result.selected
+    st.caption(
+        f"Flat Base: {'YES' if result.pattern_flat_base else 'NO'} | "
+        f"Detector Version: {result.detector_version}"
+    )
+    st.caption(
+        f"Base Window: {selected.base_start.date().isoformat()} to "
+        f"{selected.base_end.date().isoformat()} | Base Length: {selected.base_length} | "
+        f"Base Depth: {selected.base_depth_pct:.6f} | "
+        f"Bottom Tests: {selected.bottom_test_count} | "
+        f"Bottom Tolerance: {selected.bottom_tolerance_pct:.6f} | "
+        f"Normalized Slope: {selected.normalized_slope:.8f}"
+    )
+    st.caption(
+        f"Support: {selected.support_level:.4f} | "
+        f"Resistance: {selected.resistance_level:.4f} | "
+        f"Resistance Raw: {selected.resistance_raw:.4f} | "
+        f"Resistance Upper Quantile: {selected.resistance_upper_quantile:.4f} | "
+        f"Resistance Spike Adjusted: "
+        f"{'YES' if selected.resistance_spike_adjusted else 'NO'} | "
+        f"ATR14 T0: {selected.atr14_t0:.6f}"
+    )
+
+
 if source == "Fixture":
     st.caption("Daily fixture candlestick with volume and base reference levels")
     symbols = tuple(fixture.symbol for fixture in load_fixtures())
     selected_symbol = st.selectbox("Fixture symbol", symbols)
     fixture = load_fixture(selected_symbol)
+    flat_base = detect_flat_base(ohlcv_frame_from_series(fixture))
 
-    st.caption(
-        f"Base Window: {fixture.base_start.date().isoformat()} to "
-        f"{fixture.base_end.date().isoformat()} | Support: {fixture.support:.2f} | "
-        f"Resistance: {fixture.resistance:.2f}"
-    )
+    _render_flat_base_diagnostics(flat_base)
     st.plotly_chart(
-        build_candlestick_figure(fixture),
+        build_candlestick_figure(fixture, flat_base=flat_base),
         width="stretch",
         config={"displayModeBar": True, "scrollZoom": True},
     )
@@ -74,8 +103,14 @@ else:
                 st.warning("Data Quality: FAIL | " + "; ".join(issues))
             frame = _cached_frame(entry.path.as_posix(), entry.path.stat().st_mtime_ns)
             series = chart_series_from_frame(frame, selected_symbol, max_bars=150)
+            flat_base = (
+                detect_flat_base(frame)
+                if report.passed and len(frame) >= 120
+                else None
+            )
+            _render_flat_base_diagnostics(flat_base)
             st.plotly_chart(
-                build_candlestick_figure(series),
+                build_candlestick_figure(series, flat_base=flat_base),
                 width="stretch",
                 config={"displayModeBar": True, "scrollZoom": True},
             )

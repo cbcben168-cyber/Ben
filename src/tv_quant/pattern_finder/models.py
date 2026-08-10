@@ -93,6 +93,20 @@ class ChartSeries:
             raise ValueError("bars must be strictly sorted without duplicate timestamps")
 
 
+def ohlcv_frame_from_series(series: ChartFixture | ChartSeries) -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "timestamp_utc": [bar.timestamp_utc for bar in series.bars],
+            "ticker": [series.symbol] * len(series.bars),
+            "open": [bar.open for bar in series.bars],
+            "high": [bar.high for bar in series.bars],
+            "low": [bar.low for bar in series.bars],
+            "close": [bar.close for bar in series.bars],
+            "volume": [bar.volume for bar in series.bars],
+        }
+    )
+
+
 def chart_series_from_frame(
     data: pd.DataFrame,
     symbol: str,

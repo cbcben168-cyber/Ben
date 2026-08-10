@@ -6,7 +6,10 @@ import pandas as pd
 import pytest
 
 from tv_quant.futu_quota import QuotaPolicyError
-from tv_quant.pattern_finder.futu_service import refresh_pilot_universe
+from tv_quant.pattern_finder.futu_service import (
+    refresh_pilot_universe,
+    refresh_universe_to_target,
+)
 from tv_quant.pattern_finder.universe import PILOT_SYMBOLS
 
 
@@ -127,3 +130,20 @@ def test_quota_policy_failure_stops_before_download_and_closes_context(tmp_path:
 
     assert context.requests == []
     assert context.closed is True
+
+
+def test_expansion_rejects_non_milestone_target_before_connecting(tmp_path: Path) -> None:
+    context = Context()
+
+    with pytest.raises(ValueError, match="25, 50, or 100"):
+        refresh_universe_to_target(
+            40,
+            cache_root=tmp_path / "cache",
+            as_of_utc=datetime(2026, 7, 6, 20, 1, tzinfo=UTC),
+            log_path=tmp_path / "quota.jsonl",
+            sdk=Sdk(context),
+            sleep=lambda _: None,
+        )
+
+    assert context.requests == []
+    assert context.closed is False

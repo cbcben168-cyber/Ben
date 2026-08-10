@@ -539,8 +539,12 @@ def _read_migration_ledger(path: Path) -> tuple[MigrationProvenance, ...]:
 
 def _append_migration_ledger(path: Path, provenance: MigrationProvenance) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        **provenance.to_dict(),
+        "migrated_at_utc": datetime.now(UTC).isoformat(),
+    }
     with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(provenance.to_dict(), ensure_ascii=False) + "\n")
+        handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
 
 
 def _legacy_payload_to_pattern_validation(

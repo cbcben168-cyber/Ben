@@ -76,7 +76,11 @@ def test_migration_preserves_every_record_and_legacy_meaning(tmp_path: Path) -> 
         "normalized_slope": -8.9e-06,
     }
     assert legacy.read_bytes() == source_bytes
-    assert len(ledger.read_text(encoding="utf-8").splitlines()) == 2
+    ledger_rows = [
+        json.loads(line) for line in ledger.read_text(encoding="utf-8").splitlines()
+    ]
+    assert len(ledger_rows) == 2
+    assert all(row["migrated_at_utc"].endswith("+00:00") for row in ledger_rows)
 
 
 def test_migration_is_idempotent_without_business_key_deduplication(

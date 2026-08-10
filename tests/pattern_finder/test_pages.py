@@ -10,6 +10,7 @@ from tv_quant.pattern_finder.review import (
     HUMAN_FILTERS,
     VALIDATION_FILTERS,
 )
+from tv_quant.pattern_finder.pattern_registry import FLAT_BASE_REASON_TAGS
 from tv_quant.pattern_finder.validation import (
     FlatBaseValidation,
     HUMAN_LABELS,
@@ -367,3 +368,49 @@ def test_chart_review_like_disables_reason_tags(tmp_path: Path, monkeypatch) -> 
     app.segmented_control[1].set_value("像").run()
 
     assert app.pills[0].disabled is True
+
+
+def _review_app(tmp_path: Path, monkeypatch) -> tuple[AppTest, Path]:
+    validation_path = tmp_path / "pattern_validation.jsonl"
+    return _load_cache_review(tmp_path, monkeypatch, too_deep=False), validation_path
+
+
+def _save_button(app: AppTest):
+    return next(button for button in app.button if button.label == "保存人工复核")
+
+
+def test_reason_options_come_only_from_current_profile(
+    tmp_path: Path, monkeypatch
+) -> None:
+    app, validation_path = _review_app(tmp_path, monkeypatch)
+
+    assert tuple(app.pills[0].options) == FLAT_BASE_REASON_TAGS
+    assert "低点不稳定" not in app.pills[0].options
+    app.segmented_control[1].set_value("不像").run()
+    _save_button(app).click().run()
+
+    assert not validation_path.exists()
+    assert "至少选择 1 个原因标签" in _visible_text(app)
+
+
+def test_other_requires_nonblank_note(tmp_path: Path, monkeypatch) -> None:
+    app, validation_path = _review_app(tmp_path, monkeypatch)
+    app.segmented_control[1].set_value("勉强像").run()
+    app.pills[0].set_value(["其他"])
+    _save_button(app).click().run()
+
+    assert not validation_path.exists()
+    assert "其他" in _visible_text(app) and "备注" in _visible_text(app)
+
+
+def test_valid_other_reason_appends_exactly_once(tmp_path: Path, monkeypatch) -> None:
+    app, validation_path = _review_app(tmp_path, monkeypatch)
+    app.segmented_control[1].set_value("勉强像").run()
+    app.pills[0].set_value(["其他"])
+    app.text_area[0].input("需要进一步复核")
+    _save_button(app).click().run()
+
+    history = read_validation_history(validation_path)
+    assert len(history) == 1
+    assert history[0].reason_tags == ("其他",)
+    assert history[0].note == "需要进一步复核"

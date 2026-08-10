@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 import json
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Iterable, Mapping
 
 from .pattern_registry import get_pattern_profile
@@ -26,6 +27,33 @@ REASON_TAGS = (
 )
 MAX_NOTE_LENGTH = 280
 JSONScalar = str | int | float | bool | None
+
+_VALIDATION_MATRIX = {
+    ("YES", "像"): "true_positive_like",
+    ("NO", "不像"): "true_negative_unlike",
+    ("YES", "不像"): "possible_false_positive",
+    ("NO", "像"): "possible_false_negative",
+    ("YES", "勉强像"): "borderline",
+    ("NO", "勉强像"): "borderline",
+}
+VALIDATION_RESULT_LABELS: Mapping[str, str] = MappingProxyType(
+    {
+        "true_positive_like": "一致命中",
+        "true_negative_unlike": "一致排除",
+        "possible_false_positive": "疑似误报",
+        "possible_false_negative": "疑似漏报",
+        "borderline": "边界案例",
+    }
+)
+
+
+def derive_validation_result(computer_result: str, human_label: str) -> str:
+    try:
+        return _VALIDATION_MATRIX[(computer_result, human_label)]
+    except KeyError as error:
+        raise ValueError(
+            "computer_result and human_label must form a supported validation pair"
+        ) from error
 
 
 class ValidationStoreError(RuntimeError):
@@ -112,8 +140,12 @@ class PatternValidation:
             raise ValueError("computer_result must be YES or NO")
         if self.human_label not in HUMAN_LABELS:
             raise ValueError(f"human_label must be one of {HUMAN_LABELS}")
-        if not self.validation_result:
-            raise ValueError("validation_result is required")
+        expected_result = derive_validation_result(
+            self.computer_result,
+            self.human_label,
+        )
+        if self.validation_result != expected_result:
+            raise ValueError("validation_result must be derived from computer and human labels")
         if len(self.note) > MAX_NOTE_LENGTH:
             raise ValueError(f"note must not exceed {MAX_NOTE_LENGTH} characters")
 
@@ -139,6 +171,23 @@ class PatternValidation:
                 raise ValueError("diagnostic values must be JSON scalars")
             normalized_diagnostics[key] = value
         object.__setattr__(self, "diagnostics", normalized_diagnostics)
+
+        if self.migration_provenance is None:
+            unknown = tuple(tag for tag in self.reason_tags if tag not in profile.reason_tags)
+            if unknown:
+                raise ValueError("未知原因标签: " + ", ".join(unknown))
+            if self.human_label in {"勉强像", "不像"} and not self.reason_tags:
+                raise ValueError("勉强像或不像必须至少选择 1 个原因标签")
+            if "其他" in self.reason_tags and not self.note.strip():
+                raise ValueError("选择其他原因标签时必须填写备注")
+            required_diagnostics = {field.key for field in profile.diagnostic_fields}
+            missing_diagnostics = tuple(
+                sorted(required_diagnostics.difference(normalized_diagnostics))
+            )
+            if missing_diagnostics:
+                raise ValueError(
+                    "missing profile diagnostics: " + ", ".join(missing_diagnostics)
+                )
 
     @property
     def key(self) -> tuple[str, str, str, str]:
@@ -331,6 +380,52 @@ class FlatBaseValidation:
             reason_tags=tuple(str(tag) for tag in tags),
             note=str(value["note"]),
         )
+
+
+def build_pattern_validation(
+    *,
+    recorded_at_utc: datetime,
+    symbol: str,
+    pattern_type: str,
+    detector_version: str,
+    scan_as_of_date: date,
+    computer_result: str,
+    human_label: str,
+    reason_tags: Iterable[str],
+    note: str,
+    review_window_start: date,
+    review_window_end: date,
+    diagnostics: Mapping[str, JSONScalar],
+) -> PatternValidation:
+    profile = get_pattern_profile(pattern_type)
+    normalized_tags = tuple(
+        dict.fromkeys(
+            tag
+            for raw_tag in reason_tags
+            if (tag := str(raw_tag).strip())
+        )
+    )
+    return PatternValidation(
+        recorded_at_utc=(
+            recorded_at_utc.astimezone(UTC)
+            if recorded_at_utc.tzinfo is not None
+            else recorded_at_utc
+        ),
+        symbol=symbol.strip().upper(),
+        pattern_type=profile.pattern_type,
+        pattern_display_name=profile.display_name_zh,
+        detector_version=detector_version,
+        scan_as_of_date=scan_as_of_date.isoformat(),
+        computer_result=computer_result,
+        human_label=human_label,
+        validation_result=derive_validation_result(computer_result, human_label),
+        reason_tags=normalized_tags,
+        note=note.strip(),
+        review_window_start=review_window_start.isoformat(),
+        review_window_end=review_window_end.isoformat(),
+        diagnostics=dict(diagnostics),
+        migration_provenance=None,
+    )
 
 
 def build_validation(

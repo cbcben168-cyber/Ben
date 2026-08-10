@@ -9,7 +9,9 @@ from tv_quant.pattern_finder.validation import (
     PatternValidation,
     ValidationStoreError,
     append_validation,
+    build_pattern_validation,
     build_validation,
+    derive_validation_result,
     latest_validations,
     read_validation_history,
 )
@@ -26,6 +28,85 @@ SCAN_ROW = {
 }
 RECORDED_1 = datetime(2026, 8, 10, 4, 0, tzinfo=UTC)
 RECORDED_2 = RECORDED_1 + timedelta(minutes=5)
+
+
+def _build_new_pattern_validation(
+    *,
+    computer_result: str = "YES",
+    human_label: str = "像",
+    reason_tags: tuple[str, ...] = (),
+    note: str = "",
+) -> PatternValidation:
+    return build_pattern_validation(
+        recorded_at_utc=RECORDED_1,
+        symbol="AAPL",
+        pattern_type="flat_base",
+        detector_version="phase1-v1",
+        scan_as_of_date=date(2026, 8, 7),
+        computer_result=computer_result,
+        human_label=human_label,
+        reason_tags=reason_tags,
+        note=note,
+        review_window_start=date(2026, 7, 6),
+        review_window_end=date(2026, 8, 7),
+        diagnostics={
+            "base_length": 25,
+            "base_depth": 0.14,
+            "bottom_tests": 2,
+            "normalized_slope": 0.0,
+            "support": 99.0,
+            "resistance": 102.0,
+        },
+    )
+
+
+@pytest.mark.parametrize(
+    ("computer", "human", "expected"),
+    [
+        ("YES", "像", "true_positive_like"),
+        ("NO", "不像", "true_negative_unlike"),
+        ("YES", "不像", "possible_false_positive"),
+        ("NO", "像", "possible_false_negative"),
+        ("YES", "勉强像", "borderline"),
+        ("NO", "勉强像", "borderline"),
+    ],
+)
+def test_validation_result_matrix(
+    computer: str,
+    human: str,
+    expected: str,
+) -> None:
+    assert derive_validation_result(computer, human) == expected
+
+
+def test_new_record_builder_derives_profile_and_result() -> None:
+    record = _build_new_pattern_validation(
+        human_label="不像",
+        reason_tags=("结构不像平底",),
+    )
+
+    assert record.pattern_display_name == "平底形态"
+    assert record.validation_result == "possible_false_positive"
+    assert record.migration_provenance is None
+
+
+def test_new_record_reason_quality_rules_are_strict() -> None:
+    with pytest.raises(ValueError, match="至少选择 1 个原因标签"):
+        _build_new_pattern_validation(human_label="不像")
+    with pytest.raises(ValueError, match="至少选择 1 个原因标签"):
+        _build_new_pattern_validation(human_label="勉强像")
+    with pytest.raises(ValueError, match="其他.*备注"):
+        _build_new_pattern_validation(
+            human_label="勉强像",
+            reason_tags=("其他",),
+            note="   ",
+        )
+    with pytest.raises(ValueError, match="未知原因标签"):
+        _build_new_pattern_validation(
+            human_label="像",
+            reason_tags=("低点不稳定",),
+        )
+    assert _build_new_pattern_validation().reason_tags == ()
 
 
 def test_pattern_validation_round_trips_generic_schema() -> None:

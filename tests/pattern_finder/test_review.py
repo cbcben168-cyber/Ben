@@ -3,127 +3,120 @@ from datetime import UTC, date, datetime, timedelta
 import pytest
 
 from tv_quant.pattern_finder.review import (
-    SCAN_FILTERS,
+    COMPUTER_FILTERS,
+    HUMAN_FILTERS,
+    VALIDATION_FILTERS,
     attach_latest_validations,
     filter_review_rows,
 )
-from tv_quant.pattern_finder.validation import build_validation
+from tv_quant.pattern_finder.validation import build_pattern_validation
 
 
 RECORDED = datetime(2026, 8, 10, 4, 0, tzinfo=UTC)
 SCAN_ROWS = (
-    {
-        "Symbol": "AAPL",
-        "Flat Base": "YES",
-        "Detector Version": "phase1-v1",
-        "Base End": "2026-08-07",
-        "Base Length": 25,
-        "Base Depth": 0.14,
-        "Bottom Tests": 2,
-        "Normalized Slope": -0.00001,
-    },
-    {
-        "Symbol": "MSFT",
-        "Flat Base": "NO",
-        "Detector Version": "phase1-v1",
-        "Base End": "2026-08-07",
-        "Base Length": 27,
-        "Base Depth": 0.35,
-        "Bottom Tests": 3,
-        "Normalized Slope": 0.0102,
-    },
-    {
-        "Symbol": "JPM",
-        "Flat Base": "NO",
-        "Detector Version": "phase1-v1",
-        "Base End": "2026-08-07",
-        "Base Length": 34,
-        "Base Depth": 0.12,
-        "Bottom Tests": 4,
-        "Normalized Slope": 0.0028,
-    },
-    {
-        "Symbol": "XOM",
-        "Flat Base": "YES",
-        "Detector Version": "phase1-v1",
-        "Base End": "2026-08-07",
-        "Base Length": 53,
-        "Base Depth": 0.17,
-        "Bottom Tests": 5,
-        "Normalized Slope": 0.0008,
-    },
+    {"Symbol": "AAPL", "Flat Base": "YES", "Detector Version": "phase1-v1", "Base End": "2026-08-07"},
+    {"Symbol": "MSFT", "Flat Base": "NO", "Detector Version": "phase1-v1", "Base End": "2026-08-07"},
+    {"Symbol": "JPM", "Flat Base": "NO", "Detector Version": "phase1-v1", "Base End": "2026-08-07"},
+    {"Symbol": "XOM", "Flat Base": "YES", "Detector Version": "phase1-v1", "Base End": "2026-08-07"},
 )
+DIAGNOSTICS = {
+    "base_length": 25,
+    "base_depth": 0.14,
+    "bottom_tests": 2,
+    "normalized_slope": 0.0,
+    "support": 99.0,
+    "resistance": 102.0,
+}
 
 
-def _record(
-    row_index: int,
-    label: str,
-    reasons: tuple[str, ...],
-    minute: int,
-):
-    return build_validation(
-        SCAN_ROWS[row_index],
-        date(2026, 8, 7),
-        label,
-        reasons,
-        f"note-{minute}",
-        RECORDED + timedelta(minutes=minute),
+def _record(row_index: int, label: str, reasons: tuple[str, ...], minute: int):
+    return build_pattern_validation(
+        recorded_at_utc=RECORDED + timedelta(minutes=minute),
+        symbol=str(SCAN_ROWS[row_index]["Symbol"]),
+        pattern_type="flat_base",
+        detector_version="phase1-v1",
+        scan_as_of_date=date(2026, 8, 7),
+        computer_result=str(SCAN_ROWS[row_index]["Flat Base"]),
+        human_label=label,
+        reason_tags=reasons,
+        note=f"note-{minute}",
+        review_window_start=date(2026, 7, 6),
+        review_window_end=date(2026, 8, 7),
+        diagnostics=DIAGNOSTICS,
     )
 
 
 HISTORY = (
-    _record(0, "勉强像", ("宽幅震荡",), 1),
+    _record(0, "勉强像", ("波动区间过宽",), 1),
     _record(0, "像", (), 2),
-    _record(1, "不像", ("整体仍在下降",), 3),
-    _record(2, "勉强像", ("整体斜率太大",), 4),
+    _record(1, "不像", ("整体仍明显向下",), 3),
+    _record(2, "勉强像", ("整体仍明显向上",), 4),
 )
 
 
-def test_attach_latest_validation_preserves_history_count_and_latest_value() -> None:
-    rows = attach_latest_validations(SCAN_ROWS, HISTORY)
+def _enriched():
+    return attach_latest_validations(
+        SCAN_ROWS,
+        HISTORY,
+        pattern_type="flat_base",
+        computer_result_field="Flat Base",
+        scan_date_field="Base End",
+    )
+
+
+def test_attach_latest_isolated_by_pattern_and_exposes_result_label() -> None:
+    rows = _enriched()
     by_symbol = {row["Symbol"]: row for row in rows}
 
+    assert by_symbol["AAPL"]["Pattern Type"] == "flat_base"
+    assert by_symbol["AAPL"]["Computer Result"] == "YES"
+    assert by_symbol["AAPL"]["Scan As Of Date"] == "2026-08-07"
     assert by_symbol["AAPL"]["Human Label"] == "像"
-    assert by_symbol["AAPL"]["Reason Tags"] == ()
-    assert by_symbol["AAPL"]["Human Note"] == "note-2"
+    assert by_symbol["AAPL"]["Validation Result"] == "一致命中"
     assert by_symbol["AAPL"]["Validation History Count"] == 2
-    assert by_symbol["XOM"]["Human Label"] is None
-    assert by_symbol["XOM"]["Reason Tags"] == ()
-    assert by_symbol["XOM"]["Validation History Count"] == 0
+    assert by_symbol["XOM"]["Validation Result"] is None
 
 
 @pytest.mark.parametrize(
-    ("selected_filter", "expected"),
+    ("computer_filter", "human_filter", "validation_filter", "expected"),
     [
-        ("全部", ("AAPL", "MSFT", "JPM", "XOM")),
-        ("Flat Base YES", ("AAPL", "XOM")),
-        ("Flat Base NO", ("MSFT", "JPM")),
-        ("未人工验证", ("XOM",)),
-        ("像", ("AAPL",)),
-        ("勉强像", ("JPM",)),
-        ("不像", ("MSFT",)),
+        ("全部", "全部", "全部", ("AAPL", "MSFT", "JPM", "XOM")),
+        ("是", "全部", "全部", ("AAPL", "XOM")),
+        ("否", "勉强像", "边界案例", ("JPM",)),
+        ("全部", "未人工复核", "全部", ("XOM",)),
+        ("全部", "不像", "一致排除", ("MSFT",)),
     ],
 )
-def test_review_filter_supports_all_required_states(
-    selected_filter: str,
+def test_three_filters_compose(
+    computer_filter: str,
+    human_filter: str,
+    validation_filter: str,
     expected: tuple[str, ...],
 ) -> None:
-    rows = attach_latest_validations(SCAN_ROWS, HISTORY)
-
-    assert tuple(
-        row["Symbol"] for row in filter_review_rows(rows, selected_filter)
-    ) == expected
-
-
-def test_review_filter_rejects_unknown_values() -> None:
-    assert SCAN_FILTERS == (
-        "全部",
-        "Flat Base YES",
-        "Flat Base NO",
-        "未人工验证",
-        "像",
-        "勉强像",
-        "不像",
+    rows = filter_review_rows(
+        _enriched(),
+        computer_filter=computer_filter,
+        human_filter=human_filter,
+        validation_filter=validation_filter,
     )
-    with pytest.raises(ValueError, match="unknown review filter"):
-        filter_review_rows((), "Human Score 5")
+    assert tuple(row["Symbol"] for row in rows) == expected
+
+
+def test_filter_options_are_chinese_and_unknown_values_are_rejected() -> None:
+    assert COMPUTER_FILTERS == ("全部", "是", "否")
+    assert HUMAN_FILTERS == ("全部", "未人工复核", "像", "勉强像", "不像")
+    assert VALIDATION_FILTERS == (
+        "全部",
+        "一致命中",
+        "一致排除",
+        "疑似误报",
+        "疑似漏报",
+        "边界案例",
+    )
+    with pytest.raises(ValueError, match="unknown computer filter"):
+        filter_review_rows(
+            (),
+            computer_filter="YES",
+            human_filter="全部",
+            validation_filter="全部",
+        )

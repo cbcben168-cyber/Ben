@@ -722,7 +722,21 @@ Verify and record:
 
 Only after every row has actual evidence, set report to `GREEN — PASS`. Re-run the Detector SHA-256 and cache aggregate commands from Task 10. Run `git status --short` and confirm it contains no Detector/cache modifications.
 
-- [ ] **Step 5: Commit Task 11 evidence**
+- [ ] **Step 5: Prepare the mandatory 用户交付说明**
+
+Before the final response, prepare a `# 用户交付说明` section using exactly these seven headings:
+
+1. `## 1. 这次改了什么` — explain in ordinary Chinese what changed, why it changed, and the practical difference; do not substitute filenames, functions or commits for the explanation.
+2. `## 2. 我怎么使用` — include the Windows command `python -m streamlit run app/Home.py --server.headless=true --server.port=8501`, the page to enter, the control to click, what to select, and the complete action order.
+3. `## 3. 我怎么人工测试` — provide at most 10 checklist items; every item states both the action and the expected visible result.
+4. `## 4. 如果失败代表什么` — distinguish environment, data, code and Detector failures, including page startup, missing data, Data Quality FAIL and abnormal UI behavior where applicable.
+5. `## 5. 给 ChatGPT 的改良材料` — specify screenshots and provide a copy-ready summary. For Pattern Detector work the summary includes `pattern_type`, `detector_version`, sample count, Computer YES/NO, Human 像/勉强像/不像, 一致命中, 一致排除, 疑似误报, 疑似漏报, 边界案例 and the most common reason tags. Write `样本不足` for every unavailable sample or category.
+6. `## 6. 最值得 ChatGPT 分析的案例` — select the most typical correct case, clearest false positive, clearest false negative, representative borderline case and threshold-near case. For non-Detector work, select the cases most likely to expose the changed function. State when a category has no case.
+7. `## 7. 最终状态` — report `BLOCKER`, `HIGH`, `AUTOMATED_TEST`, `MANUAL_TEST_REQUIRED`, and, when manual testing is required, `READY_FOR_USER_TEST`.
+
+Do not state final PASS before the user completes required manual testing. Record only automated status, known risks and readiness for user testing.
+
+- [ ] **Step 6: Commit Task 11 evidence**
 
 ```powershell
 git add -- docs/superpowers/validation/2026-08-10-pattern-review-framework-manual-acceptance.md
@@ -739,3 +753,5 @@ Run and record these commands separately:
 - `git status --short`
 
 Implementation is ready for review only when all tests pass, Detector/cache hashes match, `flat_base.py` and cache are absent from the implementation diff, old `flat_base_validation.jsonl` is byte-identical, migrated count equals the nonblank legacy line count, rerun migration adds zero target records, no future Detector/Profile exists, and manual Streamlit acceptance is GREEN.
+
+The final delivery is incomplete unless the response contains the mandatory `# 用户交付说明` with all seven fixed sections from Task 11 Step 5. The final section must include `BLOCKER`, `HIGH`, `AUTOMATED_TEST`, `MANUAL_TEST_REQUIRED`, and `READY_FOR_USER_TEST` whenever manual testing is required. Missing sections, missing copy-ready Pattern Detector statistics, omitted `样本不足` declarations, or claiming final PASS before the user completes required manual testing all fail this gate.

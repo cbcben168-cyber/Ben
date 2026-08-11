@@ -183,6 +183,7 @@ def _load_cache_review(
     cache_root = tmp_path / "qfq"
     _write_cached_symbol(cache_root, "AAPL", too_deep=too_deep)
     monkeypatch.setenv("PATTERN_FINDER_CACHE_ROOT", str(cache_root))
+    monkeypatch.setenv("PATTERN_FINDER_AS_OF_UTC", "2026-08-10T04:00:00+00:00")
     monkeypatch.setenv(
         "PATTERN_FINDER_VALIDATION_PATH", str(tmp_path / "pattern_validation.jsonl")
     )
@@ -285,6 +286,7 @@ def test_today_scan_cache_mode_filters_computer_and_human_states(
     ledger_path = tmp_path / "pattern_validation_migration_ledger.jsonl"
     _write_review_history(legacy_path)
     monkeypatch.setenv("PATTERN_FINDER_CACHE_ROOT", str(cache_root))
+    monkeypatch.setenv("PATTERN_FINDER_AS_OF_UTC", "2026-08-10T04:00:00+00:00")
     monkeypatch.setenv("PATTERN_FINDER_VALIDATION_PATH", str(validation_path))
     monkeypatch.setenv("PATTERN_FINDER_LEGACY_VALIDATION_PATH", str(legacy_path))
     monkeypatch.setenv("PATTERN_FINDER_MIGRATION_LEDGER_PATH", str(ledger_path))
@@ -317,6 +319,7 @@ def test_chart_review_cache_mode_renders_real_qfq_bars(
     cache_root = tmp_path / "qfq"
     _write_cached_aapl(cache_root)
     monkeypatch.setenv("PATTERN_FINDER_CACHE_ROOT", str(cache_root))
+    monkeypatch.setenv("PATTERN_FINDER_AS_OF_UTC", "2026-08-10T04:00:00+00:00")
     app = _load("app/pages/2_Chart_Review.py")
 
     app.segmented_control[0].set_value("缓存 / Futu").run()

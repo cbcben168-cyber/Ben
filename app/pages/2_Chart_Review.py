@@ -102,7 +102,13 @@ else:
         st.stop()
     selected_symbol = st.selectbox("缓存股票", symbols)
     try:
-        entry = load_cache_entry(selected_symbol, cache_root=cache_root, as_of_utc=datetime.now(UTC))
+        entry = load_cache_entry(
+            selected_symbol,
+            cache_root=cache_root,
+            as_of_utc=review.resolve_review_as_of_utc(
+                os.getenv("PATTERN_FINDER_AS_OF_UTC")
+            ),
+        )
     except Exception as error:
         st.error(f"缓存读取失败：{error}")
     else:

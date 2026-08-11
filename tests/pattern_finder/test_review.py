@@ -2,6 +2,7 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
+from tv_quant.pattern_finder import review
 from tv_quant.pattern_finder.review import (
     COMPUTER_FILTERS,
     HUMAN_FILTERS,
@@ -27,6 +28,16 @@ DIAGNOSTICS = {
     "support": 99.0,
     "resistance": 102.0,
 }
+
+
+def test_review_as_of_override_accepts_only_timezone_aware_utc() -> None:
+    expected = datetime(2026, 8, 10, 4, 0, tzinfo=UTC)
+
+    assert review.resolve_review_as_of_utc(expected.isoformat()) == expected
+    with pytest.raises(ValueError, match="timezone-aware UTC"):
+        review.resolve_review_as_of_utc("2026-08-10T04:00:00")
+    with pytest.raises(ValueError, match="timezone-aware UTC"):
+        review.resolve_review_as_of_utc("2026-08-10T12:00:00+08:00")
 
 
 def _record(row_index: int, label: str, reasons: tuple[str, ...], minute: int):

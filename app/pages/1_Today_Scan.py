@@ -66,7 +66,9 @@ if source == "本地样例":
     st.dataframe(pd.DataFrame(rows).rename(columns=fixture_columns), hide_index=True, width="stretch")
 else:
     cache_root = Path(os.getenv("PATTERN_FINDER_CACHE_ROOT", str(DEFAULT_CACHE_ROOT)))
-    as_of = datetime.now(UTC).replace(second=0, microsecond=0)
+    as_of = review.resolve_review_as_of_utc(
+        os.getenv("PATTERN_FINDER_AS_OF_UTC")
+    ).replace(second=0, microsecond=0)
     st.caption(f"试点缓存：{cache_root}｜日线｜前复权｜XNYS")
     if st.button("从 Futu OpenD 刷新试点数据", icon=":material/refresh:", type="primary"):
         try:

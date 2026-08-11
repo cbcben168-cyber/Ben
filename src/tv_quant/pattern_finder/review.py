@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 from typing import Iterable, Mapping
 
 from .flat_base import FlatBaseResult
@@ -33,6 +33,14 @@ class PatternReviewInput:
     review_window_start: date
     review_window_end: date
     diagnostics: dict[str, int | float]
+
+
+def resolve_review_as_of_utc(value: str | None) -> datetime:
+    """Resolve an optional historical review clock without changing live defaults."""
+    resolved = datetime.now(UTC) if value is None or not value.strip() else datetime.fromisoformat(value)
+    if resolved.tzinfo is None or resolved.utcoffset() != timedelta(0):
+        raise ValueError("PATTERN_FINDER_AS_OF_UTC must be timezone-aware UTC")
+    return resolved.astimezone(UTC)
 
 
 def flat_base_review_input(result: FlatBaseResult) -> PatternReviewInput:

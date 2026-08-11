@@ -2,20 +2,43 @@ from __future__ import annotations
 
 import os
 import time
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable
 
 from tv_quant.futu_quota import (
+    QuotaPolicyError,
     QuotaSnapshot,
     check_quota,
     read_quota_history,
     write_quota_log,
 )
+from tv_quant.futu_downloader import FutuDownloadError
 
-from .cache import CacheEntry, DEFAULT_CACHE_ROOT, refresh_cache_entry
-from .universe import PILOT_SYMBOLS, futu_code
+from .cache import (
+    CacheEntry,
+    DEFAULT_CACHE_ROOT,
+    PatternCacheError,
+    cached_symbols,
+    refresh_cache_entry,
+)
+from .universe import M3B_SYMBOLS, PILOT_SYMBOLS, futu_code
+
+
+M3B_TARGET_SIZES = (25, 50, 100)
+
+
+@dataclass(frozen=True, slots=True)
+class ExpansionResult:
+    target_size: int
+    starting_count: int
+    completed_symbols: tuple[str, ...]
+    final_count: int
+    starting_quota: QuotaSnapshot | None
+    ending_quota: QuotaSnapshot | None
+    blocker: str | None
 
 
 def _load_futu_sdk() -> object:
@@ -105,5 +128,120 @@ def refresh_pilot_universe(
             write_quota_log(log_path, "post", post_snapshot, code, decision, "success")
             entries.append(entry)
         return tuple(entries)
+    finally:
+        context.close()
+
+
+def _download_blocker(error: Exception) -> str:
+    message = str(error)
+    lowered = message.lower()
+    if "permission" in lowered or "right" in lowered or "权限" in message:
+        return f"FUTU_MARKET_PERMISSION_BLOCKER: {message}"
+    return f"DATA_CAPABILITY_BLOCKER: {message}"
+
+
+def refresh_universe_to_target(
+    target_size: int,
+    *,
+    cache_root: str | Path = DEFAULT_CACHE_ROOT,
+    as_of_utc: datetime,
+    host: str = "127.0.0.1",
+    port: int = 11111,
+    log_path: str | Path = Path("logs/futu_quota.jsonl"),
+    sdk: Any | None = None,
+    sleep: Callable[[float], None] = time.sleep,
+) -> ExpansionResult:
+    """Add missing M3B caches until a milestone target or safety blocker."""
+    if target_size not in M3B_TARGET_SIZES:
+        raise ValueError("target_size must be 25, 50, or 100")
+
+    starting_symbols = cached_symbols(cache_root)
+    runtime = _load_futu_sdk() if sdk is None else sdk
+    context = runtime.OpenQuoteContext(host=host, port=port)
+    completed: list[str] = []
+    starting_quota: QuotaSnapshot | None = None
+    ending_quota: QuotaSnapshot | None = None
+    blocker: str | None = None
+    try:
+        try:
+            _validate_opend(context, runtime.RET_OK, runtime.ProgramStatusType.READY)
+        except RuntimeError as error:
+            blocker = f"FUTU_LOGIN_BLOCKER: {error}"
+            return ExpansionResult(
+                target_size,
+                len(starting_symbols),
+                (),
+                len(starting_symbols),
+                None,
+                None,
+                blocker,
+            )
+
+        starting_quota = _quota_snapshot(context, runtime.RET_OK, sleep)
+        ending_quota = starting_quota
+        if len(starting_symbols) >= target_size:
+            return ExpansionResult(
+                target_size,
+                len(starting_symbols),
+                (),
+                len(starting_symbols),
+                starting_quota,
+                ending_quota,
+                None,
+            )
+
+        missing = tuple(
+            symbol for symbol in M3B_SYMBOLS if symbol not in set(starting_symbols)
+        )
+        needed = target_size - len(starting_symbols)
+        for symbol in missing[:needed]:
+            code = futu_code(symbol)
+            try:
+                pre_snapshot = _quota_snapshot(context, runtime.RET_OK, sleep)
+                decision = check_quota(
+                    pre_snapshot,
+                    code,
+                    as_of_utc,
+                    read_quota_history(log_path),
+                )
+            except (QuotaPolicyError, RuntimeError) as error:
+                blocker = f"FUTU_QUOTA_BLOCKER: {error}"
+                break
+
+            write_quota_log(log_path, "pre", pre_snapshot, code, decision, "allowed")
+            try:
+                refresh_cache_entry(
+                    symbol,
+                    context,
+                    cache_root=cache_root,
+                    as_of_utc=as_of_utc,
+                    ret_ok=runtime.RET_OK,
+                    ktype=runtime.KLType.K_DAY,
+                    autype=runtime.AuType.QFQ,
+                    sleep=sleep,
+                )
+            except (FutuDownloadError, PatternCacheError) as error:
+                write_quota_log(
+                    log_path, "post", pre_snapshot, code, decision, "failed"
+                )
+                blocker = _download_blocker(error)
+                break
+
+            ending_quota = _quota_snapshot(context, runtime.RET_OK, sleep)
+            write_quota_log(
+                log_path, "post", ending_quota, code, decision, "success"
+            )
+            completed.append(symbol)
+
+        final_count = len(cached_symbols(cache_root))
+        return ExpansionResult(
+            target_size=target_size,
+            starting_count=len(starting_symbols),
+            completed_symbols=tuple(completed),
+            final_count=final_count,
+            starting_quota=starting_quota,
+            ending_quota=ending_quota,
+            blocker=blocker,
+        )
     finally:
         context.close()

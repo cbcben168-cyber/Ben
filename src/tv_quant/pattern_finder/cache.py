@@ -16,7 +16,7 @@ from .data_quality import (
     latest_complete_xnys_session,
 )
 from .flat_base import FlatBaseResult, detect_flat_base
-from .universe import PILOT_SYMBOLS, futu_code
+from .universe import M3B_SYMBOLS, PILOT_SYMBOLS, futu_code
 
 
 DEFAULT_CACHE_ROOT = Path("data/raw/pattern_finder/qfq")
@@ -40,6 +40,16 @@ def cache_path(cache_root: str | Path, symbol: str) -> Path:
     normalized = symbol.strip().upper()
     futu_code(normalized)
     return Path(cache_root) / f"{normalized}_daily.csv"
+
+
+def cached_symbols(
+    cache_root: str | Path = DEFAULT_CACHE_ROOT,
+    symbols: tuple[str, ...] = M3B_SYMBOLS,
+) -> tuple[str, ...]:
+    """Return existing per-symbol caches in the supplied universe order."""
+    return tuple(
+        symbol for symbol in symbols if cache_path(cache_root, symbol).exists()
+    )
 
 
 def load_cache_entry(
@@ -237,13 +247,15 @@ def _flat_base_fields(result: FlatBaseResult | None) -> dict[str, object]:
 def flat_base_scan_rows(
     cache_root: str | Path = DEFAULT_CACHE_ROOT,
     as_of_utc: datetime | None = None,
+    *,
+    symbols: tuple[str, ...] = PILOT_SYMBOLS,
 ) -> tuple[dict[str, object], ...]:
     """Scan the fixed pilot cache without refreshing or writing any data."""
     if as_of_utc is None:
         raise ValueError("as_of_utc is required")
 
     rows: list[dict[str, object]] = []
-    for symbol in PILOT_SYMBOLS:
+    for symbol in symbols:
         try:
             entry = load_cache_entry(
                 symbol,

@@ -10,6 +10,7 @@ from tv_quant.pattern_finder.cache import (
     PatternCacheError,
     cache_path,
     cache_status_rows,
+    cached_symbols,
     flat_base_scan_rows,
     refresh_cache_entry,
 )
@@ -248,3 +249,21 @@ def test_flat_base_scan_rows_do_not_treat_missing_cache_as_candidate(
     assert all(row["Flat Base"] == "NO" for row in rows)
     assert all(row["Data Quality"] == "MISSING" for row in rows)
     assert all(row["Base Length"] is None for row in rows)
+
+
+def test_cached_symbols_returns_only_existing_m3b_files_in_universe_order(
+    tmp_path: Path,
+) -> None:
+    for symbol in ("XOM", "AAPL", "JPM"):
+        (tmp_path / f"{symbol}_daily.csv").write_text("placeholder", encoding="utf-8")
+
+    assert cached_symbols(tmp_path) == ("AAPL", "JPM", "XOM")
+
+
+def test_flat_base_scan_accepts_explicit_symbol_subset(tmp_path: Path) -> None:
+    as_of = datetime(2026, 8, 10, 1, 30, tzinfo=UTC)
+
+    rows = flat_base_scan_rows(tmp_path, as_of, symbols=("AAPL", "XOM"))
+
+    assert tuple(row["Symbol"] for row in rows) == ("AAPL", "XOM")
+    assert len(flat_base_scan_rows(tmp_path, as_of)) == len(PILOT_SYMBOLS)

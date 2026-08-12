@@ -480,9 +480,14 @@ ADV20 = arithmetic_mean(turnover_t for t in last_20_complete_sessions)
 - 空白 K、重复日、缺少所需 session、币种不明均不得计算；
 - 结果使用 Decimal/整数 cents；
 - 本地结果仅为交叉核验 evidence，不替代 CORE v1 的 `FUTU_AVG_TURNOVER_20D` 正式口径；
-- cross-check tolerance 冻结为 `liquidity-cross-check-tolerance/v1`：服务端值与本地值先规范化为 USD cents，允许绝对差最多 `1 cent`，不使用相对误差或按证券调整的动态阈值；
+- 所有用于 liquidity cross-check 的服务端和本地 USD turnover 输入，必须先从来源的确定性十进制字符串构造 Decimal；禁止直接从 binary float 值构造 Decimal 或依赖 binary float rounding；
+- cross-check normalization 冻结为 `Decimal(source_decimal_string).quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN)`，即量化单位为 `0.01 USD`、rounding mode 为 `ROUND_HALF_EVEN`；边界固定为 `0.004 USD → 0.00 USD`、`0.005 USD → 0.00 USD`、`0.006 USD → 0.01 USD`、`0.015 USD → 0.02 USD`；
+- 非 finite、negative 或无法确定性解析为 Decimal 的输入必须 fail-closed 为 `UNKNOWN`，不得猜测、截断或继续比较；
+- cross-check tolerance 冻结为 `liquidity-cross-check-tolerance/v1`：双方完成上述 normalization 后，以 USD cents 计算绝对差，允许绝对差 `<= 0.01 USD`；relative tolerance 禁用，也不允许按证券调整动态阈值；
 - 绝对差大于 `1 cent` 时产生 `LIQUIDITY_EVIDENCE_CONFLICT`，该证券 UNKNOWN，正式 Snapshot 不能将其纳入成员；
 - tolerance ID、规范化规则或阈值的任何变更都必须发布新的 Liquidity Evidence Version；若其改变成员判定，还必须发布新的 Universe Profile Version，不得改写既有 Snapshot。
+
+该 rounding contract 只属于 liquidity cross-check normalization，不修改 `FUTU_AVG_TURNOVER_20D` 作为 M3C-A 正式权威指标的地位，也不允许本地复算值替代正式筛选证据。
 
 M3C-A 不执行千股复算，只冻结公式、字段和冲突行为。
 
@@ -1027,7 +1032,9 @@ Universe 只决定哪些 symbol 被调用，不决定 Detector 对某个 symbol 
 - 缺列和新枚举显式 schema blocker/unknown；
 - currency、timestamp、listing day 和 avg turnover 类型规范化；
 - provider field 不得用 0 填补 null；
-- `liquidity-cross-check-tolerance/v1` 在 1 cent 边界内不冲突，大于 1 cent 产生 `LIQUIDITY_EVIDENCE_CONFLICT`；
+- liquidity cross-check normalization 必须分别测试 below-half-cent（`0.004 → 0.00`）、exact-half-cent（`0.005 → 0.00`）、above-half-cent（`0.006 → 0.01`）以及 even/odd half-even tie（至少包含 `0.005 → 0.00`、`0.015 → 0.02`）；
+- `liquidity-cross-check-tolerance/v1` 必须测试 normalization 后绝对差恰好 `0.01 USD` 不冲突、绝对差大于 `0.01 USD` 产生 `LIQUIDITY_EVIDENCE_CONFLICT`，且 relative tolerance 始终禁用；
+- liquidity cross-check 输入为 negative、NaN、Infinity、空值或其他无法确定性解析的值时必须 `UNKNOWN`，不得进入 tolerance 比较；
 - Owner Plate 的 200-code 分批和每 30 秒 10 次限额独立于 Market Snapshot 限额测试。
 
 ### 22.6 独立审计样本

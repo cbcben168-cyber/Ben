@@ -381,7 +381,7 @@ Draft 可以反复修改和预览，因为它不是正式历史。Draft：
 | 20D ADV | Stock Screen V2 `AVG_TURNOVER`, `days=20` | `FUTU_AVG_TURNOVER_20D`；M3C-A 唯一正式筛选口径 | 缺失则 UNKNOWN |
 | 20D Avg Volume | Stock Screen V2 `AVG_VOLUME`, `days=20` | 可调字段，CORE v1 不启用 | 缺失且未启用不阻断 |
 | Listing Days | Stock Screen V2 `LISTED_DAYS` | `FUTU_LISTED_DAYS`；M3C-A 唯一正式筛选口径 | 缺失则 UNKNOWN，不允许以其他口径替代 |
-| Listing Date | snapshot `listing_date`；static 已停止维护 | 只保存为辅助证据，不参与 M3C-A 正式判定 | 异常/冲突则 UNKNOWN |
+| Listing Date | snapshot `listing_date`；static 已停止维护 | 只保存为辅助证据，不参与 M3C-A 正式判定 | 缺失/异常只记录辅助警告；仅与可靠来源构成实质冲突时按 `LISTING_HISTORY_CONFLICT` → UNKNOWN |
 | Industry | Stock Screen V2 `BasicProperty.INDUSTRY` | 仅保存原始 evidence | CORE v1 Sector=ALL，不阻断 |
 | Plates | `get_owner_plate(code_list)` | 补充 Industry/Concept/Other plate | 接口失败时标记缺失 |
 | Sector | M3C-A 不生成顶层 Sector | 保存原始 Industry/Plate evidence；`sector_mapping_version=null` | CORE v1 为 ALL，该级 PASS |

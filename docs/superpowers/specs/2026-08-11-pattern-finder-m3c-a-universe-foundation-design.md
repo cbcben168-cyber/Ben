@@ -209,6 +209,7 @@ Flat Base Detector ← 只接收 OHLCV + Data Quality，不接收 Profile
 | `published_at_utc` | UTC datetime/null | 发布时冻结 |
 | `change_note` | non-empty string | 为什么创建此版本 |
 | `content_sha256` | lowercase sha256/null | Published 必填；对规范化业务内容计算 |
+| `filter_content_sha256` | lowercase sha256/null | Published 必填；只覆盖筛选字段，用于跨版本判断业务条件是否重复 |
 
 某版本是否继续出现在网页默认选项中，由独立 append-only `ProfileAvailabilityEvent` 表示：`ACTIVATED` / `RETIRED`。该事件不修改 Profile 内容、版本号或 hash；`RETIRED` 只表示不再推荐新使用，历史 Snapshot 和 Scan Batch 仍可读取该版本。
 
@@ -253,7 +254,7 @@ Flat Base Detector ← 只接收 OHLCV + Data Quality，不接收 Profile
 
 ### 7.4 内容哈希
 
-`content_sha256` 只覆盖影响 Universe 判定的规范化业务内容：
+`content_sha256` 覆盖版本身份和影响 Universe 判定的规范化业务内容：
 
 ```text
 schema_version
@@ -264,6 +265,8 @@ parent_profile_version_id
 ```
 
 不覆盖数据库路径、进程 ID、文件 mtime、UI 排序和运行时间。集合先按稳定枚举顺序排序，JSON 使用 UTF-8、固定 key 顺序和固定十进制表达。
+
+`filter_content_sha256` 只覆盖全部筛选字段，不覆盖 `profile_family_id`、`profile_version`、`parent_profile_version_id`、显示名称、说明或时间。发布时使用该 hash 与同一 family 的最新 Published Version 比较；相同则拒绝创建空洞新版本。`content_sha256` 用于精确引用某个正式版本，`filter_content_sha256` 用于判断跨版本筛选语义是否重复，两者不得互换。
 
 ---
 
@@ -330,7 +333,7 @@ filters:
 发布事务必须保证：
 
 1. 同一 family 的新版本号为当前最大值 + 1；
-2. 规范化内容与最新版本完全相同时拒绝发布；
+2. `filter_content_sha256` 与最新版本相同时拒绝发布；
 3. `content_sha256` 唯一且可复算；
 4. CORE v1 不发生任何写入；
 5. 发布成功后 Draft 变为只读引用或关闭，不转写旧版本。
@@ -477,7 +480,9 @@ ADV20 = arithmetic_mean(turnover_t for t in last_20_complete_sessions)
 - 空白 K、重复日、缺少所需 session、币种不明均不得计算；
 - 结果使用 Decimal/整数 cents；
 - 本地结果仅为交叉核验 evidence，不替代 CORE v1 的 `FUTU_AVG_TURNOVER_20D` 正式口径；
-- Futu 服务端值与本地复算超出冻结 tolerance 时产生 `LIQUIDITY_EVIDENCE_CONFLICT`，该证券 UNKNOWN，正式 Snapshot 不能将其纳入成员。
+- cross-check tolerance 冻结为 `liquidity-cross-check-tolerance/v1`：服务端值与本地值先规范化为 USD cents，允许绝对差最多 `1 cent`，不使用相对误差或按证券调整的动态阈值；
+- 绝对差大于 `1 cent` 时产生 `LIQUIDITY_EVIDENCE_CONFLICT`，该证券 UNKNOWN，正式 Snapshot 不能将其纳入成员；
+- tolerance ID、规范化规则或阈值的任何变更都必须发布新的 Liquidity Evidence Version；若其改变成员判定，还必须发布新的 Universe Profile Version，不得改写既有 Snapshot。
 
 M3C-A 不执行千股复算，只冻结公式、字段和冲突行为。
 
@@ -528,12 +533,12 @@ listing_history_sessions = count(
 LISTING_HISTORY_CONFLICT
 ```
 
-该证券进入 `UNKNOWN / Quarantine`，不得猜测或选择更有利的来源。以下情况同样为 UNKNOWN：
+该证券进入 `UNKNOWN / Quarantine`，不得猜测或选择更有利的来源。正式判定规则为：
 
-- listing date 为空、1970 默认值、晚于 as-of；
-- `LISTED_DAYS` 为空或非整数；
-- Screening Listed Days 与可靠交叉核验证据不一致；
-- 证券身份发生冲突。
+- `LISTED_DAYS` 为空、为负数或非整数：`UNKNOWN`；
+- Screening `LISTED_DAYS` 与可靠交叉核验证据不一致：`LISTING_HISTORY_CONFLICT` → `UNKNOWN / Quarantine`；
+- 证券身份冲突：`UNKNOWN / Quarantine`；
+- `listing_date` 为空、1970 默认值或晚于 as-of 时只记录 `LISTING_DATE_AUXILIARY_INVALID`，不得单独改变有效 `FUTU_LISTED_DAYS` 的 PASS/FAIL；只有它与另一份可靠、明确且身份一致的来源构成实质冲突时，才按 `LISTING_HISTORY_CONFLICT` 处理。
 
 Screening `LISTED_DAYS` 等于 250 时 PASS；249 时 FAIL。
 
@@ -744,7 +749,10 @@ evidence_observed_at_utc
 | `quarantine_count` | UNKNOWN 导致未通过数量 |
 | `funnel_sha256` | Funnel 规范化哈希 |
 | `members_sha256` | 排序后成员身份哈希 |
-| `snapshot_sha256` | Header + rows + funnel 的总哈希 |
+| `snapshot_sha256` | 规范化业务 Header + rows + funnel 的确定性内容哈希；排除运行时身份和时间噪声 |
+| `snapshot_record_sha256` | 完整持久化记录哈希；覆盖 `snapshot_sha256`、运行 ID、创建时间和全部 provenance |
+
+`snapshot_sha256` 的规范化业务 Header 明确排除 `universe_snapshot_id`、`created_at_utc`、本地路径、attempt ID 和写入时间，但保留 Profile/evidence/schema/version、as-of、provider 版本、完整性和所有影响成员资格的字段。相同 Profile、相同 Evidence、相同 as-of 和相同逐证券判定必须得到相同 `snapshot_sha256`；任一业务事实或 provenance version 改变都必须改变该 hash。`snapshot_record_sha256` 用于完整记录防篡改，不要求跨 attempt 相同。
 
 ### 17.2 每个候选证券保存的字段
 
@@ -802,6 +810,7 @@ universe_profile_version_id
 universe_profile_content_sha256
 universe_snapshot_id
 universe_snapshot_sha256
+universe_snapshot_record_sha256
 universe_member_count
 ```
 
@@ -876,7 +885,8 @@ requested interface batches
 ### 20.2 批处理
 
 - Market Snapshot 每批不超过 400 个代码；
-- 遵守官方每 30 秒最多 60 次限制；
+- Market Snapshot 遵守每 30 秒最多 60 次限制；
+- Owner Plate 每批不超过 200 个证券，并遵守每 30 秒最多 10 次限制；
 - Stock Screen V2 必须完整分页到 `last_page=true`；
 - OpenD / SDK 必须支持本设计冻结的 Stock Screening V2 字段 ID；不支持时返回 `FUTU_SCHEMA_BLOCKER`，不得静默改用语义不同的旧字段；
 - 每页保存页码/游标、请求字段、返回数量和响应哈希；
@@ -910,7 +920,7 @@ UNIVERSE_IDENTITY_BLOCKER
 UNIVERSE_INCOMPLETE_BLOCKER
 CLASSIFICATION_EVIDENCE_BLOCKER
 LIQUIDITY_EVIDENCE_CONFLICT
-LISTING_EVIDENCE_CONFLICT
+LISTING_HISTORY_CONFLICT
 ```
 
 缺字段不得变成 0；旧缓存不得在未显示 staleness 的情况下静默顶替新数据。
@@ -967,7 +977,7 @@ Universe 只决定哪些 symbol 被调用，不决定 Detector 对某个 symbol 
 - Decimal 规范化稳定；
 - Published Version 无 update 路径；
 - CORE v2 不修改 CORE v1 hash；
-- 相同内容禁止伪造新版本。
+- 相同 `filter_content_sha256` 禁止伪造新版本；身份或说明字段变化不绕过该检查。
 
 ### 22.2 边界矩阵
 
@@ -981,6 +991,8 @@ Universe 只决定哪些 symbol 被调用，不决定 Detector 对某个 symbol 
 | market cap 1B / 999,999,999.99 | PASS / FAIL |
 | ADV20 20M / 19,999,999.99 | PASS / FAIL |
 | listing 250 / 249 | PASS / FAIL |
+| valid `LISTED_DAYS` + missing/invalid auxiliary `listing_date` | preserve LISTED_DAYS PASS/FAIL; record auxiliary warning only |
+| LISTED_DAYS vs reliable cross-check conflict | `LISTING_HISTORY_CONFLICT` → UNKNOWN / Quarantine |
 | ETF / ADR / Preferred / Warrant / Unit | FAIL |
 | security subtype unknown | UNKNOWN / Quarantine |
 | delisted / suspended | FAIL |
@@ -999,7 +1011,8 @@ Universe 只决定哪些 symbol 被调用，不决定 Detector 对某个 symbol 
 ### 22.4 Snapshot 与 Preview
 
 - Snapshot 保存 PASS、FAIL、UNKNOWN 全部记录；
-- Snapshot hash 对时间、路径等噪声稳定，对业务值变化敏感；
+- `snapshot_sha256` 对运行 ID、创建时间、路径等噪声稳定，对业务值或 provenance version 变化敏感；
+- `snapshot_record_sha256` 覆盖完整持久化记录，不要求不同 attempt 相同；
 - 失败 API 页不能产生 FORMAL Snapshot；
 - Preview 不改变 Profile/Snapshot/Scan Store 的文件 hash 和行数；
 - Draft 不可绑定 Scan Batch；
@@ -1013,7 +1026,9 @@ Universe 只决定哪些 symbol 被调用，不决定 Detector 对某个 symbol 
 - ret != RET_OK 显式失败；
 - 缺列和新枚举显式 schema blocker/unknown；
 - currency、timestamp、listing day 和 avg turnover 类型规范化；
-- provider field 不得用 0 填补 null。
+- provider field 不得用 0 填补 null；
+- `liquidity-cross-check-tolerance/v1` 在 1 cent 边界内不冲突，大于 1 cent 产生 `LIQUIDITY_EVIDENCE_CONFLICT`；
+- Owner Plate 的 200-code 分批和每 30 秒 10 次限额独立于 Market Snapshot 限额测试。
 
 ### 22.6 独立审计样本
 

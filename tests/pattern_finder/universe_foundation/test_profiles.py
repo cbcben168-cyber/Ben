@@ -114,19 +114,14 @@ def test_filter_rejects_inverted_bounds_and_mixed_all_value_sets() -> None:
 
 def test_filter_and_profile_hashes_have_separate_identity_scopes() -> None:
     profile = core_v1()
-    next_version = replace(
-        profile,
-        profile_version=2,
-        profile_version_id="CORE:v2",
-        content_sha256="0" * 64,
-    )
 
-    assert filter_content_sha256(profile.filters) == filter_content_sha256(next_version.filters)
-    assert profile_content_sha256(profile) != profile_content_sha256(next_version)
+    assert profile_content_sha256(profile) == profile.content_sha256
+    assert profile.content_sha256 != profile.filter_content_sha256
     assert filter_content_sha256(profile.filters) == canonical_hash(canonical_filter_payload(profile.filters))
 
 
 def test_draft_hash_binds_draft_identity_but_not_its_stored_hash_field() -> None:
+    filters = _filters()
     draft = UniverseDraft(
         draft_id="draft-1",
         profile_family_id="CORE",
@@ -135,8 +130,51 @@ def test_draft_hash_binds_draft_identity_but_not_its_stored_hash_field() -> None
         parent_profile_version_id="CORE:v1",
         created_at_utc=datetime(2026, 8, 12, tzinfo=timezone.utc),
         change_note="Raise liquidity threshold.",
-        filters=_filters(),
-        draft_content_sha256="0" * 64,
+        filters=filters,
+        draft_content_sha256=_draft_hash(
+            draft_id="draft-1",
+            profile_family_id="CORE",
+            profile_kind=ProfileKind.CORE,
+            display_name="CORE v2",
+            parent_profile_version_id="CORE:v1",
+            created_at_utc=datetime(2026, 8, 12, tzinfo=timezone.utc),
+            change_note="Raise liquidity threshold.",
+            filters=filters,
+        ),
     )
-    assert draft_content_sha256(draft) != draft.draft_content_sha256
-    assert draft_content_sha256(replace(draft, draft_content_sha256="f" * 64)) == draft_content_sha256(draft)
+    assert draft_content_sha256(draft) == draft.draft_content_sha256
+    with pytest.raises(ValueError, match="draft_content_sha256"):
+        replace(draft, draft_content_sha256="f" * 64)
+
+
+def _draft_hash(**values: object) -> str:
+    draft = object.__new__(UniverseDraft)
+    for name, value in values.items():
+        object.__setattr__(draft, name, value)
+    return draft_content_sha256(draft)
+
+
+def test_published_profile_rejects_fabricated_content_or_filter_hash() -> None:
+    profile = core_v1()
+
+    with pytest.raises(ValueError, match="content_sha256"):
+        replace(profile, content_sha256="0" * 64)
+    with pytest.raises(ValueError, match="filter_content_sha256"):
+        replace(profile, filter_content_sha256="0" * 64)
+
+
+def test_draft_rejects_a_fabricated_content_hash() -> None:
+    filters = _filters()
+
+    with pytest.raises(ValueError, match="draft_content_sha256"):
+        UniverseDraft(
+            draft_id="draft-2",
+            profile_family_id="CORE",
+            profile_kind=ProfileKind.CORE,
+            display_name="CORE v2",
+            parent_profile_version_id="CORE:v1",
+            created_at_utc=datetime(2026, 8, 12, tzinfo=timezone.utc),
+            change_note="Raise liquidity threshold.",
+            filters=filters,
+            draft_content_sha256="0" * 64,
+        )

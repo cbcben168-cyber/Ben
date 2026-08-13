@@ -217,6 +217,11 @@ class UniverseProfile:
         _hash(self.filter_content_sha256, "filter_content_sha256", allow_none=True)
         if self.record_state is RecordState.PUBLISHED and (self.content_sha256 is None or self.filter_content_sha256 is None or self.published_at_utc is None):
             raise ValueError("published profile: timestamps and hashes required")
+        if self.record_state is RecordState.PUBLISHED:
+            if self.content_sha256 != profile_content_sha256(self):
+                raise ValueError("content_sha256: canonical profile payload hash required")
+            if self.filter_content_sha256 != filter_content_sha256(self.filters):
+                raise ValueError("filter_content_sha256: canonical filter payload hash required")
 
 
 def profile_content_sha256(profile: UniverseProfile) -> str:
@@ -254,6 +259,8 @@ class UniverseDraft:
         if not isinstance(self.filters, UniverseFilters):
             raise ValueError("filters: UniverseFilters required")
         _hash(self.draft_content_sha256, "draft_content_sha256")
+        if self.draft_content_sha256 != draft_content_sha256(self):
+            raise ValueError("draft_content_sha256: canonical draft payload hash required")
 
 
 def draft_content_sha256(draft: UniverseDraft) -> str:
@@ -285,8 +292,14 @@ def core_v1() -> UniverseProfile:
         include_warrant=False, include_unit=False, active_only=True,
     )
     created = datetime(2026, 8, 11, tzinfo=timezone.utc)
-    profile = UniverseProfile("CORE", 1, "CORE:v1", ProfileKind.CORE, "CORE v1", "universe-profile/v1", RecordState.PUBLISHED, None, created, created, "Frozen default US common-stock universe.", filters, "0" * 64, "0" * 64)
-    return replace(profile, content_sha256=profile_content_sha256(profile), filter_content_sha256=filter_content_sha256(filters))
+    content_hash = canonical_hash({
+        "schema_version": "universe-profile/v1",
+        "profile_family_id": "CORE",
+        "profile_version": 1,
+        "parent_profile_version_id": None,
+        "filters": canonical_filter_payload(filters),
+    })
+    return UniverseProfile("CORE", 1, "CORE:v1", ProfileKind.CORE, "CORE v1", "universe-profile/v1", RecordState.PUBLISHED, None, created, created, "Frozen default US common-stock universe.", filters, content_hash, filter_content_sha256(filters))
 
 
 __all__ = ("Exchange", "ProfileKind", "RecordState", "SecurityClass", "UniverseDraft", "UniverseFilters", "UniverseProfile", "canonical_filter_payload", "core_v1", "draft_content_sha256", "filter_content_sha256", "profile_content_sha256")

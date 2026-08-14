@@ -8,7 +8,7 @@ from decimal import Decimal
 
 import streamlit as st
 
-from .profiles import UniverseProfile
+from .profiles import RecordState, UniverseProfile
 from .registry import ProfileRegistry
 
 
@@ -91,6 +91,8 @@ def load_profile_ui_state(
         raise RuntimeError(
             f"published profile not initialized: {profile_version_id}"
         ) from exc
+    if profile.record_state is not RecordState.PUBLISHED:
+        raise RuntimeError(f"no current published profile: {profile_version_id}")
     if profile.published_at_utc is None:
         raise RuntimeError(f"published profile is incomplete: {profile_version_id}")
     if profile.content_sha256 is None or profile.filter_content_sha256 is None:

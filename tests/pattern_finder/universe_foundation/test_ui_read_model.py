@@ -1,12 +1,27 @@
 from datetime import datetime, timezone
+import json
 
 import pytest
 
-from tv_quant.pattern_finder.universe_foundation import ProfileRegistry, core_v1
+from tv_quant.pattern_finder.universe_foundation import (
+    ProfileRegistry,
+    RecordState,
+    core_v1,
+)
 from tv_quant.pattern_finder.universe_foundation.ui_read_model import load_profile_ui_state
 
 
-def test_load_profile_ui_state_projects_initialized_core_v1(tmp_path) -> None:
+def _registry_containing_only_draft_core_v1(tmp_path) -> ProfileRegistry:
+    registry = ProfileRegistry(tmp_path)
+    registry.bootstrap(core_v1())
+    published_path = tmp_path / "published.jsonl"
+    payload = json.loads(published_path.read_text(encoding="utf-8"))
+    payload["record_state"] = "DRAFT"
+    published_path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+    return registry
+
+
+def test_load_profile_ui_state_renders_initialized_published_core_v1(tmp_path) -> None:
     registry = ProfileRegistry(tmp_path)
     registry.bootstrap(core_v1())
 
@@ -53,3 +68,11 @@ def test_load_profile_ui_state_rejects_empty_registry_without_bootstrap(tmp_path
         load_profile_ui_state(registry, "CORE:v1")
 
     assert registry.list_published() == ()
+
+
+def test_load_profile_ui_state_rejects_non_published_profile_as_current(tmp_path) -> None:
+    registry = _registry_containing_only_draft_core_v1(tmp_path)
+
+    assert registry.get_published("CORE:v1").record_state is RecordState.DRAFT
+    with pytest.raises(RuntimeError, match="no current published profile: CORE:v1"):
+        load_profile_ui_state(registry, "CORE:v1")

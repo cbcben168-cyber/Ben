@@ -118,6 +118,10 @@ def quantize_usd_cent(value: str, *, field_id: str) -> Decimal:
         capitals=1,
         clamp=0,
     )
+    for signal in context.traps:
+        context.traps[signal] = False
+    context.traps[InvalidOperation] = True
+    context.clear_flags()
     return source.quantize(_USD_CENT, context=context)
 
 

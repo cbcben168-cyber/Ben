@@ -1,6 +1,6 @@
 from dataclasses import FrozenInstanceError, replace
 from datetime import date, datetime, timedelta, timezone
-from decimal import Decimal, Inexact, Rounded, localcontext
+from decimal import Decimal, DefaultContext, Inexact, Rounded, localcontext
 import re
 
 import pytest
@@ -190,6 +190,18 @@ def test_quantize_usd_cent_ignores_caller_traps_and_exponent_bounds() -> None:
         context.traps[Rounded] = True
 
         assert quantize_usd_cent("0.006", field_id="turnover") == Decimal("0.01")
+
+
+def test_quantize_usd_cent_ignores_mutated_default_context_traps() -> None:
+    original_traps = dict(DefaultContext.traps)
+    try:
+        DefaultContext.traps[Inexact] = True
+        DefaultContext.traps[Rounded] = True
+
+        assert quantize_usd_cent("0.006", field_id="turnover") == Decimal("0.01")
+    finally:
+        for signal, enabled in original_traps.items():
+            DefaultContext.traps[signal] = enabled
 
 
 def test_evidence_is_deeply_immutable_and_normalizes_nested_collections() -> None:

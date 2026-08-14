@@ -1,6 +1,6 @@
 from dataclasses import FrozenInstanceError, replace
 from datetime import date, datetime, timedelta, timezone
-from decimal import Decimal, localcontext
+from decimal import Decimal, Inexact, Rounded, localcontext
 import re
 
 import pytest
@@ -155,6 +155,14 @@ def test_decimal_from_source_requires_a_finite_deterministic_string() -> None:
     with pytest.raises(ValueError, match="non-negative"):
         decimal_from_source("-0.01", field_id="price")
 
+    for invalid_flag in (1, "yes", None):
+        with pytest.raises(ValueError, match="allow_negative"):
+            decimal_from_source(
+                "-0.01",
+                field_id="price",
+                allow_negative=invalid_flag,  # type: ignore[arg-type]
+            )
+
 
 @pytest.mark.parametrize(
     ("source", "expected"),
@@ -171,6 +179,17 @@ def test_quantize_usd_cent_uses_context_invariant_half_even(
     with localcontext() as context:
         context.prec = 2
         assert quantize_usd_cent(source, field_id="turnover") == expected
+
+
+def test_quantize_usd_cent_ignores_caller_traps_and_exponent_bounds() -> None:
+    with localcontext() as context:
+        context.prec = 2
+        context.Emin = 0
+        context.Emax = 0
+        context.traps[Inexact] = True
+        context.traps[Rounded] = True
+
+        assert quantize_usd_cent("0.006", field_id="turnover") == Decimal("0.01")
 
 
 def test_evidence_is_deeply_immutable_and_normalizes_nested_collections() -> None:
@@ -238,6 +257,35 @@ def test_collection_input_order_does_not_change_canonical_record_hash() -> None:
     assert evidence_record_sha256(reversed_evidence) == evidence_record_sha256(
         sorted_evidence
     )
+
+
+def test_tied_plate_sort_fields_still_have_order_independent_hashes() -> None:
+    evidence = _security_evidence()
+    original_plate = evidence.raw_plates[0]
+    other_plate = replace(
+        original_plate,
+        provenance=_provenance(locator="futu://plates/US.AAPL?page=2"),
+    )
+
+    left = replace(evidence, raw_plates=[original_plate, other_plate])
+    right = replace(evidence, raw_plates=[other_plate, original_plate])
+
+    assert evidence_record_sha256(left) == evidence_record_sha256(right)
+
+
+def test_tied_classification_sort_fields_still_have_order_independent_hashes() -> None:
+    evidence = _security_evidence()
+    original = evidence.classification_evidence[0]
+    other = replace(
+        original,
+        notes="Second independent record.",
+        reference=_reference(locator="security-master://1001/record-2"),
+    )
+
+    left = replace(evidence, classification_evidence=[original, other])
+    right = replace(evidence, classification_evidence=[other, original])
+
+    assert evidence_record_sha256(left) == evidence_record_sha256(right)
 
 
 @pytest.mark.parametrize(

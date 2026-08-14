@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, fields, is_dataclass
 from datetime import date, datetime, timezone
-from decimal import Decimal, InvalidOperation, ROUND_HALF_EVEN, localcontext
+from decimal import Context, Decimal, InvalidOperation, MAX_EMAX, MIN_EMIN, ROUND_HALF_EVEN
 from enum import Enum
 import re
 from typing import Iterable
@@ -89,6 +89,8 @@ def decimal_from_source(
     """Build a finite Decimal from an unambiguous source string."""
 
     _non_empty_string(field_id, "field_id")
+    if type(allow_negative) is not bool:
+        raise ValueError("allow_negative: bool required")
     if type(value) is not str or not _DECIMAL_SOURCE.fullmatch(value):
         raise ValueError(f"{field_id}: deterministic decimal source string required")
     try:
@@ -108,9 +110,15 @@ def quantize_usd_cent(value: str, *, field_id: str) -> Decimal:
     source = decimal_from_source(value, field_id=field_id)
     digits = len(source.as_tuple().digits)
     integer_digits = max(source.adjusted() + 1, 1) if source else 1
-    with localcontext() as context:
-        context.prec = max(28, digits + 2, integer_digits + 4)
-        return source.quantize(_USD_CENT, rounding=ROUND_HALF_EVEN)
+    context = Context(
+        prec=max(28, digits + 2, integer_digits + 4),
+        rounding=ROUND_HALF_EVEN,
+        Emin=MIN_EMIN,
+        Emax=MAX_EMAX,
+        capitals=1,
+        clamp=0,
+    )
+    return source.quantize(_USD_CENT, context=context)
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,6 +131,14 @@ class EvidenceReference:
         _non_empty_string(self.source_id, "source_id")
         _non_empty_string(self.source_locator, "source_locator")
         _sha256(self.source_record_sha256, "source_record_sha256")
+
+
+def _reference_sort_key(reference: EvidenceReference) -> tuple[str, str, str]:
+    return (
+        reference.source_id,
+        reference.source_locator,
+        reference.source_record_sha256,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -149,14 +165,21 @@ class EvidenceProvenance:
             tuple(
                 sorted(
                     references,
-                    key=lambda reference: (
-                        reference.source_id,
-                        reference.source_locator,
-                        reference.source_record_sha256,
-                    ),
+                    key=_reference_sort_key,
                 )
             ),
         )
+
+
+def _provenance_sort_key(provenance: EvidenceProvenance) -> tuple[object, ...]:
+    return (
+        provenance.provider,
+        provenance.provider_version,
+        provenance.source_version,
+        provenance.schema_version,
+        provenance.observed_at_utc.isoformat(),
+        tuple(_reference_sort_key(reference) for reference in provenance.references),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -183,6 +206,15 @@ class RawPlateEvidence:
         _non_empty_string(self.plate_type, "plate_type")
         if type(self.provenance) is not EvidenceProvenance:
             raise ValueError("plate.provenance: EvidenceProvenance required")
+
+
+def _plate_sort_key(plate: RawPlateEvidence) -> tuple[object, ...]:
+    return (
+        plate.plate_code,
+        plate.plate_name,
+        plate.plate_type,
+        _provenance_sort_key(plate.provenance),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -212,6 +244,29 @@ class SecurityClassificationEvidence:
             raise ValueError("reference: EvidenceReference or None required")
         if self.verified_by is not None:
             _non_empty_string(self.verified_by, "verified_by")
+
+
+def _classification_sort_key(
+    evidence: SecurityClassificationEvidence,
+) -> tuple[object, ...]:
+    reference_key = (
+        (False, ("", "", ""))
+        if evidence.reference is None
+        else (True, _reference_sort_key(evidence.reference))
+    )
+    return (
+        evidence.normalized_class,
+        evidence.provider,
+        evidence.provider_value,
+        evidence.observed_at_utc.isoformat(),
+        evidence.source_version,
+        evidence.source_record_sha256,
+        evidence.confidence,
+        evidence.notes,
+        reference_key,
+        evidence.verified_by is not None,
+        evidence.verified_by or "",
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -326,7 +381,7 @@ class UniverseSecurityEvidence:
             tuple(
                 sorted(
                     plates,
-                    key=lambda plate: (plate.plate_code, plate.plate_name, plate.plate_type),
+                    key=_plate_sort_key,
                 )
             ),
         )
@@ -344,12 +399,7 @@ class UniverseSecurityEvidence:
             tuple(
                 sorted(
                     classifications,
-                    key=lambda item: (
-                        item.provider,
-                        item.source_version,
-                        item.source_record_sha256,
-                        item.normalized_class,
-                    ),
+                    key=_classification_sort_key,
                 )
             ),
         )

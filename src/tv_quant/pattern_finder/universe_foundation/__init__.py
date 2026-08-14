@@ -14,5 +14,26 @@ from .profiles import (
     filter_content_sha256,
     profile_content_sha256,
 )
+from .registry import (
+    ProfileAvailabilityAction,
+    ProfileAvailabilityEvent,
+    ProfileRegistry,
+)
 
-__all__ = ("Exchange", "ProfileKind", "RecordState", "SecurityClass", "UniverseDraft", "UniverseFilters", "UniverseProfile", "canonical_filter_payload", "core_v1", "draft_content_sha256", "filter_content_sha256", "profile_content_sha256")
+__all__ = (
+    "Exchange",
+    "ProfileAvailabilityAction",
+    "ProfileAvailabilityEvent",
+    "ProfileKind",
+    "ProfileRegistry",
+    "RecordState",
+    "SecurityClass",
+    "UniverseDraft",
+    "UniverseFilters",
+    "UniverseProfile",
+    "canonical_filter_payload",
+    "core_v1",
+    "draft_content_sha256",
+    "filter_content_sha256",
+    "profile_content_sha256",
+)

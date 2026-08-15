@@ -1,5 +1,11 @@
 """Versioned immutable universe profile foundation."""
 
+from .classification import (
+    CLASSIFICATION_EVIDENCE_CONFLICT,
+    CLASSIFICATION_UNKNOWN,
+    ClassificationResult,
+    resolve_classification,
+)
 from .evidence import (
     AttemptStatus,
     Completeness,
@@ -35,6 +41,10 @@ from .registry import (
     ProfileAvailabilityEvent,
     ProfileRegistry,
 )
+from .security_master import (
+    AppendOnlyClassificationLedger,
+    SecurityMasterProvider,
+)
 from .ui_read_model import (
     ProfileConditionRow,
     ProfileUiState,
@@ -43,7 +53,11 @@ from .ui_read_model import (
 )
 
 __all__ = (
+    "AppendOnlyClassificationLedger",
     "AttemptStatus",
+    "CLASSIFICATION_EVIDENCE_CONFLICT",
+    "CLASSIFICATION_UNKNOWN",
+    "ClassificationResult",
     "Completeness",
     "Decision",
     "Exchange",
@@ -62,6 +76,7 @@ __all__ = (
     "RawPlateEvidence",
     "SecurityClass",
     "SecurityClassificationEvidence",
+    "SecurityMasterProvider",
     "UniverseDraft",
     "UniverseFilters",
     "UniverseProfile",
@@ -75,5 +90,6 @@ __all__ = (
     "load_profile_ui_state",
     "profile_content_sha256",
     "quantize_usd_cent",
+    "resolve_classification",
     "render_profile_status",
 )

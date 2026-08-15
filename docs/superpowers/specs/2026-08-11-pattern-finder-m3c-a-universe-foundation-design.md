@@ -159,15 +159,19 @@ Futu 可提供的 `AVG_TURNOVER(20)`、`LISTED_DAYS` 等字段作为 M3C-A 的�
 ## 6. 总体架构与边界
 
 ```text
-Futu Universe Gateway
+Futu Provider Adapter (Task 9, raw acquisition only)
   ├─ Static Security Info
   ├─ Stock Screening V2
   ├─ Market Snapshot
   └─ Owner Plate / Industry
               ↓
-Universe Evidence Normalizer
+Futu Universe Gateway / Attempt Producer (Task 10)
+  ├─ qualified provider/version Active Status mapping
+  ├─ attempt-level evidence/provider freshness gate
+  ├─ cross-candidate identity reconciliation/ledger
+  └─ normalized evidence + per-security prerequisites + attempt verdict
               ↓
-Universe Profile Registry ──→ Universe Evaluator
+Universe Profile Registry ──→ Pure Universe Evaluator (Task 6 consumer)
                                   ├─ Per-field decisions
                                   ├─ Sequential funnel
                                   └─ Final membership
@@ -181,10 +185,11 @@ Flat Base Detector ← 只接收 OHLCV + Data Quality，不接收 Profile
 
 组件职责：
 
-- **Futu Universe Gateway**：只负责调用和原样保存外部事实，不做业务取舍；
-- **Evidence Normalizer**：统一单位、枚举、时区、缺失值和来源；
+- **Futu Provider Adapter（Task 9）**：只负责调用并原样保存外部事实，不做 identity、Active、freshness、completeness 或 membership 判断；
+- **Futu Universe Gateway / Attempt Producer（Task 10）**：唯一负责 qualified Active mapping、attempt freshness、cross-security identity reconciliation，并产出 Task 6 prerequisites；
+- **Evidence Normalization**：Task 4 schema 与 Task 10 construction 只统一数值单位、时间格式、缺失值表示和 provenance；它不解释 provider status enum，不判断 freshness，也不建立 identity ledger；
 - **Profile Registry**：管理 Draft 和不可变 Published Version；
-- **Universe Evaluator**：纯函数，根据 Evidence + Profile 产生判定；
+- **Universe Evaluator（Task 6）**：纯函数，根据 Evidence + Profile + ClassificationResult + normalized prerequisites 产生判定；
 - **Funnel Aggregator**：只聚合逐证券判定，不重新解释规则；
 - **Snapshot Store**：append-only 保存完整评估；
 - **Scan Batch Contract**：禁止 Scanner 自己重算或覆盖 Universe。
@@ -374,8 +379,8 @@ Draft 可以反复修改和预览，因为它不是正式历史。Draft：
 | 候选证券 | `get_stock_basicinfo(Market.US, SecurityType.*)` | 分类别枚举并合并 | 整批 discovery 失败 |
 | Exchange | static `exchange_type` | 映射 NYSE/NASDAQ/AMEX/OTC | 未知则 UNKNOWN |
 | 顶层 Security Type | static `stock_type` | 明确 ETF/Warrant 等 | 未知则 UNKNOWN |
-| 稳定身份 | static `stock_id` + `code` | `stock_id` 主身份，code 为当期符号 | 冲突则整批失败 |
-| 退市 | static `delisting` | Active 判定证据 | 缺失则 UNKNOWN |
+| 稳定身份 | static `stock_id` + `code` | Task 10 跨候选 reconciliation 后产出逐证券规范化 identity decision | 同 stock_id 多 code 为逐证券 UNKNOWN；同 code 多 stock_id 则整批失败 |
+| 退市 | static `delisting` | Task 10 Active Status mapping 的显式高优先级输入 | `true` 固定为 FAIL / `DELISTED`；缺失不得猜测 |
 | Price | Stock Screen V2 `PRICE`；snapshot `last_price` 交叉核对 | 正式快照只在规定 EOD 窗口创建 | 冲突则 UNKNOWN |
 | Market Cap | Stock Screen V2 `MARKET_CAP`；snapshot `total_market_val` 交叉核对 | USD 规范化后比较 | 单位/值冲突则 UNKNOWN |
 | 20D ADV | Stock Screen V2 `AVG_TURNOVER`, `days=20` | `FUTU_AVG_TURNOVER_20D`；M3C-A 唯一正式筛选口径 | 缺失则 UNKNOWN |
@@ -385,9 +390,9 @@ Draft 可以反复修改和预览，因为它不是正式历史。Draft：
 | Industry | Stock Screen V2 `BasicProperty.INDUSTRY` | 仅保存原始 evidence | CORE v1 Sector=ALL，不阻断 |
 | Plates | `get_owner_plate(code_list)` | 补充 Industry/Concept/Other plate | 接口失败时标记缺失 |
 | Sector | M3C-A 不生成顶层 Sector | 保存原始 Industry/Plate evidence；`sector_mapping_version=null` | CORE v1 为 ALL，该级 PASS |
-| Suspension | snapshot `suspension` | Active 判定 | true 不通过 Active |
-| Security Status | snapshot `sec_status` | Active 判定 | 未知/异常为 UNKNOWN |
-| Provider Time | `update_time` + OpenD server time | staleness 与 EOD 校验 | 不可解析则整批不完整 |
+| Suspension | snapshot `suspension` | Task 10 Active Status mapping 的显式高优先级输入 | `true` 固定为 FAIL / `SUSPENDED_AS_OF_SNAPSHOT` |
+| Security Status | snapshot `sec_status` | Task 10 依据 provider/version-specific mapping 规范化；Task 6 不解析 raw enum | 新枚举、null、mapping 不完整均为 UNKNOWN，不得 PASS |
+| Provider Time | `update_time` + OpenD server time | Task 10 attempt-level completeness/freshness gate | stale、缺失、不可解析、不一致或 delay class 不合格则 FAILED/INCOMPLETE |
 
 ### 10.2 候选枚举规则
 
@@ -402,11 +407,15 @@ WARRANT / BWRT
 
 然后：
 
-1. 按 `stock_id` 去重；
+1. Task 10 建立不可变 identity ledger，并以 `stock_id` 为主身份执行一对一 reconciliation；
 2. 保存原始 `code`、`stock_type`、`exchange_type`；
-3. 相同 `stock_id` 对应多个当前代码时标记 symbol identity conflict；
-4. 同一代码对应多个 `stock_id` 时整批失败；
+3. 相同 `stock_id` 对应多个当前代码时，为所有受影响证券产出 `UNKNOWN / UNIVERSE_IDENTITY_BLOCKER`，进入 Quarantine；
+4. 同一代码对应多个 `stock_id` 时，整个 attempt 以 `UNIVERSE_IDENTITY_BLOCKER` 失败，不生成可发布 Snapshot；
 5. options、futures、crypto 不进入 M3C-A discovery 范围。
+
+Task 10 在 post-reconciliation candidate/evidence 层保留每个唯一 `(stock_id, futu_code)` 原始候选行，禁止为解决冲突而静默选一个 code 或合并丢失行；每行恰有一个同 key 的 `SecurityEvaluationPrerequisites`。因此 same-stock-id/multiple-code 会形成多个完整可审计候选行，每行 identity 均为 UNKNOWN/Quarantine，竞争 codes 同时保存在 identity ledger 与 evidence references。Task 13 只按该 composite key 一对一 join；缺失或重复 key 均 fail closed。same-code/multiple-stock-id 在此 join 前已阻断整个 attempt。
+
+Task 6 不遍历其他证券、不使用 ticker/name heuristic，也不建立 identity ledger。identity reconciliation 未完成时，Task 10 不得产出 PASS，Task 6 不得假设 identity 有效。
 
 这样 Funnel 的第一层是“本次成功枚举的美国现货证券”，不是预先过滤后的 CORE 名单。
 
@@ -422,6 +431,8 @@ market_data_delay_class
 ```
 
 盘中操作只能产生 `PREVIEW / PROVISIONAL`，不能发布正式 Snapshot。价格和市值必须来自同一采集窗口；不得把昨日价格与今日市值混合。
+
+Task 10 是 evidence/provider freshness 的唯一 owner。它使用上述四个时间/延迟字段，按照冻结的“最新完整 XNYS 常规交易日、同一采集窗口、delay class 合格”policy 判断 attempt eligibility。stale、timestamp 缺失/不可解析/不一致或 provider delay 不满足要求时，attempt 必须 `FAILED / INCOMPLETE / UNIVERSE_FRESHNESS_BLOCKER`，不得进入可发布 Universe Snapshot。Task 6 不读取当前时间、不计算 age、不解释 provider delay，也不执行 trading-session freshness 计算；`EvidenceProvenance.observed_at_utc` 在 Task 6 中仅供 provenance/audit 展示，绝不隐含 freshness PASS。
 
 ---
 
@@ -636,26 +647,81 @@ Futu Industry/Plate 不等于经过验证的顶层 Sector。CORE v1 为 `Sector=
 
 ## 15. Active Status
 
-`active_only=true` 的 PASS 条件：
+### 15.1 Ownership 与 versioned mapping contract
+
+Task 10 是 provider raw Active Status 的唯一生产 owner。它必须依据经过资格确认的 provider-specific、provider-version-specific、versioned、auditable mapping，把 `delisting`、`suspension` 和 provider `sec_status` 规范化为 Task 6 可消费的逐证券 decision。mapping 版本、qualification evidence 和原始记录 reference 必须绑定到 attempt；Frozen Design 冻结的是该 versioned mapping contract 与 fail-closed 行为，而不是永久硬编码所有未来 Futu enum。
+
+Task 6 是纯 consumer：不得解析 `security_status_raw`，不得导入或硬编码 Futu enum，也不得从 provider raw 值猜测 Active 含义。
+
+Task 10 的确定性优先级固定为：
 
 ```text
-delisting == false
-AND suspension == false
-AND sec_status in frozen_active_status_allowlist
-AND provider record is not stale
-AND symbol identity is consistent
+delisting == true
+→ FAIL / DELISTED
+
+else suspension == true
+→ FAIL / SUSPENDED_AS_OF_SNAPSHOT
+
+else delisting is not explicitly false
+→ UNKNOWN / ACTIVE_STATUS_UNKNOWN
+
+else suspension is not explicitly false
+→ UNKNOWN / ACTIVE_STATUS_UNKNOWN
+
+else qualified exact provider/version mapping
+→ PASS | FAIL | UNKNOWN + stable reason + evidence references
 ```
 
 规则：
 
-- `delisting=true`：FAIL / `DELISTED`；
-- `suspension=true`：FAIL / `SUSPENDED_AS_OF_SNAPSHOT`；
-- 明确 inactive/expired/unknown-stock：FAIL；
-- sec_status 新增未识别枚举：UNKNOWN，不自动视为 active；
-- Futu 返回默认空记录或 unknown stock：UNKNOWN；
+- `delisting=true` 与 `suspension=true` 是显式 FAIL，且按上述顺序确定 primary reason；
+- 两个显式 true 检查先于缺失检查，所以 `suspension=true` 即使伴随另一 flag 缺失仍确定性 FAIL；只有 `delisting=false AND suspension=false` 才允许进入 provider status mapping；
+- 任一 flag 为 null、缺失、不可解析或非 bool 且没有更高优先级显式 true：UNKNOWN / `ACTIVE_STATUS_UNKNOWN` / Quarantine；
+- 其他明确 inactive/expired/unknown-stock 只有在当前 provider/version mapping 已资格确认时才 FAIL；
+- 新增未识别 enum、null、默认空记录、mapping 缺项或 mapping qualification 缺失：UNKNOWN / `ACTIVE_STATUS_UNKNOWN` / Quarantine，不自动视为 active；
 - 暂停证券不会被数据库删除，未来新 Snapshot 可重新进入。
 
 Active 是每个 Snapshot 的 as-of 状态，不是永久证券属性。
+
+### 15.2 Task 6 最小 normalized prerequisite contract
+
+Task 6 在 `evaluator.py` 定义并显式消费两个 frozen dataclass；Task 10 后续导入同一 contract 生产值，不建立第二份同义 schema：
+
+```python
+@dataclass(frozen=True, slots=True)
+class NormalizedPrerequisiteDecision:
+    decision: Decision  # PASS | FAIL | UNKNOWN only
+    reason_code: str
+    evidence_references: tuple[EvidenceReference, ...]
+
+@dataclass(frozen=True, slots=True)
+class SecurityEvaluationPrerequisites:
+    stock_id: str
+    futu_code: str
+    active_status: NormalizedPrerequisiteDecision | None
+    identity: NormalizedPrerequisiteDecision | None
+```
+
+`NormalizedPrerequisiteDecision` 只接受 PASS/FAIL/UNKNOWN、非空稳定 reason code 和确定性排序的不可变 evidence references。PASS/FAIL 必须有 supporting reference；UNKNOWN 可保留已取得的 references。prerequisite 的规范 join key 固定为 `(stock_id, futu_code)`，必须与本次 `UniverseSecurityEvidence` 精确一致，否则 active-status 与 identity 均 fail closed 为 UNKNOWN。
+
+Task 6 的签名冻结为：
+
+```python
+evaluate_security(
+    profile: UniverseProfile,
+    evidence: UniverseSecurityEvidence,
+    classification: ClassificationResult,
+    prerequisites: SecurityEvaluationPrerequisites | None,
+) -> SecurityEvaluation
+```
+
+参数必须显式传入；`None`、任一缺失 prerequisite 或任一 UNKNOWN 都使对应 S1/S4 field decision 为 UNKNOWN，最终 `is_member=false` 且 `is_quarantined=true`。identity UNKNOWN 使用稳定 `UNIVERSE_IDENTITY_BLOCKER`；active-status UNKNOWN 使用稳定 `ACTIVE_STATUS_UNKNOWN`。Task 4 `UniverseSecurityEvidence` schema 不因本 amendment 修改；其中 provider raw Active 字段只供 Task 10 producer 使用。
+
+### 15.3 Task 6 / Task 10 handoff
+
+Task 6 先定义 consumer contract、独立字段判定、固定 S1-S9 顺序、first exit、final membership 与 Quarantine。Task 10 后实现 production producer：versioned provider Active mapping、attempt freshness gate、identity ledger/reconciliation 和逐证券 prerequisites。依赖方向只有 `Task 10 producer → Task 6-owned contract`；Task 6 不导入或调用 Task 10，因此不存在 runtime circular dependency。
+
+Task 6 测试可以使用 deterministic fixtures 构造 prerequisites；在 Task 10 producer 与资格确认完成前，只能声称 pure evaluator contract 通过，不能声称 end-to-end Universe classification/membership 已可用于生产。freshness 是 Task 10 attempt-level prerequisite，不加入 Task 6 per-security S1-S9。
 
 ---
 
@@ -709,6 +775,8 @@ S10.output_count = number_of_members
 
 每个候选保存所有可计算字段的独立判定，即使它在早期 stage 已 FAIL。顺序 Funnel 只决定“在哪一级首次离开”，独立判定用于审计和未来 Profile Preview。
 
+Task 6 继续拥有 S1-S9 的独立 field decisions、固定顺序、first exit、final membership 和 Quarantine 派生，但不生产 S1 identity 或 S4 active-status 的 provider/cross-universe facts。S1/S4 必须逐字投影 `SecurityEvaluationPrerequisites` 中的 normalized decision/reason/references；Task 6 不重新解释 raw evidence。Task 8 只聚合 Task 6 已产生的 decisions，亦不成为第二个 identity、Active Status 或 freshness owner。
+
 判定记录至少包括：
 
 ```text
@@ -745,6 +813,11 @@ evidence_observed_at_utc
 | `provider_sdk_version` | SDK 版本 |
 | `opend_server_version` | OpenD 版本 |
 | `market_data_delay_class` | 实时/延迟/未知 |
+| `active_status_mapping_provider` / `active_status_mapping_provider_version` / `active_status_mapping_version` | Task 10 qualified mapping 的精确版本绑定 |
+| `active_status_mapping_qualified_at_utc` | mapping qualification 时间 |
+| `active_status_mapping_qualification_references` | 不可变 qualification evidence references |
+| `active_status_mapping_sha256` | 完整 `QualifiedActiveStatusMapping` 的 canonical hash |
+| `prerequisites_sha256` | 全部 `(stock_id, futu_code)` normalized prerequisites 的确定性 hash |
 | `sector_mapping_version` | CORE v1 为 null；未来启用 Sector 筛选时记录冻结映射版本 |
 | `liquidity_metric_id` / `liquidity_evidence_version` | 正式流动性口径与证据版本 |
 | `listing_history_metric_id` / `listing_history_evidence_version` | 正式上市历史口径与证据版本 |
@@ -769,7 +842,7 @@ name
 exchange_raw / exchange_normalized
 security_type_raw / security_class_normalized
 classification evidence
-delisting / suspension / sec_status / active_status
+delisting / suspension / sec_status / normalized active_status reason/references
 price_usd / price_observed_at
 market_cap_usd / market_cap_observed_at
 liquidity_metric_id / liquidity_evidence_version
@@ -785,6 +858,8 @@ is_member
 is_quarantined
 raw evidence references/hashes
 ```
+
+Snapshot Header 必须从 `GatewayAttempt.active_status_mapping` 与 `prerequisites_sha256` 原样绑定上述 mapping qualification provenance；逐证券 row 必须保留 normalized Active/Identity decision、reason 和 supporting references。PreviewResult/PreviewRecord 还必须重复绑定 `active_status_mapping_sha256` 与 `prerequisites_sha256`，使发布 gate 无需回查可变配置即可验证同一 Task 10 producer output。
 
 ### 17.3 保存全部候选
 
@@ -830,6 +905,8 @@ universe_member_count
 7. Preview、Draft、失败 attempt 均不可绑定。
 
 Scan Batch 只读取 Snapshot 的冻结成员，不再次访问 Futu、不再次过滤 Universe、不把当前页面设置混入历史。
+
+这里的 Scan freshness 仅比较 Scan 与已经通过 Task 10 freshness gate 的冻结 Snapshot 之间的下游 recency；它不重新解释 provider timestamp、delay class 或 evidence freshness，因而不会形成第二个 provider freshness owner。
 
 ---
 
@@ -922,13 +999,14 @@ FUTU_QUOTA_BLOCKER
 FUTU_SCHEMA_BLOCKER
 FUTU_PAGINATION_BLOCKER
 UNIVERSE_IDENTITY_BLOCKER
+UNIVERSE_FRESHNESS_BLOCKER
 UNIVERSE_INCOMPLETE_BLOCKER
 CLASSIFICATION_EVIDENCE_BLOCKER
 LIQUIDITY_EVIDENCE_CONFLICT
 LISTING_HISTORY_CONFLICT
 ```
 
-缺字段不得变成 0；旧缓存不得在未显示 staleness 的情况下静默顶替新数据。
+`UNIVERSE_FRESHNESS_BLOCKER` 是 evidence/provider freshness failure 的唯一稳定 reason code；不得另造 stale/timestamp/delay 同义 blocker。它必然使 attempt `FAILED / INCOMPLETE`。`UNIVERSE_INCOMPLETE_BLOCKER` 保留给非 freshness 的一般必要批次/完整性失败。缺字段不得变成 0；旧缓存不得在未显示 staleness 的情况下静默顶替新数据。
 
 ---
 
@@ -1164,8 +1242,8 @@ src/tv_quant/pattern_finder/universe/
   evidence.py          # normalized Universe evidence and evidence versions
   security_master.py   # Security Master / Classification Evidence port
   classification.py    # subtype evidence resolution and fail-closed policy
-  futu_gateway.py      # static/screen/snapshot/plate adapters
-  evaluator.py         # pure field and membership decisions
+  futu_gateway.py      # Task 10 provider mapping/freshness/identity producer
+  evaluator.py         # Task 6 prerequisite contract + pure field/membership consumer
   funnel.py            # reconciliation-only aggregation
   snapshots.py         # append-only snapshot schema/store
   preview.py           # non-formal preview orchestration
@@ -1188,6 +1266,10 @@ M3C-A Design 进入实现计划前必须满足：
 - [x] ADV20 权威字段与未来复算公式明确；
 - [x] Listing >=250 sessions 口径明确；
 - [x] 非普通股分类禁止名称猜测并采用 fail-closed；
+- [x] Active Status versioned provider mapping 归 Task 10，Task 6 只消费 normalized decision；
+- [x] evidence/provider freshness 只归 Task 10，并冻结唯一 `UNIVERSE_FRESHNESS_BLOCKER`；
+- [x] identity reconciliation 只归 Task 10，same-stock-id 与 same-code 冲突语义分别冻结；
+- [x] Task 6 immutable prerequisite input contract 与 Task 6 → Task 10 handoff 明确；
 - [x] Funnel 数量恒等式明确；
 - [x] Snapshot 保存全部候选及来源；
 - [x] Scan Batch 绑定 Profile Version + Snapshot + hashes；
@@ -1211,6 +1293,8 @@ DETECTOR_REGRESSION_TEST = PASS
 FUTU_ADAPTER_CONTRACT_TEST = PASS
 ```
 
+Task 6 没有 UI manual gate；它只以 deterministic fixture contract tests 验证 pure evaluator。Task 10 producer 完成后先通过 automated mapping/freshness/identity contract tests。首次完整业务人工验收仍在 Task 15，必须覆盖 `provider evidence → freshness → identity → classification → evaluator → snapshot/preview → UI` 的真实 vertical slice；不得提前到 Task 6、7、10 或 12。
+
 ---
 
 ## 27. BLOCKER / HIGH / 不确定项
@@ -1226,6 +1310,8 @@ FUTU_ADAPTER_CONTRACT_TEST = PASS
 - Futu discovery/page 不完整；
 - Profile/Snapshot hash 不一致；
 - 证券 identity conflict；
+- Active Status provider/version mapping 未资格确认或出现未识别 raw status；
+- evidence/provider freshness 不合格；
 - 必要字段 schema 不兼容；
 - 关键证据来源冲突；
 - Snapshot 不是 COMPLETE。

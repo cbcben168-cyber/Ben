@@ -758,7 +758,9 @@ quote-right/delay evidence 的原始 provider source 冻结为 Futu `QOT_RIGHT` 
 
 Futu `stock_type=STOCK` 加 `stock_child_type=WrtType/N/A` 只能保留为 raw discovery evidence，不能 authoritative 地把标的区分为 Common Stock、ADR、Preferred 或 Unit。因此 Futu 不得成为 CORE `COMMON_STOCK` subtype authority；在 approved Security Master 完成资格前，维持 `CLASSIFICATION_EVIDENCE_BLOCKER`。
 
-OpenFIGI v3 是候选 `SecurityMasterProvider`，尚未 approved、不得实现 API。其 mapping response 可返回 FIGI、`securityType`、`securityType2`、ticker、`exchCode` 与可选 MIC-filtered query；`securityType2` 通常比 `securityType` 粗。一个 mapping job 可返回零、一个或多个 records，故任何 zero/multi-match、identifier/exchange/MIC 冲突或字段缺失都必须 fail closed，不能用 ticker/name/suffix regex 消歧。官方限额也必须成为 future provider contract：mapping 无 key 25 requests/minute、每 request 10 jobs；有 key 25 requests/6 seconds、每 request 100 jobs；429 使用 provider-specified reset information。
+OpenFIGI v3 是候选 `SecurityMasterProvider`，尚未 approved、不得实现 API。其 mapping response 可返回 FIGI、`securityType`、`securityType2`、ticker、`exchCode` 与可选 MIC-filtered query；`securityType2` 通常比 `securityType` 粗。一个 mapping job 可返回零、一个或多个 records，故任何 zero/multi-match、identifier/exchange/MIC 冲突或字段缺失都必须 fail closed，不能用 ticker/name/suffix regex 消歧。
+
+OpenFIGI 官方 API documentation 当前对 anonymous `POST /v3/mapping` 的 batch size 有内部不一致：Rate Limits 表写 `10 jobs/request`，同页 `POST /v3/mapping → Limits` 写 `5 jobs/request`；with API key 的两处均写 `100 jobs/request`。因此 `OPENFIGI_ANON_JOB_LIMIT=UNQUALIFIED_DOCUMENTATION_CONFLICT`，不得为了实现方便任选 5 或 10，也不得把任一值冻结为正式 provider contract。未来 qualification 必须同时复核当时官方 OpenAPI/schema、真实 mapping response、`ratelimit-*` headers、以及 `413`/`429` behavior；API-key `100 jobs/request` 也只是当前文档值，仍须在正式 qualification 时复核。OpenFIGI 继续为 `RESEARCH_CANDIDATE_NOT_APPROVED`。
 
 OpenFIGI 的最小 qualification matrix 是：每一行都须保存真实 provider request/response、identifier inputs、FIGI、`securityType`、`securityType2`、ticker、exchange/MIC、source version/hash、匹配 cardinality、人工审核结论及 reference，才可逐项升级 authority：
 

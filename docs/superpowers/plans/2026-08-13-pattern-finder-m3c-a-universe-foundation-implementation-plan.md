@@ -251,6 +251,8 @@ git commit -m "feat: add fail-closed security classification"
 
 - [ ] **Step 6: Independent review and qualification record** — Record exact source/version/subtype field/sample or `CLASSIFICATION_EVIDENCE_BLOCKER`; never weaken to heuristics. Record review PASS before Task 6.
 
+OpenFIGI remains a research candidate only. Its current documentation conflicts on anonymous mapping batch size (10 jobs/request in the Rate Limits table versus 5 in the `POST /v3/mapping` Limits subsection); therefore the anonymous batch limit is `UNQUALIFIED_DOCUMENTATION_CONFLICT`, and implementation must not choose 5 or 10. Qualification must use the contemporaneous official OpenAPI/schema, real mapping responses, `ratelimit-*` headers, and observed `413`/`429` behavior. The documented API-key value of 100 jobs/request also requires re-verification at qualification. Preserve the Common Stock / ADR / Preferred / Unit matrix and `RESEARCH_CANDIDATE_NOT_APPROVED` status.
+
 ---
 
 ### Task 6: Pure per-security evaluator and Quarantine

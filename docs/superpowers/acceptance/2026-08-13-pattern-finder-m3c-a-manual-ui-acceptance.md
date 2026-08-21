@@ -162,3 +162,28 @@ replaced when the locators and hashes were reverified for persistence.
 - `CLASSIFICATION_EVIDENCE_BLOCKER`: `NONE`
 - `TASK5_CODE_CHANGE_REQUIRED`: `NO`
 - `TASK_6_STARTED`: `NO`
+
+## M3C-A Task 7 Automated Projection Checkpoint
+
+Date: 2026-08-21
+
+`AUTOMATED_PROJECTION_RESULT`: `PASS`
+
+The 股票池设置 page rendered only a prebuilt `EvaluationUiState`, which was
+created by passing provider-shaped immutable evidence, classification, and
+Task 6 prerequisites unchanged to `evaluate_security()` exactly once. The
+page projected the resulting ticker/security, Profile Version / Hash, CORE
+Member, Quarantine, first exit, and every Task 6 decision's actual and
+normalized values, threshold, reason, evidence source/reference/version.
+
+Automated fixture cases:
+
+- `AAPL` Common Stock PASS: `CORE Member = YES`, `Quarantine = NO`.
+- `AAPL` identity UNKNOWN: `CORE Member = NO`, `Quarantine = YES`, with
+  `S1_IDENTITY_VALID / UNIVERSE_IDENTITY_BLOCKER` shown as the reason.
+
+This is an `AUTOMATED_PROJECTION_CHECKPOINT` only. It is not the first real
+manual functional acceptance: it does not claim a provider evidence loading,
+Task 10 freshness/identity producer, Snapshot, Preview, publication, or live
+Futu workflow. `FIRST_REAL_MANUAL_FUNCTIONAL_TEST_AFTER_TASK=15` remains
+unchanged, and `MANUAL_UI_TEST_REQUIRED_AFTER_TASK_7=NO`.

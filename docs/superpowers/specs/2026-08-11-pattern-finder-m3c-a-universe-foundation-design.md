@@ -392,7 +392,7 @@ Draft 可以反复修改和预览，因为它不是正式历史。Draft：
 | Sector | M3C-A 不生成顶层 Sector | 保存原始 Industry/Plate evidence；`sector_mapping_version=null` | CORE v1 为 ALL，该级 PASS |
 | Suspension | snapshot `suspension` | Task 10 Active Status mapping 的显式高优先级输入 | `true` 固定为 FAIL / `SUSPENDED_AS_OF_SNAPSHOT` |
 | Security Status | snapshot `sec_status` | Task 10 依据 provider/version-specific mapping 规范化；Task 6 不解析 raw enum | 新枚举、null、mapping 不完整均为 UNKNOWN，不得 PASS |
-| Provider Time | `update_time` + OpenD server time | Task 10 attempt-level completeness/freshness gate | stale、缺失、不可解析、不一致或 delay class 不合格则 FAILED/INCOMPLETE |
+| Provider Time | snapshot `update_time`（US 按 `America/New_York` 解释）+ OpenD server time + `get_market_state(code)` | Task 10 attempt-level completeness/freshness gate | stale、缺失、不可解析、DST 不明确、状态不一致或 quote-right/delay 未资格确认则 `FAILED/INCOMPLETE` |
 
 ### 10.2 候选枚举规则
 
@@ -723,6 +723,56 @@ Task 6 先定义 consumer contract、独立字段判定、固定 S1-S9 顺序、
 
 Task 6 测试可以使用 deterministic fixtures 构造 prerequisites；在 Task 10 producer 与资格确认完成前，只能声称 pure evaluator contract 通过，不能声称 end-to-end Universe classification/membership 已可用于生产。freshness 是 Task 10 attempt-level prerequisite，不加入 Task 6 per-security S1-S9。
 
+### 15.4 Task 10 Qualification Contract Amendment（2026-08-21）
+
+本 amendment 覆盖此前对 Futu Active、freshness 与 classification authority 的任何冲突性表述；它不修改 CORE v1 门槛、Task 6 的纯 consumer 边界或 `delisting` / `suspension` guards。
+
+#### A. Active Status：exact-value、exact-version qualification
+
+`market_snapshot.sec_status` 的正式类型是 `SecurityStatus`；官方 enum 将 `SecurityStatus.NORMAL` 定义为 Normal status。snapshot `suspension` 和 static basic-info `delisting` 都是 bool。Futu `NORMAL` 因而不是跨版本默认 PASS，而只是下述固定资格链全部一致时可登记的 PASS candidate。
+
+资格链必须同时冻结并由 `QualifiedActiveStatusMapping` 的 immutable references/hash 指向：
+
+```text
+live provider sample (raw response)
++ exact SDK version + exact OpenD/provider version
++ SDK enum introspection captured from that SDK distribution
++ Futu official documentation for the raw field and enum
+```
+
+当前已取得的 tiny-sample qualification metadata 是 `FUTU_SDK_VERSION=10.09.6908`、`OPEND_SERVER_VERSION=1009`、`US.AAPL`，其中 `sec_status=NORMAL`、`delisting=False`、`suspension=False`。这使 `NORMAL` 仅能作为 `FUTU / sdk-10.09.6908 + OpenD-1009 / <explicit mapping_version>` 的 PASS candidate；正式 mapping 必须包含上述每一项 immutable qualification reference、qualification timestamp 和 canonical hash。SDK version 单独不是完整 provider version binding。
+
+`QualifiedActiveStatusMapping` 必须把 `provider_sdk_version` 与 `opend_server_version` 作为两个独立、non-empty、exact-match 的 immutable fields 纳入 canonical hash；不得把 OpenD version 丢在 attempt-only provenance 后再以 SDK version 单独匹配 mapping。旧有单一 `provider_version` 表述在实现时必须迁移为该双版本 binding。
+
+禁止 wildcard、fallback、default PASS 或由 enum 名字相似性推导 PASS。新 enum、未知 enum、null、空值、未登记 exact value 或任一资格证据缺失均为 `UNKNOWN / ACTIVE_STATUS_UNKNOWN / Quarantine`。`delisting=true → DELISTED` 与 `suspension=true → SUSPENDED_AS_OF_SNAPSHOT` 继续优先于任何 `sec_status` mapping。
+
+#### B. Freshness：真实 snapshot contract 与 authority
+
+US `market_snapshot.update_time` 是无 offset 的 `yyyy-MM-dd HH:mm:ss`，官方说明美股默认 US Eastern Time。Task 10 必须把它按 `America/New_York`、DST-aware 解释后转 UTC；禁止将该 naive string 视为 UTC。无法安全解析、DST ambiguity/nonexistence、与 as-of XNYS close/`observed_at_utc` 不一致都必须为 `UNIVERSE_FRESHNESS_BLOCKER`。
+
+Market Snapshot 的正式 row contract 不提供 `market_data_delay_class`、`regular_session_complete` 或 `market_session`。Task 10 不得从 snapshot 读取、伪造或测试这些字段。`get_market_state(code)` 是逐标的正式 session-state authority；`get_global_state().market_us` 只能是辅助诊断，因为 Futu 明确建议美股标的使用前者。XNYS calendar 仍唯一负责交易日和 regular-session close；`get_market_state` 不替代 calendar。
+
+quote-right/delay evidence 的原始 provider source 冻结为 Futu `QOT_RIGHT` notification 的 `us_qot_right`，并须保存 raw value、capture timestamp、SDK/OpenD version、notification/raw-record hash 和官方 reference。没有经官方 contract 与真实资格样本证明的 exact QotRight-to-delay mapping 前，任何值都不得映射为 `REALTIME`；`market_data_delay_class` 只能为 `UNKNOWN`，FORMAL attempt 保持 `FAILED/INCOMPLETE/UNIVERSE_FRESHNESS_BLOCKER`。不得以 market snapshot 伪字段取代该证据。
+
+#### C. Classification：Futu 非 subtype authority；OpenFIGI 仅为 candidate
+
+Futu `stock_type=STOCK` 加 `stock_child_type=WrtType/N/A` 只能保留为 raw discovery evidence，不能 authoritative 地把标的区分为 Common Stock、ADR、Preferred 或 Unit。因此 Futu 不得成为 CORE `COMMON_STOCK` subtype authority；在 approved Security Master 完成资格前，维持 `CLASSIFICATION_EVIDENCE_BLOCKER`。
+
+OpenFIGI v3 是候选 `SecurityMasterProvider`，尚未 approved、不得实现 API。其 mapping response 可返回 FIGI、`securityType`、`securityType2`、ticker、`exchCode` 与可选 MIC-filtered query；`securityType2` 通常比 `securityType` 粗。一个 mapping job 可返回零、一个或多个 records，故任何 zero/multi-match、identifier/exchange/MIC 冲突或字段缺失都必须 fail closed，不能用 ticker/name/suffix regex 消歧。
+
+OpenFIGI 官方 API documentation 当前对 anonymous `POST /v3/mapping` 的 batch size 有内部不一致：Rate Limits 表写 `10 jobs/request`，同页 `POST /v3/mapping → Limits` 写 `5 jobs/request`；with API key 的两处均写 `100 jobs/request`。因此 `OPENFIGI_ANON_JOB_LIMIT=UNQUALIFIED_DOCUMENTATION_CONFLICT`，不得为了实现方便任选 5 或 10，也不得把任一值冻结为正式 provider contract。未来 qualification 必须同时复核当时官方 OpenAPI/schema、真实 mapping response、`ratelimit-*` headers、以及 `413`/`429` behavior；API-key `100 jobs/request` 也只是当前文档值，仍须在正式 qualification 时复核。OpenFIGI 继续为 `RESEARCH_CANDIDATE_NOT_APPROVED`。
+
+OpenFIGI 的最小 qualification matrix 是：每一行都须保存真实 provider request/response、identifier inputs、FIGI、`securityType`、`securityType2`、ticker、exchange/MIC、source version/hash、匹配 cardinality、人工审核结论及 reference，才可逐项升级 authority：
+
+| Required class | Required qualification verdict before approval |
+|---|---|
+| Common Stock | exactly one response proves the intended Common Stock subtype |
+| ADR | exactly one response distinguishes ADR from Common Stock |
+| Preferred | exactly one response distinguishes Preferred from Common Stock |
+| Unit | exactly one response distinguishes Unit from Common Stock |
+
+任何一类未通过、含糊或未验时，OpenFIGI 仍是 `RESEARCH_CANDIDATE_NOT_APPROVED`，不能产生 CORE Common Stock PASS。
+
 ---
 
 ## 16. Universe Funnel
@@ -812,8 +862,9 @@ evidence_observed_at_utc
 | `provider` | FUTU |
 | `provider_sdk_version` | SDK 版本 |
 | `opend_server_version` | OpenD 版本 |
-| `market_data_delay_class` | 实时/延迟/未知 |
-| `active_status_mapping_provider` / `active_status_mapping_provider_version` / `active_status_mapping_version` | Task 10 qualified mapping 的精确版本绑定 |
+| `market_data_delay_evidence` | 冻结的 raw provider source/value/hash/capture time；Futu 为 `QOT_RIGHT.us_qot_right`，不是 snapshot row 字段 |
+| `market_data_delay_class` | 仅在 exact QotRight-to-delay mapping 已资格确认时的派生类别；否则 `UNKNOWN`，FORMAL Snapshot 不得 COMPLETE |
+| `active_status_mapping_provider` / `active_status_mapping_provider_sdk_version` / `active_status_mapping_opend_server_version` / `active_status_mapping_version` | Task 10 qualified mapping 的精确双版本绑定 |
 | `active_status_mapping_qualified_at_utc` | mapping qualification 时间 |
 | `active_status_mapping_qualification_references` | 不可变 qualification evidence references |
 | `active_status_mapping_sha256` | 完整 `QualifiedActiveStatusMapping` 的 canonical hash |
@@ -1328,6 +1379,18 @@ Futu 顶层 SecurityType 不能独立证明 `STOCK` 是 Common、ADR、Preferred
 
 Futu Industry/Plate 不天然等同于稳定顶层 Sector。CORE v1 为 ALL，不影响当前成员；未来启用 Sector/Industry 筛选前必须冻结映射版本和未映射处理。
 
+### HIGH-4 — Futu qualification contract amendment / Task 10 PR #19
+
+Task 10 PR #19 的自动化实现和 fixture tests 在真实 Futu tiny sample 前完成。它错误地把 `market_data_delay_class`、`regular_session_complete` 与 `market_session` 当作 Market Snapshot row fields，并把 update timestamp 按带 offset/UTC 的形状使用；真实 contract 不提供前述三字段，US `update_time` 也无 offset。因此 PR #19 不得合并为 FORMAL-ready Task 10。
+
+amendment 获批后的最小修复范围是：
+
+1. **Task 9 adapter**：仍只做 raw acquisition；新增/冻结 `get_market_state(code)` response 和 QOT_RIGHT `us_qot_right` capture 的 raw batch/notification evidence，连同 OpenD version。此修改属于 Task 9，是因为 adapter 是唯一外部 API/raw-record owner；Task 10 不可绕过 adapter 直接调用 SDK。
+2. **Task 10 gateway**：以 `America/New_York` 正确解析 US `update_time`、使用 Task 9 的 per-security market state 与 XNYS calendar、移除三个不存在的 snapshot-field 依赖、将 unqualified quote-right/delay fail closed，并将 Active mapping binding 扩展为 SDK + OpenD exact version qualification。
+3. **Task 10 tests**：删除虚构 snapshot fields 的 fixture authority，加入真实 row shape、DST-aware parsing、per-security market state、unqualified QotRight block、SDK/OpenD-bound NORMAL candidate 和 full qualification-reference assertions。
+
+这是未来已批准 amendment 的 code scope 说明，不授权本 docs-only PR 修改 `src/`、`tests/`、`app/` 或 `data/`，也不启动 Task 11。
+
 ### 非 BLOCKER 的已知限制
 
 - M3C-A 不下载千股历史日线；
@@ -1348,7 +1411,11 @@ Futu Industry/Plate 不天然等同于稳定顶层 Sector。CORE v1 为 ALL，�
 - Historical Candlesticks：<https://openapi.futunn.com/futu-api-doc/en/quote/request-history-kline.html>
 - Owner Plate：<https://openapi.futunn.com/futu-api-doc/en/quote/get-owner-plate.html>
 - Quote Definitions：<https://openapi.futunn.com/futu-api-doc/en/quote/quote.html>
+- Get Market State：<https://openapi.futunn.com/futu-api-doc/en/quote/get-market-state.html>
+- Get Global State：<https://openapi.futunn.com/futu-api-doc/en/quote/get-global-state.html>
+- Basic Functions / QOT_RIGHT notification：<https://openapi.futunn.com/futu-api-doc/en/ftapi/init.html>
 - Authorities and Quota：<https://openapi.futunn.com/futu-api-doc/en/intro/authority.html>
+- OpenFIGI API v3 candidate contract：<https://www.openfigi.com/api/documentation>
 
 实现时必须记录实际 SDK/OpenD 版本并以 adapter contract test 复核这些字段；网页文档版本变化不能自动改变旧 Profile 或 Snapshot 语义。
 

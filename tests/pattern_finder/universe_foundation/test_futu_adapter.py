@@ -54,13 +54,35 @@ class FakeContext:
         self.sdk.snapshot_requests.append(tuple(codes))
         return self.sdk.next_result("snapshot")
 
+    def get_market_state(self, codes: list[str]):
+        self.sdk.market_state_requests.append(tuple(codes))
+        return self.sdk.next_result("market_state")
+
     def get_owner_plate(self, codes: list[str]):
         self.sdk.plate_requests.append(tuple(codes))
         return self.sdk.next_result("plate")
 
+    def get_global_state(self):
+        self.sdk.global_state_requests += 1
+        return self.sdk.next_result("global_state")
+
+    def set_handler(self, handler: object) -> None:
+        self.sdk.handlers.append(handler)
+        for notification in self.sdk.notifications.pop(0) if self.sdk.notifications else ():
+            handler.on_recv_rsp(notification)  # type: ignore[attr-defined]
+        return self.sdk.handler_result
+
 
 class FakeSdk:
     RET_OK = 0
+    __version__ = "10.09.6908"
+
+    class SysNotifyType:
+        QOT_RIGHT = "QOT_RIGHT"
+
+    class SysNotifyHandlerBase:
+        def on_recv_rsp(self, notification: object):
+            return 0, notification
 
     class Market:
         US = "US"
@@ -116,12 +138,19 @@ class FakeSdk:
         self.discovery_requests: list[dict[str, object]] = []
         self.screen_requests: list[dict[str, object]] = []
         self.snapshot_requests: list[tuple[str, ...]] = []
+        self.market_state_requests: list[tuple[str, ...]] = []
         self.plate_requests: list[tuple[str, ...]] = []
+        self.global_state_requests = 0
+        self.handlers: list[object] = []
+        self.notifications: list[list[object]] = []
+        self.handler_result = 0
         self.results: dict[str, list[object]] = {
             "discovery": [],
             "screen": [],
             "snapshot": [],
+            "market_state": [],
             "plate": [],
+            "global_state": [],
         }
 
     def OpenQuoteContext(self) -> FakeContext:
@@ -282,6 +311,38 @@ def test_market_snapshot_batches_400_400_and_remainder() -> None:
     assert [batch.batch_index for batch in batches] == [1, 2, 3]
 
 
+def test_market_states_batches_400_400_and_remainder_with_raw_unknown_values() -> None:
+    sdk = FakeSdk()
+    codes = [f"US.{index:04d}" for index in range(850)]
+    sdk.results["market_state"] = [
+        _ok({"rows": [{"code": "US.0000", "stock_name": None, "market_state": "NEW_STATE"}]}),
+        _ok({"rows": []}),
+        _ok({"rows": []}),
+    ]
+
+    batches = _adapter(sdk).market_states(codes)
+
+    assert [len(request) for request in sdk.market_state_requests] == [400, 400, 50]
+    assert [batch.batch_index for batch in batches] == [1, 2, 3]
+    assert batches[0].endpoint == "market_states"
+    assert batches[0].raw_response["rows"][0] == {
+        "code": "US.0000",
+        "stock_name": None,
+        "market_state": "NEW_STATE",
+    }
+    assert all(context.closed for context in sdk.contexts)
+
+
+def test_market_states_provider_error_closes_context() -> None:
+    sdk = FakeSdk()
+    sdk.results["market_state"] = [(1, "permission denied")]
+
+    with pytest.raises(FutuProviderError, match="market_states.*ret_code=1"):
+        _adapter(sdk).market_states(["US.AAA"])
+
+    assert sdk.contexts[0].closed is True
+
+
 def test_owner_plates_batches_200_and_remainder() -> None:
     sdk = FakeSdk()
     codes = [f"US.{index:04d}" for index in range(250)]
@@ -303,6 +364,152 @@ def test_market_snapshot_rate_limit_is_60_requests_per_30_seconds() -> None:
 
     assert len(sdk.snapshot_requests) == 61
     assert clock.sleeps == [30.0]
+
+
+def test_market_state_rate_limit_is_10_requests_per_30_seconds() -> None:
+    sdk = FakeSdk()
+    sdk.results["market_state"] = [_ok({"rows": []})] * 11
+    clock = FakeClock()
+    adapter = _adapter(sdk, clock)
+
+    for _ in range(11):
+        adapter.market_states(["US.AAA"])
+
+    assert len(sdk.market_state_requests) == 11
+    assert clock.sleeps == [30.0]
+
+
+def test_market_state_limiter_is_independent_from_market_snapshot_limiter() -> None:
+    sdk = FakeSdk()
+    sdk.results["market_state"] = [_ok({"rows": []})] * 10
+    sdk.results["snapshot"] = [_ok({"rows": []})]
+    clock = FakeClock()
+    adapter = _adapter(sdk, clock)
+
+    for _ in range(10):
+        adapter.market_states(["US.AAA"])
+    adapter.market_snapshots(["US.AAA"])
+
+    assert clock.sleeps == []
+    assert len(sdk.snapshot_requests) == 1
+
+
+def test_market_snapshots_preserve_real_rows_without_synthetic_freshness_fields() -> None:
+    sdk = FakeSdk()
+    sdk.results["snapshot"] = [
+        _ok({
+            "rows": [{
+                "code": "US.AAA",
+                "update_time": "2026-08-21 10:24:27",
+                "sec_status": "NORMAL",
+                "suspension": None,
+            }]
+        })
+    ]
+
+    row = _adapter(sdk).market_snapshots(["US.AAA"])[0].raw_response["rows"][0]
+
+    assert row["update_time"] == "2026-08-21 10:24:27"
+    assert row["sec_status"] == "NORMAL"
+    assert row["suspension"] is None
+    assert {"market_data_delay_class", "regular_session_complete", "market_session"}.isdisjoint(row)
+
+
+def test_collect_runtime_evidence_records_sdk_global_state_and_one_qot_right_event() -> None:
+    sdk = FakeSdk()
+    sdk.results["global_state"] = [_ok({"server_ver": "1009", "market_us": "MORNING"})]
+    sdk.notifications = [[("QOT_RIGHT", "UNCHANGED", {"us_qot_right": "NEW_RIGHT", "cn_qot_right": "CN"})]]
+    clock = FakeClock()
+
+    batches = _adapter(sdk, clock).collect_runtime_evidence(notification_window_seconds=0.5)
+
+    assert [batch.endpoint for batch in batches] == [
+        "runtime_sdk_version",
+        "global_state",
+        "qot_right_capture",
+    ]
+    assert batches[0].raw_response == {"sdk_version": "10.09.6908"}
+    assert batches[1].raw_response == {"server_ver": "1009", "market_us": "MORNING"}
+    assert batches[2].raw_request == {"notification_window_seconds": {"__float_repr__": "0.5"}}
+    assert batches[2].raw_response == {
+        "events": ({
+            "notify_type": "QOT_RIGHT",
+            "sub_type": "UNCHANGED",
+            "msg": {"us_qot_right": "NEW_RIGHT", "cn_qot_right": "CN"},
+        },)
+    }
+    assert clock.sleeps == [0.5]
+    assert sdk.global_state_requests == 1
+    assert sdk.contexts[0].closed is True
+
+
+def test_collect_runtime_evidence_preserves_event_order_unknown_values_and_empty_observations() -> None:
+    sdk = FakeSdk()
+    sdk.results["global_state"] = [_ok({"server_ver": "1009"}), _ok({"server_ver": "1010"})]
+    sdk.notifications = [
+        [
+            ("QOT_RIGHT", "FIRST", {"us_qot_right": "UNKNOWN_NEW_VALUE"}),
+            ("QOT_RIGHT", "SECOND", {"us_qot_right": None}),
+        ],
+        [],
+    ]
+    adapter = _adapter(sdk)
+
+    first = adapter.collect_runtime_evidence(notification_window_seconds=0)
+    second = adapter.collect_runtime_evidence(notification_window_seconds=0)
+
+    assert [event["sub_type"] for event in first[2].raw_response["events"]] == ["FIRST", "SECOND"]
+    assert first[2].raw_response["events"][0]["msg"]["us_qot_right"] == "UNKNOWN_NEW_VALUE"
+    assert first[2].raw_response["events"][1]["msg"]["us_qot_right"] is None
+    assert second[2].raw_response == {"events": ()}
+    assert first[1].response_hash != second[1].response_hash
+    assert all(context.closed for context in sdk.contexts)
+
+
+def test_runtime_evidence_hashes_are_deterministic_and_sensitive_to_sdk_window_and_events() -> None:
+    def evidence(*, sdk_version: str, window: float, right: str) -> tuple[RawApiBatch, ...]:
+        sdk = FakeSdk()
+        sdk.__version__ = sdk_version
+        sdk.results["global_state"] = [_ok({"server_ver": "1009"})]
+        sdk.notifications = [[("QOT_RIGHT", "EVENT", {"us_qot_right": right})]]
+        return _adapter(sdk).collect_runtime_evidence(notification_window_seconds=window)
+
+    first = evidence(sdk_version="10.09.6908", window=1.0, right="RIGHT_A")
+    same = evidence(sdk_version="10.09.6908", window=1.0, right="RIGHT_A")
+    changed_sdk = evidence(sdk_version="10.10.7008", window=1.0, right="RIGHT_A")
+    changed_window = evidence(sdk_version="10.09.6908", window=2.0, right="RIGHT_A")
+    changed_event = evidence(sdk_version="10.09.6908", window=1.0, right="RIGHT_B")
+
+    assert [batch.response_hash for batch in first] == [batch.response_hash for batch in same]
+    assert first[0].response_hash != changed_sdk[0].response_hash
+    assert first[2].request_hash != changed_window[2].request_hash
+    assert first[2].response_hash != changed_event[2].response_hash
+
+
+def test_collect_runtime_evidence_requires_a_nonnegative_explicit_window_and_closes_on_error() -> None:
+    sdk = FakeSdk()
+    adapter = _adapter(sdk)
+
+    for invalid_window in (-1, float("nan"), float("inf"), float("-inf")):
+        with pytest.raises(ValueError, match="notification_window_seconds"):
+            adapter.collect_runtime_evidence(notification_window_seconds=invalid_window)
+
+    sdk.results["global_state"] = [(1, "permission denied")]
+    with pytest.raises(FutuProviderError, match="global_state.*ret_code=1"):
+        adapter.collect_runtime_evidence(notification_window_seconds=0)
+
+    assert sdk.contexts[0].closed is True
+
+
+def test_collect_runtime_evidence_closes_context_when_handler_registration_fails() -> None:
+    sdk = FakeSdk()
+    sdk.handler_result = 1
+
+    with pytest.raises(FutuProviderError, match="QOT_RIGHT handler"):
+        _adapter(sdk).collect_runtime_evidence(notification_window_seconds=0)
+
+    assert sdk.global_state_requests == 0
+    assert sdk.contexts[0].closed is True
 
 
 def test_owner_plate_rate_limit_is_10_requests_per_30_seconds() -> None:
@@ -362,6 +569,8 @@ def test_adapter_has_no_universe_or_detector_business_owner() -> None:
         "UniverseSnapshot",
         "UniverseSnapshotStore",
         "detect_flat_base",
+        "UNIVERSE_FRESHNESS_BLOCKER",
+        "market_data_delay_class",
     }
 
     names = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}

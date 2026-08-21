@@ -8,6 +8,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from math import isfinite
 from types import MappingProxyType
 from typing import Any
 
@@ -150,6 +151,11 @@ class FutuProviderAdapter:
         max_requests=60,
         window_seconds=30.0,
     )
+    MARKET_STATE_POLICY = RatePolicy(
+        max_items=400,
+        max_requests=10,
+        window_seconds=30.0,
+    )
     OWNER_PLATE_POLICY = RatePolicy(
         max_items=200,
         max_requests=10,
@@ -177,6 +183,9 @@ class FutuProviderAdapter:
         self._sleep = sleep
         self._market_limiter = _SlidingWindowLimiter(
             self.MARKET_SNAPSHOT_POLICY, clock, sleep
+        )
+        self._market_state_limiter = _SlidingWindowLimiter(
+            self.MARKET_STATE_POLICY, clock, sleep
         )
         self._owner_limiter = _SlidingWindowLimiter(
             self.OWNER_PLATE_POLICY, clock, sleep
@@ -420,6 +429,117 @@ class FutuProviderAdapter:
             return tuple(batches)
         finally:
             context.close()
+
+    def market_states(self, codes: Sequence[str]) -> tuple[RawApiBatch, ...]:
+        """Acquire raw per-security market state without interpreting its enum."""
+        chunks = self._chunks(codes, self.MARKET_STATE_POLICY.max_items)
+        if not chunks:
+            return ()
+        context = self._open_context()
+        try:
+            batches: list[RawApiBatch] = []
+            for batch_index, chunk in enumerate(chunks, start=1):
+                request = {"codes": list(chunk)}
+                result = self._request(
+                    endpoint="market_states",
+                    context=context,
+                    invoke=lambda chunk=chunk: context.get_market_state(list(chunk)),
+                    limiter=self._market_state_limiter,
+                )
+                batches.append(
+                    self._batch(
+                        endpoint="market_states",
+                        batch_index=batch_index,
+                        request=request,
+                        result=result,
+                    )
+                )
+            return tuple(batches)
+        finally:
+            context.close()
+
+    def collect_runtime_evidence(
+        self,
+        *,
+        notification_window_seconds: float,
+    ) -> tuple[RawApiBatch, ...]:
+        """Capture raw SDK, OpenD, and QOT_RIGHT observations in one context."""
+        if isinstance(notification_window_seconds, bool) or not isinstance(
+            notification_window_seconds, (int, float)
+        ):
+            raise ValueError("notification_window_seconds must be a nonnegative number")
+
+        window = float(notification_window_seconds)
+        if not isfinite(window) or window < 0:
+            raise ValueError("notification_window_seconds must be a nonnegative finite number")
+        sdk_version = getattr(self._sdk, "__version__", None)
+        if not isinstance(sdk_version, str) or not sdk_version:
+            raise FutuProviderError("Futu runtime SDK version is unavailable")
+
+        events: list[Mapping[str, Any]] = []
+        context = self._open_context()
+        try:
+            handler_result = context.set_handler(self._qot_right_handler(events))
+            if handler_result != self._ret_ok():
+                raise FutuProviderError("Futu QOT_RIGHT handler registration failed")
+            runtime_batch = self._batch(
+                endpoint="runtime_sdk_version",
+                batch_index=1,
+                request={},
+                result=(self._ret_ok(), {"sdk_version": sdk_version}),
+            )
+            global_state = self._request(
+                endpoint="global_state",
+                context=context,
+                invoke=context.get_global_state,
+            )
+            global_batch = self._batch(
+                endpoint="global_state",
+                batch_index=1,
+                request={},
+                result=global_state,
+            )
+            self._sleep(window)
+            qot_right_batch = self._batch(
+                endpoint="qot_right_capture",
+                batch_index=1,
+                request={"notification_window_seconds": window},
+                result=(self._ret_ok(), {"events": events}),
+            )
+            return runtime_batch, global_batch, qot_right_batch
+        finally:
+            context.close()
+
+    def _qot_right_handler(self, events: list[Mapping[str, Any]]) -> Any:
+        handler_base = getattr(self._sdk, "SysNotifyHandlerBase", None)
+        notify_types = getattr(self._sdk, "SysNotifyType", None)
+        qot_right_type = getattr(notify_types, "QOT_RIGHT", None)
+        if not isinstance(handler_base, type) or qot_right_type is None:
+            raise FutuProviderError("Futu runtime does not expose QOT_RIGHT notifications")
+        adapter = self
+
+        class QotRightHandler(handler_base):
+            def on_recv_rsp(self, response: Any) -> Any:
+                result = super().on_recv_rsp(response)
+                if not isinstance(result, tuple) or len(result) != 2:
+                    return result
+                ret_code, data = result
+                if ret_code != adapter._ret_ok():
+                    return result
+                if not isinstance(data, tuple) or len(data) != 3:
+                    return result
+                notify_type, sub_type, message = data
+                if notify_type == qot_right_type:
+                    events.append(
+                        {
+                            "notify_type": notify_type,
+                            "sub_type": sub_type,
+                            "msg": message,
+                        }
+                    )
+                return result
+
+        return QotRightHandler()
 
     def owner_plates(self, codes: Sequence[str]) -> tuple[RawApiBatch, ...]:
         chunks = self._chunks(codes, self.OWNER_PLATE_POLICY.max_items)

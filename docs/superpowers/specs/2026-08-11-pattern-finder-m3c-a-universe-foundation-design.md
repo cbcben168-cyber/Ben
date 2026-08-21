@@ -392,7 +392,7 @@ Draft 可以反复修改和预览，因为它不是正式历史。Draft：
 | Sector | M3C-A 不生成顶层 Sector | 保存原始 Industry/Plate evidence；`sector_mapping_version=null` | CORE v1 为 ALL，该级 PASS |
 | Suspension | snapshot `suspension` | Task 10 Active Status mapping 的显式高优先级输入 | `true` 固定为 FAIL / `SUSPENDED_AS_OF_SNAPSHOT` |
 | Security Status | snapshot `sec_status` | Task 10 依据 provider/version-specific mapping 规范化；Task 6 不解析 raw enum | 新枚举、null、mapping 不完整均为 UNKNOWN，不得 PASS |
-| Provider Time | snapshot `update_time`（US 按 `America/New_York` 解释）+ OpenD server time + `get_market_state(code)` | Task 10 attempt-level completeness/freshness gate | stale、缺失、不可解析、DST 不明确、状态不一致或 quote-right/delay 未资格确认则 `FAILED/INCOMPLETE` |
+| Provider Time | snapshot `update_time`（US 按 `America/New_York` 解释）+ Task 9 `market_states(codes)` raw batches；Task 9 captured OpenD server time / `global_state` 仅作诊断证据 | Task 10 attempt-level completeness/freshness gate | stale、缺失、不可解析、DST 不明确、状态不一致或 quote-right/delay 未资格确认则 `FAILED/INCOMPLETE` |
 
 ### 10.2 候选枚举规则
 
@@ -750,11 +750,43 @@ live provider sample (raw response)
 
 US `market_snapshot.update_time` 是无 offset 的 `yyyy-MM-dd HH:mm:ss`，官方说明美股默认 US Eastern Time。Task 10 必须把它按 `America/New_York`、DST-aware 解释后转 UTC；禁止将该 naive string 视为 UTC。无法安全解析、DST ambiguity/nonexistence、与 as-of XNYS close/`observed_at_utc` 不一致都必须为 `UNIVERSE_FRESHNESS_BLOCKER`。
 
-Market Snapshot 的正式 row contract 不提供 `market_data_delay_class`、`regular_session_complete` 或 `market_session`。Task 10 不得从 snapshot 读取、伪造或测试这些字段。`get_market_state(code)` 是逐标的正式 session-state authority；`get_global_state().market_us` 只能是辅助诊断，因为 Futu 明确建议美股标的使用前者。XNYS calendar 仍唯一负责交易日和 regular-session close；`get_market_state` 不替代 calendar。
+Market Snapshot 的正式 row contract 不提供 `market_data_delay_class`、`regular_session_complete` 或 `market_session`。Task 10 不得从 snapshot 读取、伪造或测试这些字段。Task 9 `market_states(codes)` raw batches 是逐标的正式 session-state authority；Task 9 captured `global_state` / OpenD server-time evidence 只能是辅助诊断。Task 10 必须消费这些 adapter outputs，不得直接调用 `get_market_state`、`get_global_state` 或 `set_handler`。XNYS calendar 仍唯一负责交易日和 regular-session close；Task 9 market-state evidence 不替代 calendar。
 
 quote-right/delay evidence 的原始 provider source 冻结为 Futu `QOT_RIGHT` notification 的 `us_qot_right`，并须保存 raw value、capture timestamp、SDK/OpenD version、notification/raw-record hash 和官方 reference。没有经官方 contract 与真实资格样本证明的 exact QotRight-to-delay mapping 前，任何值都不得映射为 `REALTIME`；`market_data_delay_class` 只能为 `UNKNOWN`，FORMAL attempt 保持 `FAILED/INCOMPLETE/UNIVERSE_FRESHNESS_BLOCKER`。不得以 market snapshot 伪字段取代该证据。
 
-#### C. Classification：Futu 非 subtype authority；OpenFIGI 仅为 candidate
+#### C. Runtime evidence window：Task 9 raw acquisition 与 Task 10 attempt binding
+
+Task 9 冻结的原始采集接口是：
+
+```python
+collect_runtime_evidence(
+    *,
+    notification_window_seconds: float,
+) -> tuple[RawApiBatch, ...]
+```
+
+`notification_window_seconds` 必须 keyword-only、显式传入、无 production default、拒绝 `bool`、finite 且 `>= 0`。Task 9 不得从 `sleep`、clock 或其他隐式行为推断、默认、延长、缩短或改写该窗口。它是唯一的 raw acquisition owner，并且只采集固定 `runtime_sdk_version`、`global_state` 和 `qot_right_capture` evidence；Task 10 不得绕过 adapter 直接调用 `get_market_state`、`get_global_state` 或 `set_handler`。
+
+Task 10 的正式入口冻结为：
+
+```python
+collect(
+    *,
+    as_of_session: date,
+    observed_at_utc: datetime,
+    classification_provider: SecurityMasterProvider,
+    active_status_mapping: QualifiedActiveStatusMapping,
+    runtime_evidence_window_seconds: float,
+) -> GatewayAttempt
+```
+
+`runtime_evidence_window_seconds` 必须 keyword-only、required、无 default、拒绝 `bool`、finite 且 `>= 0`。Task 10 必须原样消费 Task 9 `market_states(codes)`，并且只能以 `collect_runtime_evidence(notification_window_seconds=runtime_evidence_window_seconds)` 把该值原样传给 Task 9；不得自行延长、缩短、改写或隐式推断窗口。
+
+`GatewayAttempt` 必须把 `runtime_evidence_window_seconds: float` 保存为 immutable attempt-acquisition field，并纳入 `attempt_id` / canonical attempt hash。改变 capture window 必须改变 attempt identity/hash，因为 `qot_right_capture.events == []` 只表示 `NO_QOT_RIGHT_EVENT_OBSERVED_DURING_CAPTURE_WINDOW`：0 秒未收到和 5 秒未收到是不同 acquisition observations。`GatewayPreflight` 可以消费对应 raw runtime evidence，但不得成为第二个配置 owner，不得重新定义或默认该窗口。
+
+无论 `qot_right_capture.events` 为空或非空，Task 10 均不得只凭 raw value 推出 `REALTIME`、`DELAYED` 或 `NO_RIGHT`。只有后续 approved mapping 同时 exact bind SDK version、OpenD version、raw `us_qot_right` value、official/provider qualification evidence 和 mapping version 时，才可派生 delay class；本 amendment 不批准该 mapping。否则 `market_data_delay_class = UNKNOWN` 且 FORMAL 必须 `FAILED/INCOMPLETE/UNIVERSE_FRESHNESS_BLOCKER`。
+
+#### D. Classification：Futu 非 subtype authority；OpenFIGI 仅为 candidate
 
 Futu `stock_type=STOCK` 加 `stock_child_type=WrtType/N/A` 只能保留为 raw discovery evidence，不能 authoritative 地把标的区分为 Common Stock、ADR、Preferred 或 Unit。因此 Futu 不得成为 CORE `COMMON_STOCK` subtype authority；在 approved Security Master 完成资格前，维持 `CLASSIFICATION_EVIDENCE_BLOCKER`。
 
@@ -1385,9 +1417,9 @@ Task 10 PR #19 的自动化实现和 fixture tests 在真实 Futu tiny sample �
 
 amendment 获批后的最小修复范围是：
 
-1. **Task 9 adapter**：仍只做 raw acquisition；新增/冻结 `get_market_state(code)` response 和 QOT_RIGHT `us_qot_right` capture 的 raw batch/notification evidence，连同 OpenD version。此修改属于 Task 9，是因为 adapter 是唯一外部 API/raw-record owner；Task 10 不可绕过 adapter 直接调用 SDK。
-2. **Task 10 gateway**：以 `America/New_York` 正确解析 US `update_time`、使用 Task 9 的 per-security market state 与 XNYS calendar、移除三个不存在的 snapshot-field 依赖、将 unqualified quote-right/delay fail closed，并将 Active mapping binding 扩展为 SDK + OpenD exact version qualification。
-3. **Task 10 tests**：删除虚构 snapshot fields 的 fixture authority，加入真实 row shape、DST-aware parsing、per-security market state、unqualified QotRight block、SDK/OpenD-bound NORMAL candidate 和 full qualification-reference assertions。
+1. **Task 9 adapter**：仍只做 raw acquisition；冻结 `market_states(codes)` 和 `collect_runtime_evidence(*, notification_window_seconds)`。后者以 caller-supplied、无 default、non-bool finite `>= 0` window 采集 `runtime_sdk_version`、`global_state` 和 QOT_RIGHT `us_qot_right` 的 raw batch/notification evidence，连同 OpenD version；不得分配 delay class。此修改属于 Task 9，是因为 adapter 是唯一外部 API/raw-record owner；Task 10 不可绕过 adapter 直接调用 SDK。
+2. **Task 10 gateway**：rebase/update PR #19 到 latest Base；以 `America/New_York` 正确解析 US `update_time`、使用 Task 9 的 `market_states(codes)` 与 XNYS calendar、移除三个不存在的 snapshot-field 依赖、将 unqualified quote-right/delay fail closed，并将 Active mapping binding 扩展为 SDK + OpenD exact version qualification。其 `collect()` 必须增加 required `runtime_evidence_window_seconds`，原样传给 Task 9，且把它保存到 immutable `GatewayAttempt` 和 attempt hash；不得改变 Task 9 raw semantics。
+3. **Task 10 tests**：删除虚构 snapshot fields 的 fixture authority，加入真实 row shape、DST-aware parsing、per-security market state、Task 9 runtime evidence handoff、required/default-free/non-bool/finite/non-negative window、attempt identity/hash window sensitivity、QOT_RIGHT no-event window semantics、unqualified QotRight block、SDK/OpenD-bound NORMAL candidate 和 full qualification-reference assertions。
 
 这是未来已批准 amendment 的 code scope 说明，不授权本 docs-only PR 修改 `src/`、`tests/`、`app/` 或 `data/`，也不启动 Task 11。
 

@@ -31,6 +31,13 @@ from .evaluator import (
     evaluate_security,
 )
 from .funnel import FunnelStage, UniverseFunnel, build_funnel, funnel_sha256
+from .futu_adapter import (
+    FutuProviderAdapter,
+    FutuProviderError,
+    RatePolicy,
+    RawApiBatch,
+    RawApiPage,
+)
 from .profiles import (
     Exchange,
     ProfileKind,
@@ -74,6 +81,8 @@ __all__ = (
     "EvidenceReference",
     "FieldDecision",
     "FunnelStage",
+    "FutuProviderAdapter",
+    "FutuProviderError",
     "LiquidityEvidence",
     "ListingHistoryEvidence",
     "ProfileAvailabilityAction",
@@ -83,6 +92,9 @@ __all__ = (
     "ProfileRegistry",
     "ProfileUiState",
     "RecordState",
+    "RatePolicy",
+    "RawApiBatch",
+    "RawApiPage",
     "RawIndustryEvidence",
     "RawPlateEvidence",
     "NormalizedPrerequisiteDecision",

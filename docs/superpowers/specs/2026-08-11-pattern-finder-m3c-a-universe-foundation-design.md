@@ -392,7 +392,7 @@ Draft 可以反复修改和预览，因为它不是正式历史。Draft：
 | Sector | M3C-A 不生成顶层 Sector | 保存原始 Industry/Plate evidence；`sector_mapping_version=null` | CORE v1 为 ALL，该级 PASS |
 | Suspension | snapshot `suspension` | Task 10 Active Status mapping 的显式高优先级输入 | `true` 固定为 FAIL / `SUSPENDED_AS_OF_SNAPSHOT` |
 | Security Status | snapshot `sec_status` | Task 10 依据 provider/version-specific mapping 规范化；Task 6 不解析 raw enum | 新枚举、null、mapping 不完整均为 UNKNOWN，不得 PASS |
-| Provider Time | snapshot `update_time`（US 按 `America/New_York` 解释）+ Task 9 `market_states(codes)` raw batches；Task 9 captured OpenD server time / `global_state` 仅作诊断证据 | Task 10 attempt-level completeness/freshness gate | stale、缺失、不可解析、DST 不明确、状态不一致或 quote-right/delay 未资格确认则 `FAILED/INCOMPLETE` |
+| Provider Time / current capability | snapshot `update_time`（US 按 `America/New_York` 解释）+ Task 9 `market_states(codes)` raw batches + quota-safe `SubType.QUOTE` subscription probe；OpenD server time / `global_state` 与 QOT_RIGHT change notification 均仅作诊断/audit evidence | Task 10 attempt-level completeness/freshness gate | stale、缺失、不可解析、DST 不明确、market-state consistency 未资格化/不一致或 realtime probe UNKNOWN 则 `FAILED/INCOMPLETE` |
 
 ### 10.2 候选枚举规则
 
@@ -432,7 +432,7 @@ market_data_delay_class
 
 盘中操作只能产生 `PREVIEW / PROVISIONAL`，不能发布正式 Snapshot。价格和市值必须来自同一采集窗口；不得把昨日价格与今日市值混合。
 
-Task 10 是 evidence/provider freshness 的唯一 owner。它使用上述四个时间/延迟字段，按照冻结的“最新完整 XNYS 常规交易日、同一采集窗口、delay class 合格”policy 判断 attempt eligibility。stale、timestamp 缺失/不可解析/不一致或 provider delay 不满足要求时，attempt 必须 `FAILED / INCOMPLETE / UNIVERSE_FRESHNESS_BLOCKER`，不得进入可发布 Universe Snapshot。Task 6 不读取当前时间、不计算 age、不解释 provider delay，也不执行 trading-session freshness 计算；`EvidenceProvenance.observed_at_utc` 在 Task 6 中仅供 provenance/audit 展示，绝不隐含 freshness PASS。
+Task 10 是 evidence/provider freshness 的唯一 owner。它使用上述时间、逐证券 market-state consistency 与 current realtime capability probe evidence，按照冻结的“最新完整 XNYS 常规交易日、同一采集窗口、qualified market-state consistency、每个被消费 security 的 probe capability proven” policy 判断 attempt eligibility。一个 probe 只能证明其 connection/security/subtype/time，不能授权其他证券；除非未来另有 approved、exact-version-qualified 的 provider-level code-independent entitlement contract，本 amendment 不允许一个 code 的成功使 multi-security FORMAL attempt 合格。因 quota-safe contract 禁止 full-market probe，未逐证券取得证明的 FORMAL universe attempt 必须 `FAILED / INCOMPLETE / UNIVERSE_FRESHNESS_BLOCKER`。stale、timestamp 缺失/不可解析/不一致、market-state 不一致/未资格化或必要 code 的 capability UNKNOWN 时也必须同样 fail closed。Task 6 不读取当前时间、不计算 age、不解释 provider state/capability，也不执行 trading-session freshness 计算；`EvidenceProvenance.observed_at_utc` 在 Task 6 中仅供 provenance/audit 展示，绝不隐含 freshness PASS。
 
 ---
 
@@ -723,7 +723,7 @@ Task 6 先定义 consumer contract、独立字段判定、固定 S1-S9 顺序、
 
 Task 6 测试可以使用 deterministic fixtures 构造 prerequisites；在 Task 10 producer 与资格确认完成前，只能声称 pure evaluator contract 通过，不能声称 end-to-end Universe classification/membership 已可用于生产。freshness 是 Task 10 attempt-level prerequisite，不加入 Task 6 per-security S1-S9。
 
-### 15.4 Task 10 Qualification Contract Amendment（2026-08-21）
+### 15.4 Task 10 Qualification and Freshness Authority Amendment（2026-08-22）
 
 本 amendment 覆盖此前对 Futu Active、freshness 与 classification authority 的任何冲突性表述；它不修改 CORE v1 门槛、Task 6 的纯 consumer 边界或 `delisting` / `suspension` guards。
 
@@ -740,7 +740,7 @@ live provider sample (raw response)
 + Futu official documentation for the raw field and enum
 ```
 
-当前已取得的 tiny-sample qualification metadata 是 `FUTU_SDK_VERSION=10.09.6908`、`OPEND_SERVER_VERSION=1009`、`US.AAPL`，其中 `sec_status=NORMAL`、`delisting=False`、`suspension=False`。这使 `NORMAL` 仅能作为 `FUTU / sdk-10.09.6908 + OpenD-1009 / <explicit mapping_version>` 的 PASS candidate；正式 mapping 必须包含上述每一项 immutable qualification reference、qualification timestamp 和 canonical hash。SDK version 单独不是完整 provider version binding。
+旧 tiny-sample qualification metadata 是 `FUTU_SDK_VERSION=10.09.6908`、`OPEND_SERVER_VERSION=1009`、`US.AAPL`，其中 `sec_status=NORMAL`、`delisting=False`、`suspension=False`。当前 runtime 已升级为 `FUTU_SDK_VERSION=10.10.7008`、`OPEND_SERVER_VERSION=1009`；旧 `10.09.6908 + 1009` NORMAL qualification 不能跨 SDK version 复用，且本 amendment 不创建新 mapping。下一轮只能以 `10.10.7008 + 1009` 的 live US.AAPL sample、该 SDK distribution 的 enum introspection、Futu v10.10 official documentation、`sec_status`/`delisting`/`suspension` raw evidence 及全部 qualification references/hash，建立新的 exact-version PASS candidate。SDK version 单独不是完整 provider version binding。
 
 `QualifiedActiveStatusMapping` 必须把 `provider_sdk_version` 与 `opend_server_version` 作为两个独立、non-empty、exact-match 的 immutable fields 纳入 canonical hash；不得把 OpenD version 丢在 attempt-only provenance 后再以 SDK version 单独匹配 mapping。旧有单一 `provider_version` 表述在实现时必须迁移为该双版本 binding。
 
@@ -750,9 +750,15 @@ live provider sample (raw response)
 
 US `market_snapshot.update_time` 是无 offset 的 `yyyy-MM-dd HH:mm:ss`，官方说明美股默认 US Eastern Time。Task 10 必须把它按 `America/New_York`、DST-aware 解释后转 UTC；禁止将该 naive string 视为 UTC。无法安全解析、DST ambiguity/nonexistence、与 as-of XNYS close/`observed_at_utc` 不一致都必须为 `UNIVERSE_FRESHNESS_BLOCKER`。
 
-Market Snapshot 的正式 row contract 不提供 `market_data_delay_class`、`regular_session_complete` 或 `market_session`。Task 10 不得从 snapshot 读取、伪造或测试这些字段。Task 9 `market_states(codes)` raw batches 是逐标的正式 session-state authority；Task 9 captured `global_state` / OpenD server-time evidence 只能是辅助诊断。Task 10 必须消费这些 adapter outputs，不得直接调用 `get_market_state`、`get_global_state` 或 `set_handler`。XNYS calendar 仍唯一负责交易日和 regular-session close；Task 9 market-state evidence 不替代 calendar。
+Market Snapshot 的正式 row contract 不提供 `market_data_delay_class`、`regular_session_complete` 或 `market_session`。Task 10 不得从 snapshot 读取、伪造或测试这些字段。Task 9 `market_states(codes)` 是逐证券 raw session evidence；Task 10 必须逐证券消费其实际 raw `market_state`，而不是只检查每个 code 有一行。XNYS calendar 是 latest-completed-regular-session 与 regular-session close 的唯一 authority；market state 只验证 provider 当前 state 是否与该 calendar conclusion 一致，绝不取代 calendar。
 
-quote-right/delay evidence 的原始 provider source 冻结为 Futu `QOT_RIGHT` notification 的 `us_qot_right`，并须保存 raw value、capture timestamp、SDK/OpenD version、notification/raw-record hash 和官方 reference。没有经官方 contract 与真实资格样本证明的 exact QotRight-to-delay mapping 前，任何值都不得映射为 `REALTIME`；`market_data_delay_class` 只能为 `UNKNOWN`，FORMAL attempt 保持 `FAILED/INCOMPLETE/UNIVERSE_FRESHNESS_BLOCKER`。不得以 market snapshot 伪字段取代该证据。
+`QualifiedMarketStateConsistencyContract` 是唯一名称，且由 Task 10 拥有/消费。它必须 exact-bind provider、`provider_sdk_version`、`opend_server_version`、official v10.10 reference/hash、live qualification samples、immutable mapping version、qualification references 与 canonical hash；Task 9 只保存 raw state batches，绝不解释 enum。Task 10 的 `collect()` 必须 required 接收完整 immutable contract，`GatewayAttempt` 必须嵌入完整 contract 并将其 canonical hash 纳入 attempt identity/hash。它只允许已 qualification 的 raw state 与 captured `America/New_York` time / XNYS latest-completed-regular-session relationship 通过；`AFTERNOON`、`CLOSED`、`PRE_MARKET_BEGIN`、`PRE_MARKET_END`、`AFTER_HOURS_BEGIN`、`AFTER_HOURS_END`、`OVERNIGHT` 以及任何未来 enum 都不得因名称或“有一行”而自动 safe。任一 provider/SDK/OpenD/version/hash mismatch，或每个缺失、重复、不可解析、未知、未资格化或与 calendar 不一致的 per-security state，必须 fail closed 为 `UNIVERSE_FRESHNESS_BLOCKER`，并保存 raw batch/reference；本 amendment 定义该 contract，不批准任何 mapping。
+
+Futu `SysNotifyType.QOT_RIGHT` 是 quote-right **change notification**。Task 9 继续保存 `QOT_RIGHT.us_qot_right` 的 raw value、capture timestamp、SDK/OpenD version、notification/raw-record hash 与 official reference，角色固定为 `CHANGE_EVENT_AUDIT_ONLY`，不得作为任何 GatewayAttempt 当前行情权限或 realtime capability 的唯一 authority。`qot_right_capture.events == []` 的唯一含义是 `NO_QOT_RIGHT_EVENT_OBSERVED_DURING_CAPTURE_WINDOW`；无论窗口为 0、5 或 15 秒，都不证明 `LEVEL1`、`LEVEL2`、`BMP`、`NO_RIGHT`、`REALTIME` 或 `DELAYED`。即使 events 非空，也只能保留 audit/change evidence，不能单独派生这些结论。
+
+当前 realtime authority 的候选是 Task 9 raw `subscribe(code_list=[code], subtype_list=[SubType.QUOTE], subscribe_push=False)` capability probe。官方将其定义为订阅 real-time market data；`capability_verdict=PROVEN` 仅证明**该 connection、该 security、该 subtype、该时点**的 realtime subscription capability，绝不泛化为账户全局权限、LEVEL1/LEVEL2 tier、其他证券、持续数据质量或 delay class。失败必须原样保存 provider `ret`/error/request/response/hash，`capability_verdict=UNKNOWN` 而非 `NO_RIGHT`，因为 quota、permission、connection/provider error 或其他 provider failure 均可能导致失败；FORMAL 必须以 `UNIVERSE_FRESHNESS_BLOCKER` fail closed。
+
+probe 必须只使用一个已枚举的 US security 和一个 `SubType.QUOTE`，不得请求历史 K-line、full-market scan 或 push stream，且 Task 9 是唯一 SDK/raw-record owner。`capability_verdict` 与 `cleanup_verdict` 必须分离：subscribe raw success 先冻结前者；后者单独记录 `UNSUBSCRIBE_CONFIRMED`、`DELAYED_RELEASE_RISK` 或 `CLEANUP_FAILED/UNKNOWN`，并保存 subscribe/query/unsubscribe/close 的 raw request/response/hash。官方说明 unsubscribe 需订阅至少一分钟；因此 probe 要么保持 dedicated context 至少一分钟后 explicit unsubscribe/query/close，要么在更早 close 时记录 delayed-release risk（自动释放可延迟到满一分钟，其他 connections 仍订阅时 quota 不释放）。close 绝不是即时 release 的证明；若 cleanup 未确认，capability 的窄范围成功仍保留，但 safety/FORMAL verdict 必须独立 fail closed，不得让订阅长期存留。Task 10 只消费 immutable raw probe result，不直接调用 SDK。
 
 #### C. Runtime evidence window：Task 9 raw acquisition 与 Task 10 attempt binding
 
@@ -765,7 +771,7 @@ collect_runtime_evidence(
 ) -> tuple[RawApiBatch, ...]
 ```
 
-`notification_window_seconds` 必须 keyword-only、显式传入、无 production default、拒绝 `bool`、finite 且 `>= 0`。Task 9 不得从 `sleep`、clock 或其他隐式行为推断、默认、延长、缩短或改写该窗口。它是唯一的 raw acquisition owner，并且只采集固定 `runtime_sdk_version`、`global_state` 和 `qot_right_capture` evidence；Task 10 不得绕过 adapter 直接调用 `get_market_state`、`get_global_state` 或 `set_handler`。
+`notification_window_seconds` 必须 keyword-only、显式传入、无 production default、拒绝 `bool`、finite 且 `>= 0`。Task 9 不得从 `sleep`、clock 或其他隐式行为推断、默认、延长、缩短或改写该窗口。它是唯一的 raw acquisition owner，并且只采集固定 `runtime_sdk_version`、`global_state` 和 `qot_right_capture` audit evidence；另由其 quota-safe subscription capability probe 采集 current-capability raw evidence。Task 10 不得绕过 adapter 直接调用 `get_market_state`、`get_global_state`、`set_handler`、`subscribe` 或 `unsubscribe`。
 
 Task 10 的正式入口冻结为：
 
@@ -776,15 +782,16 @@ collect(
     observed_at_utc: datetime,
     classification_provider: SecurityMasterProvider,
     active_status_mapping: QualifiedActiveStatusMapping,
+    market_state_consistency_contract: QualifiedMarketStateConsistencyContract,
     runtime_evidence_window_seconds: float,
 ) -> GatewayAttempt
 ```
 
 `runtime_evidence_window_seconds` 必须 keyword-only、required、无 default、拒绝 `bool`、finite 且 `>= 0`。Task 10 必须原样消费 Task 9 `market_states(codes)`，并且只能以 `collect_runtime_evidence(notification_window_seconds=runtime_evidence_window_seconds)` 把该值原样传给 Task 9；不得自行延长、缩短、改写或隐式推断窗口。
 
-`GatewayAttempt` 必须把 `runtime_evidence_window_seconds: float` 保存为 immutable attempt-acquisition field，并纳入 `attempt_id` / canonical attempt hash。改变 capture window 必须改变 attempt identity/hash，因为 `qot_right_capture.events == []` 只表示 `NO_QOT_RIGHT_EVENT_OBSERVED_DURING_CAPTURE_WINDOW`：0 秒未收到和 5 秒未收到是不同 acquisition observations。`GatewayPreflight` 可以消费对应 raw runtime evidence，但不得成为第二个配置 owner，不得重新定义或默认该窗口。
+`GatewayAttempt` 必须把 `runtime_evidence_window_seconds: float`、完整 `QualifiedMarketStateConsistencyContract`（含 qualification references/hash）及按 code 绑定的 immutable probe results 保存为 attempt-acquisition fields，并全部纳入 `attempt_id` / canonical attempt hash。改变 capture window、state-contract/version/hash 或任一 probe result 都必须改变 attempt identity/hash；`qot_right_capture.events == []` 只表示 `NO_QOT_RIGHT_EVENT_OBSERVED_DURING_CAPTURE_WINDOW`，所以 0 秒未收到和 5 秒未收到是不同 acquisition observations。`GatewayPreflight` 可以消费对应 raw runtime evidence，但不得成为第二个配置 owner，不得重新定义或默认这些输入。
 
-无论 `qot_right_capture.events` 为空或非空，Task 10 均不得只凭 raw value 推出 `REALTIME`、`DELAYED` 或 `NO_RIGHT`。只有后续 approved mapping 同时 exact bind SDK version、OpenD version、raw `us_qot_right` value、official/provider qualification evidence 和 mapping version 时，才可派生 delay class；本 amendment 不批准该 mapping。否则 `market_data_delay_class = UNKNOWN` 且 FORMAL 必须 `FAILED/INCOMPLETE/UNIVERSE_FRESHNESS_BLOCKER`。
+无论 `qot_right_capture.events` 为空或非空，Task 10 均不得只凭 raw value 推出 `REALTIME`、`DELAYED`、`NO_RIGHT` 或 current capability。Task 10 必须消费 Task 9 immutable subscription-probe result：只有 raw subscribe success 才可记录 `CURRENT_REALTIME_CAPABILITY_PROVEN`，且证明范围严格限于该 connection/security/subtype/time；raw subscribe failure 或缺 raw evidence 才是 `CURRENT_REALTIME_CAPABILITY_UNKNOWN`。cleanup 不确定、失败或 delayed release 不改写该窄范围 capability verdict，但 safety/FORMAL 必须独立 `FAILED/INCOMPLETE/UNIVERSE_FRESHNESS_BLOCKER`；未资格化 state consistency 同样 fail closed。`market_data_delay_class` 如保留，只能为 audit `UNKNOWN`，不得成为 realtime authority。
 
 #### D. Classification：Futu 非 subtype authority；OpenFIGI 仅为 candidate
 
@@ -894,8 +901,9 @@ evidence_observed_at_utc
 | `provider` | FUTU |
 | `provider_sdk_version` | SDK 版本 |
 | `opend_server_version` | OpenD 版本 |
-| `market_data_delay_evidence` | 冻结的 raw provider source/value/hash/capture time；Futu 为 `QOT_RIGHT.us_qot_right`，不是 snapshot row 字段 |
-| `market_data_delay_class` | 仅在 exact QotRight-to-delay mapping 已资格确认时的派生类别；否则 `UNKNOWN`，FORMAL Snapshot 不得 COMPLETE |
+| `market_data_delay_evidence` | 冻结的 QOT_RIGHT change-event raw source/value/hash/capture time；仅 audit evidence，不是 current-right/realtime authority，也不是 snapshot row 字段 |
+| `realtime_capability_probes` | Task 9 immutable raw per-code `SubType.QUOTE` probe request/response/ret/error/capability-verdict/cleanup-verdict/reference/hash；成功范围只限 matching connection/security/subtype/time，未 probe code 不得由其他 code 授权 |
+| `market_data_delay_class` | audit-only `UNKNOWN`；QOT_RIGHT 不得派生 delay/current-right/realtime authority，FORMAL eligibility 由 qualified market-state consistency 与 realtime capability probe 决定 |
 | `active_status_mapping_provider` / `active_status_mapping_provider_sdk_version` / `active_status_mapping_opend_server_version` / `active_status_mapping_version` | Task 10 qualified mapping 的精确双版本绑定 |
 | `active_status_mapping_qualified_at_utc` | mapping qualification 时间 |
 | `active_status_mapping_qualification_references` | 不可变 qualification evidence references |
@@ -1042,7 +1050,7 @@ Preview 如需持久化，只能写独立 append-only `PreviewRun`，并明确 `
 OpenD login/READY state
 server version
 SDK version
-US quote permission/delay class
+US QOT_RIGHT change-event audit evidence plus one-code realtime capability probe result/cleanup state
 historical K-line quota snapshot（只记录，本轮不做 bulk history）
 requested interface batches
 ```
@@ -1411,15 +1419,15 @@ Futu 顶层 SecurityType 不能独立证明 `STOCK` 是 Common、ADR、Preferred
 
 Futu Industry/Plate 不天然等同于稳定顶层 Sector。CORE v1 为 ALL，不影响当前成员；未来启用 Sector/Industry 筛选前必须冻结映射版本和未映射处理。
 
-### HIGH-4 — Futu qualification contract amendment / Task 10 PR #19
+### HIGH-4 — Futu qualification contract amendment / future Task 9–10 repair
 
-Task 10 PR #19 的自动化实现和 fixture tests 在真实 Futu tiny sample 前完成。它错误地把 `market_data_delay_class`、`regular_session_complete` 与 `market_session` 当作 Market Snapshot row fields，并把 update timestamp 按带 offset/UTC 的形状使用；真实 contract 不提供前述三字段，US `update_time` 也无 offset。因此 PR #19 不得合并为 FORMAL-ready Task 10。
+Task 10 PR #19 的自动化实现和 fixture tests 在真实 Futu tiny sample 前完成。它错误地把 `market_data_delay_class`、`regular_session_complete` 与 `market_session` 当作 Market Snapshot row fields，并把 update timestamp 按带 offset/UTC 的形状使用；真实 contract 不提供前述三字段，US `update_time` 也无 offset。并且 `_preflight()` 只验证 `market_states` 的行形状/数量，未消费实际 raw enum；这不是 per-security market-state consistency verification。因此 PR #19 不得合并为 FORMAL-ready Task 10。
 
 amendment 获批后的最小修复范围是：
 
-1. **Task 9 adapter**：仍只做 raw acquisition；冻结 `market_states(codes)` 和 `collect_runtime_evidence(*, notification_window_seconds)`。后者以 caller-supplied、无 default、non-bool finite `>= 0` window 采集 `runtime_sdk_version`、`global_state` 和 QOT_RIGHT `us_qot_right` 的 raw batch/notification evidence，连同 OpenD version；不得分配 delay class。此修改属于 Task 9，是因为 adapter 是唯一外部 API/raw-record owner；Task 10 不可绕过 adapter 直接调用 SDK。
-2. **Task 10 gateway**：rebase/update PR #19 到 latest Base；以 `America/New_York` 正确解析 US `update_time`、使用 Task 9 的 `market_states(codes)` 与 XNYS calendar、移除三个不存在的 snapshot-field 依赖、将 unqualified quote-right/delay fail closed，并将 Active mapping binding 扩展为 SDK + OpenD exact version qualification。其 `collect()` 必须增加 required `runtime_evidence_window_seconds`，原样传给 Task 9，且把它保存到 immutable `GatewayAttempt` 和 attempt hash；不得改变 Task 9 raw semantics。
-3. **Task 10 tests**：删除虚构 snapshot fields 的 fixture authority，加入真实 row shape、DST-aware parsing、per-security market state、Task 9 runtime evidence handoff、required/default-free/non-bool/finite/non-negative window、attempt identity/hash window sensitivity、QOT_RIGHT no-event window semantics、unqualified QotRight block、SDK/OpenD-bound NORMAL candidate 和 full qualification-reference assertions。
+1. **Task 9 adapter**：仍只做 raw acquisition；冻结 `market_states(codes)`、`collect_runtime_evidence(*, notification_window_seconds)`，以及 tiny quota-safe `SubType.QUOTE` subscription capability probe。QOT_RIGHT `us_qot_right` 仅保存为 `CHANGE_EVENT_AUDIT_ONLY` raw batch/notification evidence，绝不映射为 current right。probe 必须保存 request/response/ret/error/timestamps/SDK/OpenD/hash、query/cleanup evidence、unsubscribe/close result 和 delayed-release risk；Task 10 不可绕过 adapter 直接调用 SDK。
+2. **Task 10 gateway**：后续 PR #19 repair 必须以 `America/New_York` 正确解析 US `update_time`，真正消费 Task 9 的 per-security `market_states(codes)` raw enum，以完整 hash-bound provider/SDK/OpenD `QualifiedMarketStateConsistencyContract` 检查其与 XNYS latest-completed-regular-session 的一致性；移除三个不存在的 snapshot-field 依赖。它只消费 matching-code Task 9 raw subscription-probe result，而非 QOT_RIGHT；capability 与 cleanup verdict 分离，未 probe code 或 cleanup 未确认均必须 fail closed。Active mapping 必须重新 qualification 为 SDK `10.10.7008` + OpenD `1009`；不得复用 `10.09.6908 + 1009`。
+3. **Task 10 tests**：删除虚构 snapshot fields 的 fixture authority，加入真实 row shape、DST-aware parsing、per-security market-state enum consumption/mismatch/unknown rejection、state-contract provider/version/hash mismatch、Task 9 runtime evidence and per-code probe handoff、QOT_RIGHT 0/5/15-second no-event audit semantics、probe success scope、separate capability/cleanup verdict 与 quota delayed-release risk、`10.10.7008 + 1009` requalification requirement 和 full qualification-reference assertions。
 
 这是未来已批准 amendment 的 code scope 说明，不授权本 docs-only PR 修改 `src/`、`tests/`、`app/` 或 `data/`，也不启动 Task 11。
 
@@ -1446,6 +1454,8 @@ amendment 获批后的最小修复范围是：
 - Get Market State：<https://openapi.futunn.com/futu-api-doc/en/quote/get-market-state.html>
 - Get Global State：<https://openapi.futunn.com/futu-api-doc/en/quote/get-global-state.html>
 - Basic Functions / QOT_RIGHT notification：<https://openapi.futunn.com/futu-api-doc/en/ftapi/init.html>
+- Subscribe and Unsubscribe / current realtime capability candidate：<https://openapi.futunn.com/futu-api-doc/en/quote/sub.html>
+- Quote FAQ / unsubscribe and close release behavior：<https://openapi.futunn.com/futu-api-doc/en/qa/quote.html>
 - Authorities and Quota：<https://openapi.futunn.com/futu-api-doc/en/intro/authority.html>
 - OpenFIGI API v3 candidate contract：<https://www.openfigi.com/api/documentation>
 

@@ -47,6 +47,11 @@ _BLOCKERS = frozenset({
 })
 _ACTIVE_DECISIONS = frozenset({Decision.PASS, Decision.FAIL})
 _NEW_YORK = ZoneInfo("America/New_York")
+_QUALIFIED_ACTIVE_SDK_VERSION = "10.10.7008"
+_QUALIFIED_OPEND_VERSION = "1009"
+PROVIDER_OR_ACCOUNT_LEVEL_CURRENT_QUOTE_RIGHT_AUTHORITY = "NOT_YET_QUALIFIED"
+FORMAL_FRESHNESS_AUTHORITY = "NOT_QUALIFIED"
+CURRENT_QUOTE_RIGHT_AUTHORITY_NOT_QUALIFIED = "CURRENT_QUOTE_RIGHT_AUTHORITY_NOT_QUALIFIED"
 
 
 def _non_empty(value: object, field: str) -> str:
@@ -104,6 +109,27 @@ def _mapping_payload(mapping: "QualifiedActiveStatusMapping") -> dict[str, objec
     }
 
 
+def _market_state_contract_payload(contract: "QualifiedMarketStateConsistencyContract") -> dict[str, object]:
+    return {
+        "provider": contract.provider,
+        "provider_sdk_version": contract.provider_sdk_version,
+        "opend_server_version": contract.opend_server_version,
+        "mapping_version": contract.mapping_version,
+        "qualified_at_utc": contract.qualified_at_utc.isoformat(),
+        "qualification_references": [
+            {"source_id": ref.source_id, "source_locator": ref.source_locator, "source_record_sha256": ref.source_record_sha256}
+            for ref in contract.qualification_references
+        ],
+        "qualified_relationships": [
+            {
+                "raw_market_state": relationship.raw_market_state,
+                "calendar_relationship": relationship.calendar_relationship,
+            }
+            for relationship in contract.qualified_relationships
+        ],
+    }
+
+
 @dataclass(frozen=True, slots=True)
 class ActiveStatusMappingEntry:
     raw_value: str
@@ -135,6 +161,12 @@ class QualifiedActiveStatusMapping:
             raise ValueError("provider_sdk_version: concrete qualified version required")
         if self.opend_server_version.strip().lower() in {"unknown", "unqualified", "n/a"}:
             raise ValueError("opend_server_version: concrete qualified version required")
+        if self.provider != "FUTU":
+            raise ValueError("provider: FUTU required")
+        if self.provider_sdk_version != _QUALIFIED_ACTIVE_SDK_VERSION:
+            raise ValueError(f"provider_sdk_version: {_QUALIFIED_ACTIVE_SDK_VERSION} required")
+        if self.opend_server_version != _QUALIFIED_OPEND_VERSION:
+            raise ValueError(f"opend_server_version: {_QUALIFIED_OPEND_VERSION} required")
         _utc_datetime(self.qualified_at_utc, "qualified_at_utc")
         entries = tuple(self.entries)
         if not entries or any(type(item) is not ActiveStatusMappingEntry for item in entries):
@@ -144,6 +176,8 @@ class QualifiedActiveStatusMapping:
             raise ValueError("entries: raw_value values must be unique")
         if any(item.raw_value == "*" for item in entries):
             raise ValueError("entries: wildcard mapping forbidden")
+        if len(entries) != 1 or entries[0].raw_value != "NORMAL" or entries[0].decision is not Decision.PASS:
+            raise ValueError("entries: only NORMAL PASS is qualified")
         references = _references(self.qualification_references, "qualification_references")
         if not references:
             raise ValueError("qualification_references: qualification evidence required")
@@ -157,6 +191,62 @@ class QualifiedActiveStatusMapping:
     @property
     def canonical_sha256(self) -> str:
         return self.active_status_mapping_sha256
+
+
+@dataclass(frozen=True, slots=True)
+class QualifiedMarketStateRelationship:
+    raw_market_state: str
+    calendar_relationship: str
+
+    def __post_init__(self) -> None:
+        _non_empty(self.raw_market_state, "raw_market_state")
+        _non_empty(self.calendar_relationship, "calendar_relationship")
+
+
+@dataclass(frozen=True, slots=True)
+class QualifiedMarketStateConsistencyContract:
+    provider: str
+    provider_sdk_version: str
+    opend_server_version: str
+    mapping_version: str
+    qualified_at_utc: datetime
+    qualification_references: tuple[EvidenceReference, ...]
+    qualified_relationships: tuple[QualifiedMarketStateRelationship, ...]
+    market_state_consistency_sha256: str = ""
+
+    def __post_init__(self) -> None:
+        for field in ("provider", "provider_sdk_version", "opend_server_version", "mapping_version"):
+            _non_empty(getattr(self, field), field)
+        if self.provider != "FUTU":
+            raise ValueError("provider: FUTU required")
+        if self.provider_sdk_version != _QUALIFIED_ACTIVE_SDK_VERSION:
+            raise ValueError(f"provider_sdk_version: {_QUALIFIED_ACTIVE_SDK_VERSION} required")
+        if self.opend_server_version != _QUALIFIED_OPEND_VERSION:
+            raise ValueError(f"opend_server_version: {_QUALIFIED_OPEND_VERSION} required")
+        _utc_datetime(self.qualified_at_utc, "qualified_at_utc")
+        references = _references(self.qualification_references, "qualification_references")
+        if not references:
+            raise ValueError("qualification_references: qualification evidence required")
+        relationships = tuple(sorted(
+            self.qualified_relationships,
+            key=lambda item: (item.raw_market_state, item.calendar_relationship),
+        ))
+        if not relationships or any(type(item) is not QualifiedMarketStateRelationship for item in relationships):
+            raise ValueError("qualified_relationships: values required")
+        if len({(item.raw_market_state, item.calendar_relationship) for item in relationships}) != len(relationships):
+            raise ValueError("qualified_relationships: duplicate relationship")
+        if relationships != (QualifiedMarketStateRelationship("AFTER_HOURS_END", "XNYS_NON_SESSION"),):
+            raise ValueError("qualified_relationships: only observed AFTER_HOURS_END XNYS_NON_SESSION is qualified")
+        object.__setattr__(self, "qualification_references", references)
+        object.__setattr__(self, "qualified_relationships", relationships)
+        calculated = canonical_hash(_market_state_contract_payload(self))
+        if self.market_state_consistency_sha256 and self.market_state_consistency_sha256 != calculated:
+            raise ValueError("market_state_consistency_sha256: contract tamper detected")
+        object.__setattr__(self, "market_state_consistency_sha256", calculated)
+
+    @property
+    def canonical_sha256(self) -> str:
+        return self.market_state_consistency_sha256
 
 
 @dataclass(frozen=True, slots=True)
@@ -271,6 +361,7 @@ class GatewayAttempt:
     provider_update_time: datetime | None
     runtime_evidence_window_seconds: float
     market_data_delay_class: str
+    market_state_consistency_contract: QualifiedMarketStateConsistencyContract
     active_status_mapping: QualifiedActiveStatusMapping
     prerequisites_sha256: str
     preflight: GatewayPreflight
@@ -281,6 +372,7 @@ class GatewayAttempt:
     attempt_status: AttemptStatus
     completeness: Completeness
     reason_codes: tuple[str, ...]
+    realtime_capability_probes: tuple[RawApiBatch, ...] = ()
 
     def __post_init__(self) -> None:
         _non_empty(self.attempt_id, "attempt_id")
@@ -291,8 +383,12 @@ class GatewayAttempt:
             _utc_datetime(self.provider_update_time, "provider_update_time")
         _runtime_window(self.runtime_evidence_window_seconds)
         _non_empty(self.market_data_delay_class, "market_data_delay_class")
-        if type(self.active_status_mapping) is not QualifiedActiveStatusMapping or type(self.preflight) is not GatewayPreflight:
-            raise ValueError("qualified mapping and preflight required")
+        if (
+            type(self.active_status_mapping) is not QualifiedActiveStatusMapping
+            or type(self.market_state_consistency_contract) is not QualifiedMarketStateConsistencyContract
+            or type(self.preflight) is not GatewayPreflight
+        ):
+            raise ValueError("qualified mappings/contracts and preflight required")
         if type(self.prerequisites_sha256) is not str or len(self.prerequisites_sha256) != 64:
             raise ValueError("prerequisites_sha256: SHA-256 required")
         evidence = tuple(sorted(self.evidence, key=lambda item: (item.stock_id, item.futu_code)))
@@ -315,6 +411,24 @@ class GatewayAttempt:
         object.__setattr__(self, "evidence", evidence)
         object.__setattr__(self, "prerequisites", prerequisites)
         object.__setattr__(self, "batches", tuple(self.batches))
+        probes = tuple(self.realtime_capability_probes)
+        if any(type(item) is not RawApiBatch for item in probes):
+            raise ValueError("realtime_capability_probes: RawApiBatch values required")
+        for probe in probes:
+            request = probe.raw_request
+            if (
+                probe.endpoint != "realtime_quote_capability_probe"
+                or not isinstance(request, Mapping)
+                or type(request.get("code")) is not str
+                or not request["code"].strip()
+                or request.get("subtype") != "QUOTE"
+                or request.get("subscribe_push") is not False
+            ):
+                raise ValueError(
+                    "realtime_capability_probes: realtime_quote_capability_probe "
+                    "with one code, subtype QUOTE, and subscribe_push=False required"
+                )
+        object.__setattr__(self, "realtime_capability_probes", probes)
         object.__setattr__(self, "identity_ledger", tuple(sorted(self.identity_ledger, key=lambda item: (item.stock_id, item.futu_code))))
         object.__setattr__(self, "reason_codes", _reasons(self.reason_codes))
 
@@ -501,11 +615,22 @@ class FutuUniverseGateway:
             raise FutuProviderError("FUTU_SCHEMA_BLOCKER: runtime evidence shape malformed")
         return sdk_version, opend_version
 
-    def _preflight(self, *, as_of_session: date, observed_at_utc: datetime, provider_sdk_version: str, opend_server_version: str, snapshots: Sequence[Mapping[str, Any]]) -> GatewayPreflight:
+    def _preflight(
+        self,
+        *,
+        as_of_session: date,
+        observed_at_utc: datetime,
+        provider_sdk_version: str,
+        opend_server_version: str,
+        snapshots: Sequence[Mapping[str, Any]],
+        market_states: Sequence[Mapping[str, Any]],
+        market_state_consistency_contract: QualifiedMarketStateConsistencyContract,
+    ) -> GatewayPreflight:
         update_values = {_parse_us_update_time(_field(row, "update_time")) for row in snapshots}
         reasons: list[str] = []
         provider_update_time = next(iter(update_values)) if len(update_values) == 1 else None
         delay = "UNKNOWN"
+        calendar_relationship: str | None = None
         try:
             import exchange_calendars as exchange_calendars
             calendar = exchange_calendars.get_calendar("XNYS")
@@ -516,16 +641,39 @@ class FutuUniverseGateway:
             ]
             latest = sessions[0] if sessions else None
             session_close = calendar.session_close(as_of_session) if calendar.is_session(as_of_session) else None
+            calendar_relationship = (
+                "XNYS_SESSION_OPEN"
+                if calendar.is_open_on_minute(observed_at_utc)
+                else "XNYS_NON_SESSION"
+            )
         except Exception:
             latest, session_close = None, None
+        contract_matches_runtime = (
+            market_state_consistency_contract.provider == "FUTU"
+            and market_state_consistency_contract.provider_sdk_version == provider_sdk_version
+            and market_state_consistency_contract.opend_server_version == opend_server_version
+        )
+        qualified_relationships = {
+            (item.raw_market_state, item.calendar_relationship)
+            for item in market_state_consistency_contract.qualified_relationships
+        }
+        raw_states = tuple(_text(_field(row, "market_state")) for row in market_states)
+        market_states_qualified = (
+            contract_matches_runtime
+            and calendar_relationship is not None
+            and bool(raw_states)
+            and all(state is not None and (state, calendar_relationship) in qualified_relationships for state in raw_states)
+        )
         if (
             as_of_session != latest
             or session_close is None
             or provider_update_time is None
             or provider_update_time < session_close
             or provider_update_time > observed_at_utc
-            # QOT_RIGHT delay mapping is intentionally not qualified in Task 10.
-            or delay == "UNKNOWN"
+            or not market_states_qualified
+            # Scalable current quote-right authority is intentionally not yet qualified.
+            or PROVIDER_OR_ACCOUNT_LEVEL_CURRENT_QUOTE_RIGHT_AUTHORITY != "QUALIFIED"
+            or FORMAL_FRESHNESS_AUTHORITY != "QUALIFIED"
         ):
             reasons.append("UNIVERSE_FRESHNESS_BLOCKER")
         return GatewayPreflight("FUTU", provider_sdk_version, opend_server_version, as_of_session, observed_at_utc, provider_update_time, delay, not reasons, tuple(reasons))
@@ -548,18 +696,40 @@ class FutuUniverseGateway:
         return EvidenceReference(source, locator, record_hash)
 
     @staticmethod
-    def _attempt_id(*, as_of_session: date, observed_at_utc: datetime, mapping: QualifiedActiveStatusMapping, runtime_evidence_window_seconds: float, reasons: Sequence[str], prerequisites_hash: str, batches: Sequence[ApiBatchRecord]) -> str:
+    def _attempt_id(
+        *,
+        as_of_session: date,
+        observed_at_utc: datetime,
+        mapping: QualifiedActiveStatusMapping,
+        market_state_contract: QualifiedMarketStateConsistencyContract,
+        runtime_evidence_window_seconds: float,
+        reasons: Sequence[str],
+        prerequisites_hash: str,
+        batches: Sequence[ApiBatchRecord],
+        realtime_capability_probes: Sequence[RawApiBatch] = (),
+    ) -> str:
         return canonical_hash({
             "as_of_session": as_of_session.isoformat(),
             "observed_at_utc": observed_at_utc.isoformat(),
             "mapping": mapping.active_status_mapping_sha256,
+            "market_state_contract": market_state_contract.canonical_sha256,
             "runtime_evidence_window_seconds": repr(runtime_evidence_window_seconds),
             "reasons": list(reasons),
             "prerequisites": prerequisites_hash,
             "batches": [item.response_hash for item in batches],
+            "realtime_capability_probes": [
+                {
+                    "endpoint": item.endpoint,
+                    "batch_index": item.batch_index,
+                    "request_hash": item.request_hash,
+                    "response_hash": item.response_hash,
+                    "acquired_at_utc": item.acquired_at_utc.isoformat(),
+                }
+                for item in realtime_capability_probes
+            ],
         })
 
-    def _failed_attempt(self, *, as_of_session: date, observed_at_utc: datetime, mapping: QualifiedActiveStatusMapping, provider_sdk_version: str, opend_server_version: str, runtime_evidence_window_seconds: float, reason_codes: Sequence[str], batches: Sequence[ApiBatchRecord] = (), evidence: Sequence[UniverseSecurityEvidence] = (), prerequisites: Sequence[SecurityEvaluationPrerequisites] = (), ledger: Sequence[IdentityLedgerEntry] = (), preflight: GatewayPreflight | None = None) -> GatewayAttempt:
+    def _failed_attempt(self, *, as_of_session: date, observed_at_utc: datetime, mapping: QualifiedActiveStatusMapping, market_state_contract: QualifiedMarketStateConsistencyContract, provider_sdk_version: str, opend_server_version: str, runtime_evidence_window_seconds: float, reason_codes: Sequence[str], batches: Sequence[ApiBatchRecord] = (), evidence: Sequence[UniverseSecurityEvidence] = (), prerequisites: Sequence[SecurityEvaluationPrerequisites] = (), ledger: Sequence[IdentityLedgerEntry] = (), preflight: GatewayPreflight | None = None, realtime_capability_probes: Sequence[RawApiBatch] = ()) -> GatewayAttempt:
         supplied_reasons = tuple(reason_codes)
         reasons = _reasons(supplied_reasons if "UNIVERSE_FRESHNESS_BLOCKER" in supplied_reasons else supplied_reasons + ("UNIVERSE_INCOMPLETE_BLOCKER",))
         prerequisite_hash = prerequisites_sha256(prerequisites)
@@ -567,15 +737,17 @@ class FutuUniverseGateway:
             preflight = GatewayPreflight("FUTU", provider_sdk_version, opend_server_version, as_of_session, observed_at_utc, None, "UNKNOWN", False, reasons)
         else:
             preflight = GatewayPreflight(preflight.provider, preflight.provider_sdk_version, preflight.opend_server_version, preflight.as_of_session, preflight.observed_at_utc, preflight.provider_update_time, preflight.market_data_delay_class, False, _reasons(preflight.reason_codes + reasons))
-        attempt_id = self._attempt_id(as_of_session=as_of_session, observed_at_utc=observed_at_utc, mapping=mapping, runtime_evidence_window_seconds=runtime_evidence_window_seconds, reasons=reasons, prerequisites_hash=prerequisite_hash, batches=batches)
-        return GatewayAttempt(attempt_id=attempt_id, as_of_session=as_of_session, observed_at_utc=observed_at_utc, provider_update_time=preflight.provider_update_time, runtime_evidence_window_seconds=runtime_evidence_window_seconds, market_data_delay_class=preflight.market_data_delay_class, active_status_mapping=mapping, prerequisites_sha256=prerequisite_hash, preflight=preflight, evidence=tuple(evidence), prerequisites=tuple(prerequisites), batches=tuple(batches), identity_ledger=tuple(ledger), attempt_status=AttemptStatus.FAILED, completeness=Completeness.INCOMPLETE, reason_codes=reasons)
+        attempt_id = self._attempt_id(as_of_session=as_of_session, observed_at_utc=observed_at_utc, mapping=mapping, market_state_contract=market_state_contract, runtime_evidence_window_seconds=runtime_evidence_window_seconds, reasons=reasons, prerequisites_hash=prerequisite_hash, batches=batches, realtime_capability_probes=realtime_capability_probes)
+        return GatewayAttempt(attempt_id=attempt_id, as_of_session=as_of_session, observed_at_utc=observed_at_utc, provider_update_time=preflight.provider_update_time, runtime_evidence_window_seconds=runtime_evidence_window_seconds, market_data_delay_class=preflight.market_data_delay_class, market_state_consistency_contract=market_state_contract, active_status_mapping=mapping, prerequisites_sha256=prerequisite_hash, preflight=preflight, evidence=tuple(evidence), prerequisites=tuple(prerequisites), batches=tuple(batches), identity_ledger=tuple(ledger), attempt_status=AttemptStatus.FAILED, completeness=Completeness.INCOMPLETE, reason_codes=reasons, realtime_capability_probes=tuple(realtime_capability_probes))
 
-    def collect(self, *, as_of_session: date, observed_at_utc: datetime, classification_provider: SecurityMasterProvider, active_status_mapping: QualifiedActiveStatusMapping, runtime_evidence_window_seconds: float) -> GatewayAttempt:
+    def collect(self, *, as_of_session: date, observed_at_utc: datetime, classification_provider: SecurityMasterProvider, active_status_mapping: QualifiedActiveStatusMapping, market_state_consistency_contract: QualifiedMarketStateConsistencyContract, runtime_evidence_window_seconds: float) -> GatewayAttempt:
         if type(as_of_session) is not date:
             raise ValueError("as_of_session: date required")
         _utc_datetime(observed_at_utc, "observed_at_utc")
         if type(active_status_mapping) is not QualifiedActiveStatusMapping:
             raise ValueError("active_status_mapping: QualifiedActiveStatusMapping required")
+        if type(market_state_consistency_contract) is not QualifiedMarketStateConsistencyContract:
+            raise ValueError("market_state_consistency_contract: QualifiedMarketStateConsistencyContract required")
         window = _runtime_window(runtime_evidence_window_seconds)
         adapter = self._adapter()
         failure_context: dict[str, object] = {}
@@ -584,11 +756,11 @@ class FutuUniverseGateway:
             runtime_batches = self._batch_records(runtime)
             failure_context["batches"] = runtime_batches
             provider_sdk_version, opend_server_version = self._runtime_versions(runtime)
-            return self._collect_impl(as_of_session=as_of_session, observed_at_utc=observed_at_utc, classification_provider=classification_provider, active_status_mapping=active_status_mapping, runtime_evidence_window_seconds=window, provider_sdk_version=provider_sdk_version, opend_server_version=opend_server_version, adapter=adapter, runtime=runtime, failure_context=failure_context)
+            return self._collect_impl(as_of_session=as_of_session, observed_at_utc=observed_at_utc, classification_provider=classification_provider, active_status_mapping=active_status_mapping, market_state_consistency_contract=market_state_consistency_contract, runtime_evidence_window_seconds=window, provider_sdk_version=provider_sdk_version, opend_server_version=opend_server_version, adapter=adapter, runtime=runtime, failure_context=failure_context)
         except Exception as error:
-            return self._failed_attempt(as_of_session=as_of_session, observed_at_utc=observed_at_utc, mapping=active_status_mapping, provider_sdk_version="unavailable", opend_server_version="unavailable", runtime_evidence_window_seconds=window, reason_codes=(_blocker(error),), batches=failure_context.get("batches", ()), evidence=failure_context.get("evidence", ()), prerequisites=failure_context.get("prerequisites", ()), ledger=failure_context.get("ledger", ()), preflight=failure_context.get("preflight"))  # type: ignore[arg-type]
+            return self._failed_attempt(as_of_session=as_of_session, observed_at_utc=observed_at_utc, mapping=active_status_mapping, market_state_contract=market_state_consistency_contract, provider_sdk_version="unavailable", opend_server_version="unavailable", runtime_evidence_window_seconds=window, reason_codes=(_blocker(error),), batches=failure_context.get("batches", ()), evidence=failure_context.get("evidence", ()), prerequisites=failure_context.get("prerequisites", ()), ledger=failure_context.get("ledger", ()), preflight=failure_context.get("preflight"))  # type: ignore[arg-type]
 
-    def _collect_impl(self, *, as_of_session: date, observed_at_utc: datetime, classification_provider: SecurityMasterProvider, active_status_mapping: QualifiedActiveStatusMapping, runtime_evidence_window_seconds: float, provider_sdk_version: str, opend_server_version: str, adapter: FutuProviderAdapter, runtime: Sequence[RawApiBatch], failure_context: dict[str, object]) -> GatewayAttempt:
+    def _collect_impl(self, *, as_of_session: date, observed_at_utc: datetime, classification_provider: SecurityMasterProvider, active_status_mapping: QualifiedActiveStatusMapping, market_state_consistency_contract: QualifiedMarketStateConsistencyContract, runtime_evidence_window_seconds: float, provider_sdk_version: str, opend_server_version: str, adapter: FutuProviderAdapter, runtime: Sequence[RawApiBatch], failure_context: dict[str, object]) -> GatewayAttempt:
         try:
             discovery = adapter.discover_cash_securities()
             discovery_rows = tuple(row for batch in discovery for row in _records(batch.raw_response))
@@ -604,7 +776,7 @@ class FutuUniverseGateway:
                     discovery_keys.append((stock_id, code))
             discovery_batches = self._batch_records(runtime, discovery)
             if len(set(discovery_keys)) != len(discovery_keys):
-                return self._failed_attempt(as_of_session=as_of_session, observed_at_utc=observed_at_utc, mapping=active_status_mapping, provider_sdk_version=provider_sdk_version, opend_server_version=opend_server_version, runtime_evidence_window_seconds=runtime_evidence_window_seconds, reason_codes=("FUTU_SCHEMA_BLOCKER",), batches=discovery_batches)
+                return self._failed_attempt(as_of_session=as_of_session, observed_at_utc=observed_at_utc, mapping=active_status_mapping, market_state_contract=market_state_consistency_contract, provider_sdk_version=provider_sdk_version, opend_server_version=opend_server_version, runtime_evidence_window_seconds=runtime_evidence_window_seconds, reason_codes=("FUTU_SCHEMA_BLOCKER",), batches=discovery_batches)
             if any(len(stock_ids) > 1 for stock_ids in discovery_by_code.values()):
                 ledger: list[IdentityLedgerEntry] = []
                 for row in discovery_rows:
@@ -613,13 +785,13 @@ class FutuUniverseGateway:
                         continue
                     batch = next(batch for batch in discovery if row in _records(batch.raw_response))
                     ledger.append(IdentityLedgerEntry(stock_id, code, Decision.UNKNOWN, "UNIVERSE_IDENTITY_BLOCKER", tuple(discovery_by_code[code]), (code,), (self._reference("futu-discovery", f"futu://discovery/{code}", batch.response_hash),), reconciliation_completed=False))
-                return self._failed_attempt(as_of_session=as_of_session, observed_at_utc=observed_at_utc, mapping=active_status_mapping, provider_sdk_version=provider_sdk_version, opend_server_version=opend_server_version, runtime_evidence_window_seconds=runtime_evidence_window_seconds, reason_codes=("UNIVERSE_IDENTITY_BLOCKER",), batches=discovery_batches, ledger=ledger)
+                return self._failed_attempt(as_of_session=as_of_session, observed_at_utc=observed_at_utc, mapping=active_status_mapping, market_state_contract=market_state_consistency_contract, provider_sdk_version=provider_sdk_version, opend_server_version=opend_server_version, runtime_evidence_window_seconds=runtime_evidence_window_seconds, reason_codes=("UNIVERSE_IDENTITY_BLOCKER",), batches=discovery_batches, ledger=ledger)
             screens = adapter.screen_all_pages()
             snapshots = adapter.market_snapshots(codes)
             market_states = adapter.market_states(codes)
             plates = adapter.owner_plates(codes)
         except Exception as error:
-            return self._failed_attempt(as_of_session=as_of_session, observed_at_utc=observed_at_utc, mapping=active_status_mapping, provider_sdk_version=provider_sdk_version, opend_server_version=opend_server_version, runtime_evidence_window_seconds=runtime_evidence_window_seconds, reason_codes=(_blocker(error),), batches=failure_context.get("batches", ()))  # type: ignore[arg-type]
+            return self._failed_attempt(as_of_session=as_of_session, observed_at_utc=observed_at_utc, mapping=active_status_mapping, market_state_contract=market_state_consistency_contract, provider_sdk_version=provider_sdk_version, opend_server_version=opend_server_version, runtime_evidence_window_seconds=runtime_evidence_window_seconds, reason_codes=(_blocker(error),), batches=failure_context.get("batches", ()))  # type: ignore[arg-type]
 
         batches = self._batch_records(runtime, discovery, screens, snapshots, market_states, plates)
         failure_context["batches"] = batches
@@ -656,12 +828,20 @@ class FutuUniverseGateway:
             or any(len(rows) != 1 for rows in snapshot_groups.values())
             or any(len(rows) != 1 for rows in market_state_groups.values())
         ):
-            return self._failed_attempt(as_of_session=as_of_session, observed_at_utc=observed_at_utc, mapping=active_status_mapping, provider_sdk_version=provider_sdk_version, opend_server_version=opend_server_version, runtime_evidence_window_seconds=runtime_evidence_window_seconds, reason_codes=("FUTU_SCHEMA_BLOCKER",), batches=batches)
+            return self._failed_attempt(as_of_session=as_of_session, observed_at_utc=observed_at_utc, mapping=active_status_mapping, market_state_contract=market_state_consistency_contract, provider_sdk_version=provider_sdk_version, opend_server_version=opend_server_version, runtime_evidence_window_seconds=runtime_evidence_window_seconds, reason_codes=("UNIVERSE_FRESHNESS_BLOCKER",), batches=batches)
         screen_by_code = {code: rows[0] for code, rows in screen_groups.items()}
         snapshot_by_code = {code: rows[0] for code, rows in snapshot_groups.items()}
         plates_by_code: dict[str, list[RawPlateEvidence]] = defaultdict(list)
         all_snapshot_rows = tuple(snapshot_by_code.values())
-        preflight = self._preflight(as_of_session=as_of_session, observed_at_utc=observed_at_utc, provider_sdk_version=provider_sdk_version, opend_server_version=opend_server_version, snapshots=all_snapshot_rows)
+        preflight = self._preflight(
+            as_of_session=as_of_session,
+            observed_at_utc=observed_at_utc,
+            provider_sdk_version=provider_sdk_version,
+            opend_server_version=opend_server_version,
+            snapshots=all_snapshot_rows,
+            market_states=tuple(rows[0] for rows in market_state_groups.values()),
+            market_state_consistency_contract=market_state_consistency_contract,
+        )
         failure_context["preflight"] = preflight
 
         provenance_cache: dict[str, EvidenceProvenance] = {}
@@ -724,7 +904,7 @@ class FutuUniverseGateway:
                 classification_reason_codes,
             ))
         if global_reasons:
-            return self._failed_attempt(as_of_session=as_of_session, observed_at_utc=observed_at_utc, mapping=active_status_mapping, provider_sdk_version=provider_sdk_version, opend_server_version=opend_server_version, runtime_evidence_window_seconds=runtime_evidence_window_seconds, reason_codes=global_reasons, batches=batches, evidence=evidence, preflight=preflight)
+            return self._failed_attempt(as_of_session=as_of_session, observed_at_utc=observed_at_utc, mapping=active_status_mapping, market_state_contract=market_state_consistency_contract, provider_sdk_version=provider_sdk_version, opend_server_version=opend_server_version, runtime_evidence_window_seconds=runtime_evidence_window_seconds, reason_codes=global_reasons, batches=batches, evidence=evidence, preflight=preflight)
 
         by_stock: dict[str, set[str]] = defaultdict(set)
         by_code: dict[str, set[str]] = defaultdict(set)
@@ -736,7 +916,7 @@ class FutuUniverseGateway:
         if any(len(stock_ids) > 1 for stock_ids in by_code.values()):
             for item in evidence:
                 ledger.append(IdentityLedgerEntry(item.stock_id, item.futu_code, Decision.UNKNOWN, "UNIVERSE_IDENTITY_BLOCKER", tuple(by_code[item.futu_code]), tuple(by_stock[item.stock_id]), item.provenance.references))
-            return self._failed_attempt(as_of_session=as_of_session, observed_at_utc=observed_at_utc, mapping=active_status_mapping, provider_sdk_version=provider_sdk_version, opend_server_version=opend_server_version, runtime_evidence_window_seconds=runtime_evidence_window_seconds, reason_codes=("UNIVERSE_IDENTITY_BLOCKER",), batches=batches, evidence=evidence, ledger=ledger, preflight=preflight)
+            return self._failed_attempt(as_of_session=as_of_session, observed_at_utc=observed_at_utc, mapping=active_status_mapping, market_state_contract=market_state_consistency_contract, provider_sdk_version=provider_sdk_version, opend_server_version=opend_server_version, runtime_evidence_window_seconds=runtime_evidence_window_seconds, reason_codes=("UNIVERSE_IDENTITY_BLOCKER",), batches=batches, evidence=evidence, ledger=ledger, preflight=preflight)
 
         prerequisites: list[SecurityEvaluationPrerequisites] = []
         for item in evidence:
@@ -747,7 +927,18 @@ class FutuUniverseGateway:
             prerequisites.append(SecurityEvaluationPrerequisites(item.stock_id, item.futu_code, self.normalized_active_status(delisting=item.delisting, suspension=item.suspension, raw_status=item.security_status_raw, evidence_references=item.provenance.references, mapping=active_status_mapping, provider="FUTU", provider_sdk_version=provider_sdk_version, opend_server_version=opend_server_version), NormalizedPrerequisiteDecision(identity_decision, identity_reason, item.provenance.references)))
         prerequisite_hash = prerequisites_sha256(prerequisites)
         failure_context["prerequisites"] = prerequisites
-        if not preflight.formal_ready:
-            return self._failed_attempt(as_of_session=as_of_session, observed_at_utc=observed_at_utc, mapping=active_status_mapping, provider_sdk_version=provider_sdk_version, opend_server_version=opend_server_version, runtime_evidence_window_seconds=runtime_evidence_window_seconds, reason_codes=preflight.reason_codes, batches=batches, evidence=evidence, prerequisites=prerequisites, ledger=ledger, preflight=preflight)
-        attempt_id = self._attempt_id(as_of_session=as_of_session, observed_at_utc=observed_at_utc, mapping=active_status_mapping, runtime_evidence_window_seconds=runtime_evidence_window_seconds, reasons=(), prerequisites_hash=prerequisite_hash, batches=batches)
-        return GatewayAttempt(attempt_id=attempt_id, as_of_session=as_of_session, observed_at_utc=observed_at_utc, provider_update_time=preflight.provider_update_time, runtime_evidence_window_seconds=runtime_evidence_window_seconds, market_data_delay_class=preflight.market_data_delay_class, active_status_mapping=active_status_mapping, prerequisites_sha256=prerequisite_hash, preflight=preflight, evidence=tuple(evidence), prerequisites=tuple(prerequisites), batches=batches, identity_ledger=tuple(ledger), attempt_status=AttemptStatus.SUCCEEDED, completeness=Completeness.COMPLETE, reason_codes=())
+        return self._failed_attempt(
+            as_of_session=as_of_session,
+            observed_at_utc=observed_at_utc,
+            mapping=active_status_mapping,
+            market_state_contract=market_state_consistency_contract,
+            provider_sdk_version=provider_sdk_version,
+            opend_server_version=opend_server_version,
+            runtime_evidence_window_seconds=runtime_evidence_window_seconds,
+            reason_codes=preflight.reason_codes or ("UNIVERSE_FRESHNESS_BLOCKER",),
+            batches=batches,
+            evidence=evidence,
+            prerequisites=prerequisites,
+            ledger=ledger,
+            preflight=preflight,
+        )

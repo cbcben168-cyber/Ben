@@ -46,6 +46,8 @@ from .futu_gateway import (
     GatewayPreflight,
     IdentityLedgerEntry,
     QualifiedActiveStatusMapping,
+    QualifiedMarketStateConsistencyContract,
+    QualifiedMarketStateRelationship,
     prerequisites_sha256,
 )
 from .profiles import (
@@ -108,6 +110,8 @@ __all__ = (
     "ProfileRegistry",
     "ProfileUiState",
     "QualifiedActiveStatusMapping",
+    "QualifiedMarketStateConsistencyContract",
+    "QualifiedMarketStateRelationship",
     "RecordState",
     "RatePolicy",
     "RawApiBatch",

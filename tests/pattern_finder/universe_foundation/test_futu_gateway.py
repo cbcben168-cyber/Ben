@@ -20,6 +20,8 @@ from tv_quant.pattern_finder.universe_foundation import (
     EvidenceReference,
     FutuUniverseGateway,
     QualifiedActiveStatusMapping,
+    QualifiedMarketStateConsistencyContract,
+    QualifiedMarketStateRelationship,
 )
 from tv_quant.pattern_finder.universe_foundation.evidence import SecurityClassificationEvidence
 from tv_quant.pattern_finder.universe_foundation.futu_adapter import RawApiBatch, RawApiPage
@@ -28,9 +30,11 @@ from tv_quant.pattern_finder.universe_foundation.futu_gateway import _parse_us_u
 
 NOW = datetime(2026, 8, 21, 21, tzinfo=UTC)
 SHA = "a" * 64
+SDK_VERSION = "10.10.7008"
+OPEND_VERSION = "1009"
 
 
-def _mapping(*, sdk_version: str = "fake-sdk/1", opend_version: str = "fake-opend/1") -> QualifiedActiveStatusMapping:
+def _mapping(*, sdk_version: str = SDK_VERSION, opend_version: str = OPEND_VERSION) -> QualifiedActiveStatusMapping:
     return QualifiedActiveStatusMapping(
         provider="FUTU",
         provider_sdk_version=sdk_version,
@@ -42,14 +46,31 @@ def _mapping(*, sdk_version: str = "fake-sdk/1", opend_version: str = "fake-open
     )
 
 
+def _market_state_contract(
+    *, sdk_version: str = SDK_VERSION, opend_version: str = OPEND_VERSION, canonical_sha256: str = ""
+) -> QualifiedMarketStateConsistencyContract:
+    return QualifiedMarketStateConsistencyContract(
+        provider="FUTU",
+        provider_sdk_version=sdk_version,
+        opend_server_version=opend_version,
+        mapping_version="market-state-consistency/after-hours-end-v1",
+        qualified_at_utc=NOW,
+        qualification_references=(EvidenceReference("qualification", "futu://qualification/market-state/after-hours-end", SHA),),
+        qualified_relationships=(QualifiedMarketStateRelationship("AFTER_HOURS_END", "XNYS_NON_SESSION"),),
+        market_state_consistency_sha256=canonical_sha256,
+    )
+
+
 def test_qualified_mapping_requires_exact_dual_versions_and_hashes_both() -> None:
     mapping = _mapping()
 
-    assert mapping.provider_sdk_version == "fake-sdk/1"
-    assert mapping.opend_server_version == "fake-opend/1"
+    assert mapping.provider_sdk_version == SDK_VERSION
+    assert mapping.opend_server_version == OPEND_VERSION
     assert len(mapping.active_status_mapping_sha256) == 64
-    assert replace(mapping, provider_sdk_version="other-sdk/1", active_status_mapping_sha256="").active_status_mapping_sha256 != mapping.active_status_mapping_sha256
-    assert replace(mapping, opend_server_version="other-opend/1", active_status_mapping_sha256="").active_status_mapping_sha256 != mapping.active_status_mapping_sha256
+    with pytest.raises(ValueError, match="10.10.7008"):
+        replace(mapping, provider_sdk_version="10.09.6908", active_status_mapping_sha256="")
+    with pytest.raises(ValueError, match="1009"):
+        replace(mapping, opend_server_version="other-opend/1", active_status_mapping_sha256="")
     with pytest.raises(ValueError, match="non-empty"):
         replace(mapping, provider_sdk_version="", active_status_mapping_sha256="")
     with pytest.raises(ValueError, match="non-empty"):
@@ -60,7 +81,19 @@ def test_active_status_requires_exact_sdk_and_opend_versions() -> None:
     gateway = FutuUniverseGateway(sdk=object(), clock=lambda: NOW, sleep=lambda _: None)
     refs = (EvidenceReference("snapshot", "futu://snapshot/US.AAA", SHA),)
 
-    for sdk_version, opend_version in (("other-sdk/1", "fake-opend/1"), ("fake-sdk/1", "other-opend/1")):
+    qualified = gateway.normalized_active_status(
+        delisting=False,
+        suspension=False,
+        raw_status="NORMAL",
+        evidence_references=refs,
+        mapping=_mapping(),
+        provider="FUTU",
+        provider_sdk_version=SDK_VERSION,
+        opend_server_version=OPEND_VERSION,
+    )
+    assert qualified.decision is Decision.PASS
+
+    for sdk_version, opend_version in (("other-sdk/1", OPEND_VERSION), (SDK_VERSION, "other-opend/1")):
         decision = gateway.normalized_active_status(
             delisting=False,
             suspension=False,
@@ -84,6 +117,28 @@ def test_active_status_requires_exact_sdk_and_opend_versions() -> None:
         provider_sdk_version="other-sdk/1",
         opend_server_version="other-opend/1",
     ).reason_code == "DELISTED"
+    assert gateway.normalized_active_status(
+        delisting=False,
+        suspension=True,
+        raw_status="NORMAL",
+        evidence_references=refs,
+        mapping=_mapping(),
+        provider="FUTU",
+        provider_sdk_version=SDK_VERSION,
+        opend_server_version=OPEND_VERSION,
+    ).reason_code == "SUSPENDED_AS_OF_SNAPSHOT"
+    assert gateway.normalized_active_status(
+        delisting=False,
+        suspension=False,
+        raw_status="UNKNOWN_STATUS",
+        evidence_references=refs,
+        mapping=_mapping(),
+        provider="FUTU",
+        provider_sdk_version=SDK_VERSION,
+        opend_server_version=OPEND_VERSION,
+    ).decision is Decision.UNKNOWN
+    with pytest.raises(ValueError, match="non-empty"):
+        replace(_mapping(), entries=(), active_status_mapping_sha256="")
 
 
 @pytest.mark.parametrize("value", (True, False, -1, nan, inf, -inf, "0", None))
@@ -97,6 +152,7 @@ def test_collect_rejects_invalid_runtime_window_before_provider_acquisition(valu
             observed_at_utc=NOW,
             classification_provider=_ClassificationProvider(),
             active_status_mapping=_mapping(),
+            market_state_consistency_contract=_market_state_contract(),
             runtime_evidence_window_seconds=value,  # type: ignore[arg-type]
         )
 
@@ -104,10 +160,13 @@ def test_collect_rejects_invalid_runtime_window_before_provider_acquisition(valu
 
 
 def test_collect_signature_requires_keyword_only_default_free_runtime_window() -> None:
-    parameter = inspect.signature(FutuUniverseGateway.collect).parameters["runtime_evidence_window_seconds"]
+    parameters = inspect.signature(FutuUniverseGateway.collect).parameters
+    parameter = parameters["runtime_evidence_window_seconds"]
 
     assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
     assert parameter.default is inspect.Parameter.empty
+    assert parameters["market_state_consistency_contract"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert parameters["market_state_consistency_contract"].default is inspect.Parameter.empty
 
 
 class _Adapter:
@@ -119,6 +178,8 @@ class _Adapter:
         state_rows: list[object] | None = None,
         snapshot_update_time: str = "2026-08-21 16:00:00",
         qot_events: list[dict[str, object]] | None = None,
+        sdk_version: str = SDK_VERSION,
+        opend_version: str = OPEND_VERSION,
     ) -> None:
         self.discovery_rows = discovery_rows or [
             {"stock_id": "1", "code": "US.AAA", "delisting": False, "exchange_type": "NASDAQ", "stock_type": "STOCK"}
@@ -127,6 +188,8 @@ class _Adapter:
         self.state_rows = state_rows
         self.snapshot_update_time = snapshot_update_time
         self.qot_events = qot_events or []
+        self.sdk_version = sdk_version
+        self.opend_version = opend_version
         self.calls: list[tuple[str, object]] = []
         self.last_snapshot_rows: list[dict[str, object]] = []
 
@@ -154,7 +217,7 @@ class _Adapter:
 
     def market_states(self, codes):
         self.calls.append(("market_states", tuple(codes)))
-        rows = self.state_rows if self.state_rows is not None else [{"code": code, "market_state": "CLOSED"} for code in codes]
+        rows = self.state_rows if self.state_rows is not None else [{"code": code, "market_state": "AFTER_HOURS_END"} for code in codes]
         return (self._batch("market_states", {"rows": rows}),)
 
     def owner_plates(self, codes):
@@ -166,8 +229,8 @@ class _Adapter:
         if self.runtime_batches is not None:
             return self.runtime_batches
         return (
-            self._batch("runtime_sdk_version", {"sdk_version": "fake-sdk/1"}),
-            self._batch("global_state", {"server_ver": "fake-opend/1"}),
+            self._batch("runtime_sdk_version", {"sdk_version": self.sdk_version}),
+            self._batch("global_state", {"server_ver": self.opend_version}),
             self._batch("qot_right_capture", {"events": self.qot_events}),
         )
 
@@ -190,10 +253,17 @@ def _gateway(adapter: _Adapter) -> FutuUniverseGateway:
     return gateway
 
 
-def _collect(adapter: _Adapter, *, window: float = 0.0, mapping: QualifiedActiveStatusMapping | None = None):
+def _collect(
+    adapter: _Adapter,
+    *,
+    window: float = 0.0,
+    mapping: QualifiedActiveStatusMapping | None = None,
+    market_state_contract: QualifiedMarketStateConsistencyContract | None = None,
+):
     return _gateway(adapter).collect(
         as_of_session=date(2026, 8, 21), observed_at_utc=NOW,
         classification_provider=_ClassificationProvider(), active_status_mapping=mapping or _mapping(),
+        market_state_consistency_contract=market_state_contract or _market_state_contract(),
         runtime_evidence_window_seconds=window,
     )
 
@@ -220,6 +290,8 @@ def test_collect_consumes_task9_runtime_and_market_state_raw_batches_only() -> N
     assert {batch.endpoint for batch in attempt.batches} >= {"runtime_sdk_version", "global_state", "qot_right_capture", "market_states"}
     assert attempt.market_data_delay_class == "UNKNOWN"
     assert attempt.reason_codes == ("UNIVERSE_FRESHNESS_BLOCKER",)
+    assert attempt.market_state_consistency_contract == _market_state_contract()
+    assert attempt.realtime_capability_probes == ()
 
 
 @pytest.mark.parametrize("missing_endpoint", ("runtime_sdk_version", "global_state", "qot_right_capture"))
@@ -256,8 +328,18 @@ def test_qot_right_event_with_raw_us_right_field_stays_uninterpreted() -> None:
     assert attempt.reason_codes == ("UNIVERSE_FRESHNESS_BLOCKER",)
 
 
+@pytest.mark.parametrize("window", (0.0, 5.0, 15.0))
+@pytest.mark.parametrize("events", ([], [{"notify_type": "QOT_RIGHT", "sub_type": "EVENT", "msg": {"us_qot_right": "LEVEL2"}}]))
+def test_qot_right_is_change_event_audit_only_for_every_window(window: float, events: list[dict[str, object]]) -> None:
+    attempt = _collect(_Adapter(qot_events=events), window=window)
+
+    assert attempt.market_data_delay_class == "UNKNOWN"
+    assert attempt.preflight.formal_ready is False
+    assert attempt.reason_codes == ("UNIVERSE_FRESHNESS_BLOCKER",)
+
+
 def test_runtime_version_mismatch_is_active_unknown_without_fallback() -> None:
-    attempt = _collect(_Adapter(), mapping=_mapping(sdk_version="other-sdk/1"))
+    attempt = _collect(_Adapter(sdk_version="10.09.6908"))
 
     assert attempt.prerequisites[0].active_status is not None
     assert attempt.prerequisites[0].active_status.decision is Decision.UNKNOWN
@@ -277,6 +359,7 @@ def test_snapshot_fixture_has_no_synthetic_freshness_fields_and_uses_new_york_ti
 
 def test_us_snapshot_time_accepts_optional_fractional_seconds_as_new_york_wall_time() -> None:
     assert _parse_us_update_time("2026-08-21 19:59:59.839") == datetime(2026, 8, 21, 23, 59, 59, 839000, tzinfo=UTC)
+    assert _parse_us_update_time("2026-12-01 16:00:00") == datetime(2026, 12, 1, 21, tzinfo=UTC)
 
 
 @pytest.mark.parametrize("value", ("2026-11-01 01:30:00", "2026-03-08 02:30:00", "not-a-time", "2026-08-21T16:00:00+00:00"))
@@ -284,17 +367,115 @@ def test_us_snapshot_time_rejects_ambiguous_nonexistent_and_non_contract_values(
     assert _parse_us_update_time(value) is None
 
 
-def test_missing_duplicate_or_conflicting_market_state_rows_fail_closed() -> None:
+def test_missing_duplicate_null_or_unqualified_market_state_rows_fail_closed() -> None:
     for rows in (
         [],
-        [{"code": "US.AAA", "market_state": "CLOSED"}, {"code": "US.AAA", "market_state": "CLOSED"}],
+        [{"code": "US.AAA", "market_state": "AFTER_HOURS_END"}, {"code": "US.AAA", "market_state": "AFTER_HOURS_END"}],
         [{"code": "US.AAA"}],
         [{"code": "US.AAA", "market_state": None}],
         ["not-a-mapping"],
     ):
         attempt = _collect(_Adapter(state_rows=rows))
         assert attempt.attempt_status.value == "FAILED"
-        assert "FUTU_SCHEMA_BLOCKER" in attempt.reason_codes
+        assert "UNIVERSE_FRESHNESS_BLOCKER" in attempt.reason_codes
+
+
+@pytest.mark.parametrize(
+    "raw_state",
+    ("MORNING", "AFTERNOON", "CLOSED", "PRE_MARKET_BEGIN", "PRE_MARKET_END", "AFTER_HOURS_BEGIN", "OVERNIGHT", "NEW_STATE"),
+)
+def test_raw_market_state_is_consumed_and_every_unqualified_enum_fails_closed(raw_state: str) -> None:
+    attempt = _collect(_Adapter(state_rows=[{"code": "US.AAA", "market_state": raw_state}]))
+
+    assert attempt.attempt_status.value == "FAILED"
+    assert attempt.completeness.value == "INCOMPLETE"
+    assert attempt.reason_codes == ("UNIVERSE_FRESHNESS_BLOCKER",)
+
+
+def test_market_state_contract_exact_versions_hash_and_calendar_relationship() -> None:
+    contract = _market_state_contract()
+
+    assert len(contract.canonical_sha256) == 64
+    assert contract.qualified_relationships[0].raw_market_state == "AFTER_HOURS_END"
+    with pytest.raises(ValueError, match="tamper"):
+        _market_state_contract(canonical_sha256="f" * 64)
+
+    with pytest.raises(ValueError, match="10.10.7008"):
+        _market_state_contract(sdk_version="10.09.6908")
+    with pytest.raises(ValueError, match="1009"):
+        _market_state_contract(opend_version="other-opend")
+
+    for adapter in (
+        _Adapter(sdk_version="10.09.6908"),
+        _Adapter(opend_version="other-opend"),
+    ):
+        attempt = _collect(adapter)
+        assert attempt.reason_codes == ("UNIVERSE_FRESHNESS_BLOCKER",)
+
+    in_session = _gateway(_Adapter(snapshot_update_time="2026-08-21 15:00:00")).collect(
+        as_of_session=date(2026, 8, 20),
+        observed_at_utc=datetime(2026, 8, 21, 19, tzinfo=UTC),
+        classification_provider=_ClassificationProvider(),
+        active_status_mapping=_mapping(),
+        market_state_consistency_contract=_market_state_contract(),
+        runtime_evidence_window_seconds=0.0,
+    )
+    assert in_session.reason_codes == ("UNIVERSE_FRESHNESS_BLOCKER",)
+
+
+def test_quote_probe_cardinality_is_not_bound_to_universe_and_formal_stays_closed() -> None:
+    adapter = _Adapter(discovery_rows=[
+        {"stock_id": "1", "code": "US.AAA", "delisting": False, "exchange_type": "NASDAQ", "stock_type": "STOCK"},
+        {"stock_id": "2", "code": "US.BBB", "delisting": False, "exchange_type": "NASDAQ", "stock_type": "STOCK"},
+    ])
+
+    attempt = _collect(adapter)
+
+    assert attempt.realtime_capability_probes == ()
+    assert all(call[0] != "probe_realtime_quote_capability" for call in adapter.calls)
+    assert attempt.attempt_status.value == "FAILED"
+    assert attempt.completeness.value == "INCOMPLETE"
+    assert attempt.reason_codes == ("UNIVERSE_FRESHNESS_BLOCKER",)
+    assert len(attempt.evidence) == 2
+    assert len(attempt.prerequisites) == 2
+
+
+def test_optional_probe_attempt_binding_is_sensitive_to_request_code_and_time() -> None:
+    def probe(code: str, request_hash: str, acquired_at: datetime) -> RawApiBatch:
+        return RawApiBatch(
+            "realtime_quote_capability_probe",
+            1,
+            {"code": code, "subtype": "QUOTE", "subscribe_push": False},
+            {"capability_verdict": "PROVEN_SCOPE_LIMITED"},
+            request_hash,
+            "e" * 64,
+            0,
+            "SUCCESS",
+            acquired_at,
+        )
+
+    gateway = _gateway(_Adapter())
+    common = {
+        "as_of_session": date(2026, 8, 21),
+        "observed_at_utc": NOW,
+        "mapping": _mapping(),
+        "market_state_contract": _market_state_contract(),
+        "runtime_evidence_window_seconds": 0.0,
+        "reasons": ("UNIVERSE_FRESHNESS_BLOCKER",),
+        "prerequisites_hash": "d" * 64,
+        "batches": (),
+    }
+    first = gateway._attempt_id(**common, realtime_capability_probes=(probe("US.AAPL", "1" * 64, NOW),))
+    changed_code = gateway._attempt_id(**common, realtime_capability_probes=(probe("US.MSFT", "2" * 64, NOW),))
+    changed_time = gateway._attempt_id(**common, realtime_capability_probes=(probe("US.AAPL", "1" * 64, NOW.replace(minute=1)),))
+
+    assert len({first, changed_code, changed_time}) == 3
+
+    attempt = _collect(_Adapter())
+    invalid_probe = probe("US.AAPL", "1" * 64, NOW)
+    invalid_probe = replace(invalid_probe, endpoint="market_states")
+    with pytest.raises(ValueError, match="realtime_quote_capability_probe"):
+        replace(attempt, realtime_capability_probes=(invalid_probe,))
 
 
 def test_identity_conflicts_remain_distinct_and_no_partial_formal_attempt_is_created() -> None:
@@ -319,7 +500,7 @@ def test_gateway_has_no_direct_task9_sdk_acquisition_or_downstream_owner() -> No
     source = Path("src/tv_quant/pattern_finder/universe_foundation/futu_gateway.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
     attributes = {node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)}
-    forbidden = {"get_market_state", "get_global_state", "set_handler", "evaluate_security", "build_funnel", "UniverseSnapshot", "UniverseSnapshotStore", "detect_flat_base"}
+    forbidden = {"get_market_state", "get_global_state", "set_handler", "subscribe", "unsubscribe", "evaluate_security", "build_funnel", "UniverseSnapshot", "UniverseSnapshotStore", "detect_flat_base"}
 
     assert attributes.isdisjoint(forbidden)
     assert "openfigi" not in source.lower()

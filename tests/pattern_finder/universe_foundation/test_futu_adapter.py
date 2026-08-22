@@ -72,10 +72,25 @@ class FakeContext:
             handler.on_recv_rsp(notification)  # type: ignore[attr-defined]
         return self.sdk.handler_result
 
+    def subscribe(self, code_list: list[str], subtype_list: list[object], *, subscribe_push: bool):
+        self.sdk.subscribe_requests.append((tuple(code_list), tuple(subtype_list), subscribe_push))
+        return self.sdk.next_result("subscribe")
+
+    def query_subscription(self):
+        self.sdk.query_subscription_requests += 1
+        return self.sdk.next_result("query_subscription")
+
+    def unsubscribe(self, code_list: list[str], subtype_list: list[object]):
+        self.sdk.unsubscribe_requests.append((tuple(code_list), tuple(subtype_list)))
+        return self.sdk.next_result("unsubscribe")
+
 
 class FakeSdk:
     RET_OK = 0
-    __version__ = "10.09.6908"
+    __version__ = "10.10.7008"
+
+    class SubType:
+        QUOTE = "QUOTE"
 
     class SysNotifyType:
         QOT_RIGHT = "QOT_RIGHT"
@@ -141,6 +156,9 @@ class FakeSdk:
         self.market_state_requests: list[tuple[str, ...]] = []
         self.plate_requests: list[tuple[str, ...]] = []
         self.global_state_requests = 0
+        self.subscribe_requests: list[tuple[tuple[str, ...], tuple[object, ...], bool]] = []
+        self.query_subscription_requests = 0
+        self.unsubscribe_requests: list[tuple[tuple[str, ...], tuple[object, ...]]] = []
         self.handlers: list[object] = []
         self.notifications: list[list[object]] = []
         self.handler_result = 0
@@ -151,6 +169,9 @@ class FakeSdk:
             "market_state": [],
             "plate": [],
             "global_state": [],
+            "subscribe": [],
+            "query_subscription": [],
+            "unsubscribe": [],
         }
 
     def OpenQuoteContext(self) -> FakeContext:
@@ -428,7 +449,7 @@ def test_collect_runtime_evidence_records_sdk_global_state_and_one_qot_right_eve
         "global_state",
         "qot_right_capture",
     ]
-    assert batches[0].raw_response == {"sdk_version": "10.09.6908"}
+    assert batches[0].raw_response == {"sdk_version": "10.10.7008"}
     assert batches[1].raw_response == {"server_ver": "1009", "market_us": "MORNING"}
     assert batches[2].raw_request == {"notification_window_seconds": {"__float_repr__": "0.5"}}
     assert batches[2].raw_response == {
@@ -474,11 +495,11 @@ def test_runtime_evidence_hashes_are_deterministic_and_sensitive_to_sdk_window_a
         sdk.notifications = [[("QOT_RIGHT", "EVENT", {"us_qot_right": right})]]
         return _adapter(sdk).collect_runtime_evidence(notification_window_seconds=window)
 
-    first = evidence(sdk_version="10.09.6908", window=1.0, right="RIGHT_A")
-    same = evidence(sdk_version="10.09.6908", window=1.0, right="RIGHT_A")
-    changed_sdk = evidence(sdk_version="10.10.7008", window=1.0, right="RIGHT_A")
-    changed_window = evidence(sdk_version="10.09.6908", window=2.0, right="RIGHT_A")
-    changed_event = evidence(sdk_version="10.09.6908", window=1.0, right="RIGHT_B")
+    first = evidence(sdk_version="10.10.7008", window=1.0, right="RIGHT_A")
+    same = evidence(sdk_version="10.10.7008", window=1.0, right="RIGHT_A")
+    changed_sdk = evidence(sdk_version="10.10.7009", window=1.0, right="RIGHT_A")
+    changed_window = evidence(sdk_version="10.10.7008", window=2.0, right="RIGHT_A")
+    changed_event = evidence(sdk_version="10.10.7008", window=1.0, right="RIGHT_B")
 
     assert [batch.response_hash for batch in first] == [batch.response_hash for batch in same]
     assert first[0].response_hash != changed_sdk[0].response_hash
@@ -510,6 +531,110 @@ def test_collect_runtime_evidence_closes_context_when_handler_registration_fails
 
     assert sdk.global_state_requests == 0
     assert sdk.contexts[0].closed is True
+
+
+def test_quote_probe_is_scope_limited_records_quota_lifecycle_and_explicit_cleanup() -> None:
+    sdk = FakeSdk()
+    sdk.results["global_state"] = [_ok({"server_ver": "1009"})]
+    sdk.results["subscribe"] = [_ok({"quota_before": {"remain": 300}, "quota_after": {"remain": 299}})]
+    sdk.results["query_subscription"] = [
+        _ok({"remain": 299, "subscriptions": ["US.AAPL"]}),
+        _ok({"remain": 300, "subscriptions": []}),
+    ]
+    sdk.results["unsubscribe"] = [_ok({"code": "US.AAPL"})]
+    clock = FakeClock()
+
+    batch = _adapter(sdk, clock).probe_realtime_quote_capability("US.AAPL")
+
+    assert batch.endpoint == "realtime_quote_capability_probe"
+    assert batch.raw_request == {"code": "US.AAPL", "subtype": "QUOTE", "subscribe_push": False}
+    assert batch.raw_response["provider_sdk_version"] == "10.10.7008"
+    assert batch.raw_response["opend_server_version"] == "1009"
+    assert batch.raw_response["capability_verdict"] == "PROVEN_SCOPE_LIMITED"
+    assert batch.raw_response["cleanup_verdict"] == "UNSUBSCRIBE_CONFIRMED"
+    assert batch.raw_response["query_after_subscribe"]["ret"] == 0
+    assert batch.raw_response["query_after_subscribe"]["response"]["remain"] == 299
+    assert batch.raw_response["query_after_unsubscribe"]["ret"] == 0
+    assert batch.raw_response["query_after_unsubscribe"]["response"]["remain"] == 300
+    assert batch.raw_response["held_seconds"] >= 60.0
+    assert batch.raw_response["close"]["attempted"] is True
+    assert len(batch.raw_response["close"]["response_hash"]) == 64
+    assert len(batch.raw_response["subscribe"]["response_hash"]) == 64
+    assert sdk.subscribe_requests == [(('US.AAPL',), ('QUOTE',), False)]
+    assert sdk.unsubscribe_requests == [(('US.AAPL',), ('QUOTE',))]
+    assert sdk.query_subscription_requests == 2
+    assert clock.sleeps == [60.0]
+    assert sdk.contexts[0].closed is True
+
+
+def test_quote_probe_subscribe_failure_is_unknown_and_does_not_claim_no_right() -> None:
+    sdk = FakeSdk()
+    sdk.results["global_state"] = [_ok({"server_ver": "1009"})]
+    sdk.results["subscribe"] = [(1, "permission or quota failure")]
+
+    batch = _adapter(sdk).probe_realtime_quote_capability("US.AAPL")
+
+    assert batch.raw_response["capability_verdict"] == "UNKNOWN"
+    assert batch.raw_response["cleanup_verdict"] == "UNKNOWN"
+    assert batch.raw_response["subscribe"]["ret"] == 1
+    assert "NO_RIGHT" not in repr(batch.raw_response)
+    assert sdk.unsubscribe_requests == []
+    assert sdk.contexts[0].closed is True
+
+
+def test_quote_probe_cleanup_is_not_confirmed_when_post_unsubscribe_query_fails() -> None:
+    sdk = FakeSdk()
+    sdk.results["global_state"] = [_ok({"server_ver": "1009"})]
+    sdk.results["subscribe"] = [_ok({"subscribed": True})]
+    sdk.results["query_subscription"] = [_ok({"remain": 299}), (1, "query failed")]
+    sdk.results["unsubscribe"] = [_ok({"unsubscribed": True})]
+
+    batch = _adapter(sdk).probe_realtime_quote_capability("US.AAPL")
+
+    assert batch.raw_response["capability_verdict"] == "PROVEN_SCOPE_LIMITED"
+    assert batch.raw_response["cleanup_verdict"] == "CLEANUP_FAILED"
+
+
+def test_quote_probe_cleanup_is_not_confirmed_while_target_or_quota_remains() -> None:
+    sdk = FakeSdk()
+    sdk.results["global_state"] = [_ok({"server_ver": "1009"})]
+    sdk.results["subscribe"] = [_ok({"subscribed": True})]
+    sdk.results["query_subscription"] = [
+        _ok({"remain": 299, "subscriptions": ["US.AAPL"]}),
+        _ok({"remain": 299, "subscriptions": ["US.AAPL"]}),
+    ]
+    sdk.results["unsubscribe"] = [_ok({"unsubscribed": True})]
+
+    batch = _adapter(sdk).probe_realtime_quote_capability("US.AAPL")
+
+    assert batch.raw_response["cleanup_verdict"] == "CLEANUP_FAILED"
+
+
+def test_quote_probe_marks_delayed_release_risk_when_clock_does_not_confirm_sixty_seconds() -> None:
+    class NonAdvancingClock:
+        def __init__(self) -> None:
+            self.sleeps: list[float] = []
+
+        def __call__(self) -> datetime:
+            return datetime(2026, 8, 21, tzinfo=UTC)
+
+        def sleep(self, seconds: float) -> None:
+            self.sleeps.append(seconds)
+
+    sdk = FakeSdk()
+    sdk.results["global_state"] = [_ok({"server_ver": "1009"})]
+    sdk.results["subscribe"] = [_ok({"subscribed": True})]
+    sdk.results["query_subscription"] = [
+        _ok({"remain": 299, "subscriptions": ["US.AAPL"]}),
+        _ok({"remain": 300, "subscriptions": []}),
+    ]
+    sdk.results["unsubscribe"] = [_ok({"unsubscribed": True})]
+    clock = NonAdvancingClock()
+
+    batch = FutuProviderAdapter(sdk=sdk, clock=clock, sleep=clock.sleep).probe_realtime_quote_capability("US.AAPL")
+
+    assert batch.raw_response["held_seconds"] == 0.0
+    assert batch.raw_response["cleanup_verdict"] == "DELAYED_RELEASE_RISK"
 
 
 def test_owner_plate_rate_limit_is_10_requests_per_30_seconds() -> None:

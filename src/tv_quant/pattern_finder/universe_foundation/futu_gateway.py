@@ -11,8 +11,10 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from decimal import Decimal
+from math import isfinite
 from types import MappingProxyType
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from tv_quant.run_manifest import canonical_hash
 
@@ -44,7 +46,7 @@ _BLOCKERS = frozenset({
     "LIQUIDITY_EVIDENCE_CONFLICT", "LISTING_HISTORY_CONFLICT",
 })
 _ACTIVE_DECISIONS = frozenset({Decision.PASS, Decision.FAIL})
-_FORMAL_DELAYS = frozenset({"REALTIME", "EOD", "CLOSE", "NO_DELAY"})
+_NEW_YORK = ZoneInfo("America/New_York")
 
 
 def _non_empty(value: object, field: str) -> str:
@@ -59,6 +61,15 @@ def _utc_datetime(value: object, field: str) -> datetime:
     if value.utcoffset() != UTC.utcoffset(value):
         raise ValueError(f"{field}: UTC datetime required")
     return value
+
+
+def _runtime_window(value: object) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError("runtime_evidence_window_seconds: finite nonnegative number required")
+    normalized = float(value)
+    if not isfinite(normalized) or normalized < 0:
+        raise ValueError("runtime_evidence_window_seconds: finite nonnegative number required")
+    return normalized
 
 
 def _references(values: Sequence[EvidenceReference], field: str) -> tuple[EvidenceReference, ...]:
@@ -78,7 +89,8 @@ def _reasons(values: Sequence[str]) -> tuple[str, ...]:
 def _mapping_payload(mapping: "QualifiedActiveStatusMapping") -> dict[str, object]:
     return {
         "provider": mapping.provider,
-        "provider_version": mapping.provider_version,
+        "provider_sdk_version": mapping.provider_sdk_version,
+        "opend_server_version": mapping.opend_server_version,
         "mapping_version": mapping.mapping_version,
         "entries": [
             {"raw_value": item.raw_value, "decision": item.decision.value, "reason_code": item.reason_code}
@@ -108,7 +120,8 @@ class ActiveStatusMappingEntry:
 @dataclass(frozen=True, slots=True)
 class QualifiedActiveStatusMapping:
     provider: str
-    provider_version: str
+    provider_sdk_version: str
+    opend_server_version: str
     mapping_version: str
     entries: tuple[ActiveStatusMappingEntry, ...]
     qualified_at_utc: datetime
@@ -116,10 +129,12 @@ class QualifiedActiveStatusMapping:
     active_status_mapping_sha256: str = ""
 
     def __post_init__(self) -> None:
-        for field in ("provider", "provider_version", "mapping_version"):
+        for field in ("provider", "provider_sdk_version", "opend_server_version", "mapping_version"):
             _non_empty(getattr(self, field), field)
-        if self.provider_version.strip().lower() in {"unknown", "unqualified", "n/a"}:
-            raise ValueError("provider_version: concrete qualified version required")
+        if self.provider_sdk_version.strip().lower() in {"unknown", "unqualified", "n/a"}:
+            raise ValueError("provider_sdk_version: concrete qualified version required")
+        if self.opend_server_version.strip().lower() in {"unknown", "unqualified", "n/a"}:
+            raise ValueError("opend_server_version: concrete qualified version required")
         _utc_datetime(self.qualified_at_utc, "qualified_at_utc")
         entries = tuple(self.entries)
         if not entries or any(type(item) is not ActiveStatusMappingEntry for item in entries):
@@ -147,7 +162,8 @@ class QualifiedActiveStatusMapping:
 @dataclass(frozen=True, slots=True)
 class GatewayPreflight:
     provider: str
-    provider_version: str
+    provider_sdk_version: str
+    opend_server_version: str
     as_of_session: date
     observed_at_utc: datetime
     provider_update_time: datetime | None
@@ -157,7 +173,8 @@ class GatewayPreflight:
 
     def __post_init__(self) -> None:
         _non_empty(self.provider, "provider")
-        _non_empty(self.provider_version, "provider_version")
+        _non_empty(self.provider_sdk_version, "provider_sdk_version")
+        _non_empty(self.opend_server_version, "opend_server_version")
         if type(self.as_of_session) is not date:
             raise ValueError("as_of_session: date required")
         _utc_datetime(self.observed_at_utc, "observed_at_utc")
@@ -252,6 +269,7 @@ class GatewayAttempt:
     as_of_session: date
     observed_at_utc: datetime
     provider_update_time: datetime | None
+    runtime_evidence_window_seconds: float
     market_data_delay_class: str
     active_status_mapping: QualifiedActiveStatusMapping
     prerequisites_sha256: str
@@ -271,6 +289,7 @@ class GatewayAttempt:
         _utc_datetime(self.observed_at_utc, "observed_at_utc")
         if self.provider_update_time is not None:
             _utc_datetime(self.provider_update_time, "provider_update_time")
+        _runtime_window(self.runtime_evidence_window_seconds)
         _non_empty(self.market_data_delay_class, "market_data_delay_class")
         if type(self.active_status_mapping) is not QualifiedActiveStatusMapping or type(self.preflight) is not GatewayPreflight:
             raise ValueError("qualified mapping and preflight required")
@@ -311,6 +330,18 @@ def _records(value: object) -> tuple[Mapping[str, Any], ...]:
     return ()
 
 
+def _raw_rows(value: object) -> tuple[object, ...]:
+    """Return a response's raw table rows without silently discarding malformed rows."""
+    if isinstance(value, Mapping):
+        for key in ("rows", "data", "__table_records__"):
+            if key in value:
+                return _raw_rows(value[key])
+        return ()
+    if isinstance(value, (tuple, list)):
+        return tuple(value)
+    return ()
+
+
 def _field(row: Mapping[str, Any] | None, *names: str) -> object | None:
     if row is None:
         return None
@@ -319,6 +350,10 @@ def _field(row: Mapping[str, Any] | None, *names: str) -> object | None:
         if name.lower() in folded:
             return folded[name.lower()]
     return None
+
+
+def _has_field(row: Mapping[str, Any] | None, name: str) -> bool:
+    return row is not None and name.lower() in {str(key).lower() for key in row}
 
 
 def _text(value: object) -> str | None:
@@ -356,16 +391,21 @@ def _integer(value: object) -> int | None:
     return None
 
 
-def _parse_time(value: object) -> datetime | None:
-    if isinstance(value, datetime):
-        return value.astimezone(UTC) if value.tzinfo is not None else None
-    if type(value) is not str or not value.strip():
+def _parse_us_update_time(value: object) -> datetime | None:
+    """Parse the documented offset-less US snapshot wall time fail-closed."""
+    if type(value) is not str:
         return None
     try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        local = datetime.strptime(value, "%Y-%m-%d %H:%M:%S.%f") if "." in value else datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
     except ValueError:
         return None
-    return parsed.astimezone(UTC) if parsed.tzinfo is not None else None
+    candidates: dict[datetime, datetime] = {}
+    for fold in (0, 1):
+        aware = local.replace(tzinfo=_NEW_YORK, fold=fold)
+        utc = aware.astimezone(UTC)
+        if utc.astimezone(_NEW_YORK).replace(tzinfo=None) == local:
+            candidates[utc] = aware
+    return next(iter(candidates)) if len(candidates) == 1 else None
 
 
 def _blocker(error: Exception) -> str:
@@ -397,7 +437,7 @@ class FutuUniverseGateway:
             raise ValueError("port: positive integer required")
         self._sdk, self._host, self._port, self._clock, self._sleep = sdk, host, port, clock, sleep
 
-    def normalized_active_status(self, *, delisting: object, suspension: object, raw_status: object, evidence_references: Sequence[EvidenceReference], mapping: QualifiedActiveStatusMapping, provider: str, provider_version: str) -> NormalizedPrerequisiteDecision:
+    def normalized_active_status(self, *, delisting: object, suspension: object, raw_status: object, evidence_references: Sequence[EvidenceReference], mapping: QualifiedActiveStatusMapping, provider: str, provider_sdk_version: str, opend_server_version: str) -> NormalizedPrerequisiteDecision:
         references = _references(evidence_references, "evidence_references")
         if delisting is True:
             return NormalizedPrerequisiteDecision(Decision.FAIL, "DELISTED", references)
@@ -405,7 +445,11 @@ class FutuUniverseGateway:
             return NormalizedPrerequisiteDecision(Decision.FAIL, "SUSPENDED_AS_OF_SNAPSHOT", references)
         if type(delisting) is not bool or type(suspension) is not bool:
             return NormalizedPrerequisiteDecision(Decision.UNKNOWN, "ACTIVE_STATUS_UNKNOWN", references)
-        if mapping.provider != provider or mapping.provider_version != provider_version:
+        if (
+            mapping.provider != provider
+            or mapping.provider_sdk_version != provider_sdk_version
+            or mapping.opend_server_version != opend_server_version
+        ):
             return NormalizedPrerequisiteDecision(Decision.UNKNOWN, "ACTIVE_STATUS_UNKNOWN", references)
         status = _text(raw_status)
         if status is None:
@@ -431,17 +475,37 @@ class FutuUniverseGateway:
 
         return FutuProviderAdapter(sdk=_EndpointBoundSdk(), clock=self._clock, sleep=self._sleep)
 
-    def _provider_version(self) -> str:
-        return _text(getattr(self._sdk, "__version__", None)) or _text(getattr(self._sdk, "VERSION", None)) or ""
+    @staticmethod
+    def _runtime_versions(runtime_batches: Sequence[RawApiBatch]) -> tuple[str, str]:
+        by_endpoint: dict[str, list[RawApiBatch]] = defaultdict(list)
+        for batch in runtime_batches:
+            by_endpoint[batch.endpoint].append(batch)
+        if set(by_endpoint) != {"runtime_sdk_version", "global_state", "qot_right_capture"} or any(len(items) != 1 for items in by_endpoint.values()):
+            raise FutuProviderError("FUTU_SCHEMA_BLOCKER: runtime evidence endpoints malformed")
+        sdk_version = _text(_field(by_endpoint["runtime_sdk_version"][0].raw_response, "sdk_version"))
+        opend_version = _text(_field(by_endpoint["global_state"][0].raw_response, "server_ver"))
+        events = _field(by_endpoint["qot_right_capture"][0].raw_response, "events")
+        if (
+            sdk_version is None
+            or opend_version is None
+            or not isinstance(events, (tuple, list))
+            or any(
+                not isinstance(event, Mapping)
+                or not _has_field(event, "notify_type")
+                or not _has_field(event, "sub_type")
+                or not isinstance(_field(event, "msg"), Mapping)
+                or not _has_field(_field(event, "msg"), "us_qot_right")
+                for event in events
+            )
+        ):
+            raise FutuProviderError("FUTU_SCHEMA_BLOCKER: runtime evidence shape malformed")
+        return sdk_version, opend_version
 
-    def _preflight(self, *, as_of_session: date, observed_at_utc: datetime, provider_version: str, snapshots: Sequence[Mapping[str, Any]]) -> GatewayPreflight:
-        update_values = {_parse_time(_field(row, "provider_update_time", "update_time", "updated_at", "timestamp")) for row in snapshots}
-        delay_values = {_text(_field(row, "market_data_delay_class", "delay_class", "data_delay")) for row in snapshots}
-        completion_values = tuple(_field(row, "regular_session_complete", "xnys_regular_session_complete") for row in snapshots)
-        session_values = {_text(_field(row, "market_session", "session_kind")) for row in snapshots}
+    def _preflight(self, *, as_of_session: date, observed_at_utc: datetime, provider_sdk_version: str, opend_server_version: str, snapshots: Sequence[Mapping[str, Any]]) -> GatewayPreflight:
+        update_values = {_parse_us_update_time(_field(row, "update_time")) for row in snapshots}
         reasons: list[str] = []
         provider_update_time = next(iter(update_values)) if len(update_values) == 1 else None
-        delay = next(iter(delay_values)) if len(delay_values) == 1 else "UNKNOWN"
+        delay = "UNKNOWN"
         try:
             import exchange_calendars as exchange_calendars
             calendar = exchange_calendars.get_calendar("XNYS")
@@ -460,54 +524,72 @@ class FutuUniverseGateway:
             or provider_update_time is None
             or provider_update_time < session_close
             or provider_update_time > observed_at_utc
-            or delay not in _FORMAL_DELAYS
-            or not completion_values
-            or any(type(value) is not bool or value is not True for value in completion_values)
-            or session_values != {"XNYS_REGULAR"}
+            # QOT_RIGHT delay mapping is intentionally not qualified in Task 10.
+            or delay == "UNKNOWN"
         ):
             reasons.append("UNIVERSE_FRESHNESS_BLOCKER")
-        return GatewayPreflight("FUTU", provider_version, as_of_session, observed_at_utc, provider_update_time, delay, not reasons, tuple(reasons))
+        return GatewayPreflight("FUTU", provider_sdk_version, opend_server_version, as_of_session, observed_at_utc, provider_update_time, delay, not reasons, tuple(reasons))
 
     @staticmethod
-    def _batch_records(discovery: Sequence[RawApiBatch], screens: Sequence[RawApiPage], snapshots: Sequence[RawApiBatch], plates: Sequence[RawApiBatch]) -> tuple[ApiBatchRecord, ...]:
+    def _batch_records(*collections: Sequence[RawApiBatch] | Sequence[RawApiPage]) -> tuple[ApiBatchRecord, ...]:
         records: list[ApiBatchRecord] = []
-        for batch in (*discovery, *snapshots, *plates):
-            records.append(ApiBatchRecord(batch.endpoint, batch.batch_index, batch.request_hash, batch.response_hash, batch.acquired_at_utc))
-        for page in screens:
-            records.append(ApiBatchRecord(page.endpoint, page.page_index, page.request_hash, page.response_hash, page.acquired_at_utc, page.page_index))
+        for collection in collections:
+            for item in collection:
+                if type(item) is RawApiBatch:
+                    records.append(ApiBatchRecord(item.endpoint, item.batch_index, item.request_hash, item.response_hash, item.acquired_at_utc))
+                elif type(item) is RawApiPage:
+                    records.append(ApiBatchRecord(item.endpoint, item.page_index, item.request_hash, item.response_hash, item.acquired_at_utc, item.page_index))
+                else:
+                    raise ValueError("Task 9 raw batch/page required")
         return tuple(sorted(records, key=lambda item: (item.endpoint, item.batch_index, item.page_index or 0)))
 
     @staticmethod
     def _reference(source: str, locator: str, record_hash: str) -> EvidenceReference:
         return EvidenceReference(source, locator, record_hash)
 
-    def _failed_attempt(self, *, as_of_session: date, observed_at_utc: datetime, mapping: QualifiedActiveStatusMapping, provider_version: str, reason_codes: Sequence[str], batches: Sequence[ApiBatchRecord] = (), evidence: Sequence[UniverseSecurityEvidence] = (), ledger: Sequence[IdentityLedgerEntry] = (), preflight: GatewayPreflight | None = None) -> GatewayAttempt:
-        reasons = _reasons(tuple(reason_codes) + ("UNIVERSE_INCOMPLETE_BLOCKER",))
-        if preflight is None:
-            preflight = GatewayPreflight("FUTU", provider_version, as_of_session, observed_at_utc, None, "UNKNOWN", False, reasons)
-        else:
-            preflight = GatewayPreflight(preflight.provider, preflight.provider_version, preflight.as_of_session, preflight.observed_at_utc, preflight.provider_update_time, preflight.market_data_delay_class, False, _reasons(preflight.reason_codes + reasons))
-        attempt_id = canonical_hash({"as_of_session": as_of_session.isoformat(), "observed_at_utc": observed_at_utc.isoformat(), "mapping": mapping.active_status_mapping_sha256, "reasons": list(reasons)})
-        return GatewayAttempt(attempt_id, as_of_session, observed_at_utc, preflight.provider_update_time, preflight.market_data_delay_class, mapping, prerequisites_sha256(()), preflight, tuple(evidence), (), tuple(batches), tuple(ledger), AttemptStatus.FAILED, Completeness.INCOMPLETE, reasons)
+    @staticmethod
+    def _attempt_id(*, as_of_session: date, observed_at_utc: datetime, mapping: QualifiedActiveStatusMapping, runtime_evidence_window_seconds: float, reasons: Sequence[str], prerequisites_hash: str, batches: Sequence[ApiBatchRecord]) -> str:
+        return canonical_hash({
+            "as_of_session": as_of_session.isoformat(),
+            "observed_at_utc": observed_at_utc.isoformat(),
+            "mapping": mapping.active_status_mapping_sha256,
+            "runtime_evidence_window_seconds": repr(runtime_evidence_window_seconds),
+            "reasons": list(reasons),
+            "prerequisites": prerequisites_hash,
+            "batches": [item.response_hash for item in batches],
+        })
 
-    def collect(self, *, as_of_session: date, observed_at_utc: datetime, classification_provider: SecurityMasterProvider, active_status_mapping: QualifiedActiveStatusMapping) -> GatewayAttempt:
+    def _failed_attempt(self, *, as_of_session: date, observed_at_utc: datetime, mapping: QualifiedActiveStatusMapping, provider_sdk_version: str, opend_server_version: str, runtime_evidence_window_seconds: float, reason_codes: Sequence[str], batches: Sequence[ApiBatchRecord] = (), evidence: Sequence[UniverseSecurityEvidence] = (), prerequisites: Sequence[SecurityEvaluationPrerequisites] = (), ledger: Sequence[IdentityLedgerEntry] = (), preflight: GatewayPreflight | None = None) -> GatewayAttempt:
+        supplied_reasons = tuple(reason_codes)
+        reasons = _reasons(supplied_reasons if "UNIVERSE_FRESHNESS_BLOCKER" in supplied_reasons else supplied_reasons + ("UNIVERSE_INCOMPLETE_BLOCKER",))
+        prerequisite_hash = prerequisites_sha256(prerequisites)
+        if preflight is None:
+            preflight = GatewayPreflight("FUTU", provider_sdk_version, opend_server_version, as_of_session, observed_at_utc, None, "UNKNOWN", False, reasons)
+        else:
+            preflight = GatewayPreflight(preflight.provider, preflight.provider_sdk_version, preflight.opend_server_version, preflight.as_of_session, preflight.observed_at_utc, preflight.provider_update_time, preflight.market_data_delay_class, False, _reasons(preflight.reason_codes + reasons))
+        attempt_id = self._attempt_id(as_of_session=as_of_session, observed_at_utc=observed_at_utc, mapping=mapping, runtime_evidence_window_seconds=runtime_evidence_window_seconds, reasons=reasons, prerequisites_hash=prerequisite_hash, batches=batches)
+        return GatewayAttempt(attempt_id=attempt_id, as_of_session=as_of_session, observed_at_utc=observed_at_utc, provider_update_time=preflight.provider_update_time, runtime_evidence_window_seconds=runtime_evidence_window_seconds, market_data_delay_class=preflight.market_data_delay_class, active_status_mapping=mapping, prerequisites_sha256=prerequisite_hash, preflight=preflight, evidence=tuple(evidence), prerequisites=tuple(prerequisites), batches=tuple(batches), identity_ledger=tuple(ledger), attempt_status=AttemptStatus.FAILED, completeness=Completeness.INCOMPLETE, reason_codes=reasons)
+
+    def collect(self, *, as_of_session: date, observed_at_utc: datetime, classification_provider: SecurityMasterProvider, active_status_mapping: QualifiedActiveStatusMapping, runtime_evidence_window_seconds: float) -> GatewayAttempt:
         if type(as_of_session) is not date:
             raise ValueError("as_of_session: date required")
         _utc_datetime(observed_at_utc, "observed_at_utc")
         if type(active_status_mapping) is not QualifiedActiveStatusMapping:
             raise ValueError("active_status_mapping: QualifiedActiveStatusMapping required")
-        provider_version = self._provider_version()
-        if not provider_version:
-            return self._failed_attempt(as_of_session=as_of_session, observed_at_utc=observed_at_utc, mapping=active_status_mapping, provider_version="unavailable", reason_codes=("FUTU_SCHEMA_BLOCKER",))
+        window = _runtime_window(runtime_evidence_window_seconds)
+        adapter = self._adapter()
         failure_context: dict[str, object] = {}
         try:
-            return self._collect_impl(as_of_session=as_of_session, observed_at_utc=observed_at_utc, classification_provider=classification_provider, active_status_mapping=active_status_mapping, provider_version=provider_version, failure_context=failure_context)
+            runtime = adapter.collect_runtime_evidence(notification_window_seconds=window)
+            runtime_batches = self._batch_records(runtime)
+            failure_context["batches"] = runtime_batches
+            provider_sdk_version, opend_server_version = self._runtime_versions(runtime)
+            return self._collect_impl(as_of_session=as_of_session, observed_at_utc=observed_at_utc, classification_provider=classification_provider, active_status_mapping=active_status_mapping, runtime_evidence_window_seconds=window, provider_sdk_version=provider_sdk_version, opend_server_version=opend_server_version, adapter=adapter, runtime=runtime, failure_context=failure_context)
         except Exception as error:
-            return self._failed_attempt(as_of_session=as_of_session, observed_at_utc=observed_at_utc, mapping=active_status_mapping, provider_version=provider_version, reason_codes=(_blocker(error),), batches=failure_context.get("batches", ()), evidence=failure_context.get("evidence", ()), ledger=failure_context.get("ledger", ()), preflight=failure_context.get("preflight"))  # type: ignore[arg-type]
+            return self._failed_attempt(as_of_session=as_of_session, observed_at_utc=observed_at_utc, mapping=active_status_mapping, provider_sdk_version="unavailable", opend_server_version="unavailable", runtime_evidence_window_seconds=window, reason_codes=(_blocker(error),), batches=failure_context.get("batches", ()), evidence=failure_context.get("evidence", ()), prerequisites=failure_context.get("prerequisites", ()), ledger=failure_context.get("ledger", ()), preflight=failure_context.get("preflight"))  # type: ignore[arg-type]
 
-    def _collect_impl(self, *, as_of_session: date, observed_at_utc: datetime, classification_provider: SecurityMasterProvider, active_status_mapping: QualifiedActiveStatusMapping, provider_version: str, failure_context: dict[str, object]) -> GatewayAttempt:
+    def _collect_impl(self, *, as_of_session: date, observed_at_utc: datetime, classification_provider: SecurityMasterProvider, active_status_mapping: QualifiedActiveStatusMapping, runtime_evidence_window_seconds: float, provider_sdk_version: str, opend_server_version: str, adapter: FutuProviderAdapter, runtime: Sequence[RawApiBatch], failure_context: dict[str, object]) -> GatewayAttempt:
         try:
-            adapter = self._adapter()
             discovery = adapter.discover_cash_securities()
             discovery_rows = tuple(row for batch in discovery for row in _records(batch.raw_response))
             codes = tuple(sorted({_text(_field(row, "code", "futu_code")) for row in discovery_rows if _text(_field(row, "code", "futu_code"))}))
@@ -520,9 +602,9 @@ class FutuUniverseGateway:
                 if code is not None and stock_id is not None:
                     discovery_by_code[code].add(stock_id)
                     discovery_keys.append((stock_id, code))
-            discovery_batches = self._batch_records(discovery, (), (), ())
+            discovery_batches = self._batch_records(runtime, discovery)
             if len(set(discovery_keys)) != len(discovery_keys):
-                return self._failed_attempt(as_of_session=as_of_session, observed_at_utc=observed_at_utc, mapping=active_status_mapping, provider_version=provider_version, reason_codes=("FUTU_SCHEMA_BLOCKER",), batches=discovery_batches)
+                return self._failed_attempt(as_of_session=as_of_session, observed_at_utc=observed_at_utc, mapping=active_status_mapping, provider_sdk_version=provider_sdk_version, opend_server_version=opend_server_version, runtime_evidence_window_seconds=runtime_evidence_window_seconds, reason_codes=("FUTU_SCHEMA_BLOCKER",), batches=discovery_batches)
             if any(len(stock_ids) > 1 for stock_ids in discovery_by_code.values()):
                 ledger: list[IdentityLedgerEntry] = []
                 for row in discovery_rows:
@@ -531,19 +613,23 @@ class FutuUniverseGateway:
                         continue
                     batch = next(batch for batch in discovery if row in _records(batch.raw_response))
                     ledger.append(IdentityLedgerEntry(stock_id, code, Decision.UNKNOWN, "UNIVERSE_IDENTITY_BLOCKER", tuple(discovery_by_code[code]), (code,), (self._reference("futu-discovery", f"futu://discovery/{code}", batch.response_hash),), reconciliation_completed=False))
-                return self._failed_attempt(as_of_session=as_of_session, observed_at_utc=observed_at_utc, mapping=active_status_mapping, provider_version=provider_version, reason_codes=("UNIVERSE_IDENTITY_BLOCKER",), batches=discovery_batches, ledger=ledger)
+                return self._failed_attempt(as_of_session=as_of_session, observed_at_utc=observed_at_utc, mapping=active_status_mapping, provider_sdk_version=provider_sdk_version, opend_server_version=opend_server_version, runtime_evidence_window_seconds=runtime_evidence_window_seconds, reason_codes=("UNIVERSE_IDENTITY_BLOCKER",), batches=discovery_batches, ledger=ledger)
             screens = adapter.screen_all_pages()
             snapshots = adapter.market_snapshots(codes)
+            market_states = adapter.market_states(codes)
             plates = adapter.owner_plates(codes)
         except Exception as error:
-            return self._failed_attempt(as_of_session=as_of_session, observed_at_utc=observed_at_utc, mapping=active_status_mapping, provider_version=provider_version, reason_codes=(_blocker(error),))
+            return self._failed_attempt(as_of_session=as_of_session, observed_at_utc=observed_at_utc, mapping=active_status_mapping, provider_sdk_version=provider_sdk_version, opend_server_version=opend_server_version, runtime_evidence_window_seconds=runtime_evidence_window_seconds, reason_codes=(_blocker(error),), batches=failure_context.get("batches", ()))  # type: ignore[arg-type]
 
-        batches = self._batch_records(discovery, screens, snapshots, plates)
+        batches = self._batch_records(runtime, discovery, screens, snapshots, market_states, plates)
         failure_context["batches"] = batches
         screen_rows = tuple(row for page in screens for row in _records(page.raw_response))
         snapshot_rows = tuple(row for batch in snapshots for row in _records(batch.raw_response))
+        raw_market_state_rows = tuple(row for batch in market_states for row in _raw_rows(batch.raw_response))
+        market_state_rows = tuple(row for row in raw_market_state_rows if isinstance(row, Mapping))
         screen_groups: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
         snapshot_groups: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
+        market_state_groups: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
         for row in screen_rows:
             code = _text(_field(row, "code", "futu_code"))
             if code is not None:
@@ -552,22 +638,37 @@ class FutuUniverseGateway:
             code = _text(_field(row, "code", "futu_code"))
             if code is not None:
                 snapshot_groups[code].append(row)
-        if any(len(rows) != 1 for rows in screen_groups.values()) or any(len(rows) != 1 for rows in snapshot_groups.values()):
-            return self._failed_attempt(as_of_session=as_of_session, observed_at_utc=observed_at_utc, mapping=active_status_mapping, provider_version=provider_version, reason_codes=("FUTU_SCHEMA_BLOCKER",), batches=batches)
+        market_state_shape_invalid = len(market_state_rows) != len(raw_market_state_rows)
+        for row in market_state_rows:
+            code = _text(_field(row, "code", "futu_code"))
+            market_state = _text(_field(row, "market_state"))
+            if code is None or market_state is None:
+                market_state_shape_invalid = True
+            else:
+                market_state_groups[code].append(row)
+        expected_codes = set(codes)
+        if (
+            market_state_shape_invalid
+            or set(screen_groups) != expected_codes
+            or set(snapshot_groups) != expected_codes
+            or set(market_state_groups) != expected_codes
+            or any(len(rows) != 1 for rows in screen_groups.values())
+            or any(len(rows) != 1 for rows in snapshot_groups.values())
+            or any(len(rows) != 1 for rows in market_state_groups.values())
+        ):
+            return self._failed_attempt(as_of_session=as_of_session, observed_at_utc=observed_at_utc, mapping=active_status_mapping, provider_sdk_version=provider_sdk_version, opend_server_version=opend_server_version, runtime_evidence_window_seconds=runtime_evidence_window_seconds, reason_codes=("FUTU_SCHEMA_BLOCKER",), batches=batches)
         screen_by_code = {code: rows[0] for code, rows in screen_groups.items()}
         snapshot_by_code = {code: rows[0] for code, rows in snapshot_groups.items()}
         plates_by_code: dict[str, list[RawPlateEvidence]] = defaultdict(list)
         all_snapshot_rows = tuple(snapshot_by_code.values())
-        preflight = self._preflight(as_of_session=as_of_session, observed_at_utc=observed_at_utc, provider_version=provider_version, snapshots=all_snapshot_rows)
+        preflight = self._preflight(as_of_session=as_of_session, observed_at_utc=observed_at_utc, provider_sdk_version=provider_sdk_version, opend_server_version=opend_server_version, snapshots=all_snapshot_rows)
         failure_context["preflight"] = preflight
-        if not preflight.formal_ready:
-            return GatewayAttempt(canonical_hash({"as_of_session": as_of_session.isoformat(), "observed": observed_at_utc.isoformat(), "mapping": active_status_mapping.active_status_mapping_sha256, "reasons": list(preflight.reason_codes)}), as_of_session, observed_at_utc, preflight.provider_update_time, preflight.market_data_delay_class, active_status_mapping, prerequisites_sha256(()), preflight, (), (), batches, (), AttemptStatus.FAILED, Completeness.INCOMPLETE, preflight.reason_codes)
 
         provenance_cache: dict[str, EvidenceProvenance] = {}
         def provenance(code: str, refs: Sequence[EvidenceReference]) -> EvidenceProvenance:
             key = code + "|" + "|".join(ref.source_record_sha256 for ref in refs)
             if key not in provenance_cache:
-                provenance_cache[key] = EvidenceProvenance("FUTU", provider_version, "futu-opend/raw-v1", "futu-universe-gateway/v1", observed_at_utc, tuple(refs))
+                provenance_cache[key] = EvidenceProvenance("FUTU", provider_sdk_version, "futu-opend/raw-v1", "futu-universe-gateway/v1", observed_at_utc, tuple(refs))
             return provenance_cache[key]
 
         for batch in plates:
@@ -623,7 +724,7 @@ class FutuUniverseGateway:
                 classification_reason_codes,
             ))
         if global_reasons:
-            return self._failed_attempt(as_of_session=as_of_session, observed_at_utc=observed_at_utc, mapping=active_status_mapping, provider_version=provider_version, reason_codes=global_reasons, batches=batches, evidence=evidence, preflight=preflight)
+            return self._failed_attempt(as_of_session=as_of_session, observed_at_utc=observed_at_utc, mapping=active_status_mapping, provider_sdk_version=provider_sdk_version, opend_server_version=opend_server_version, runtime_evidence_window_seconds=runtime_evidence_window_seconds, reason_codes=global_reasons, batches=batches, evidence=evidence, preflight=preflight)
 
         by_stock: dict[str, set[str]] = defaultdict(set)
         by_code: dict[str, set[str]] = defaultdict(set)
@@ -635,7 +736,7 @@ class FutuUniverseGateway:
         if any(len(stock_ids) > 1 for stock_ids in by_code.values()):
             for item in evidence:
                 ledger.append(IdentityLedgerEntry(item.stock_id, item.futu_code, Decision.UNKNOWN, "UNIVERSE_IDENTITY_BLOCKER", tuple(by_code[item.futu_code]), tuple(by_stock[item.stock_id]), item.provenance.references))
-            return self._failed_attempt(as_of_session=as_of_session, observed_at_utc=observed_at_utc, mapping=active_status_mapping, provider_version=provider_version, reason_codes=("UNIVERSE_IDENTITY_BLOCKER",), batches=batches, evidence=evidence, ledger=ledger, preflight=preflight)
+            return self._failed_attempt(as_of_session=as_of_session, observed_at_utc=observed_at_utc, mapping=active_status_mapping, provider_sdk_version=provider_sdk_version, opend_server_version=opend_server_version, runtime_evidence_window_seconds=runtime_evidence_window_seconds, reason_codes=("UNIVERSE_IDENTITY_BLOCKER",), batches=batches, evidence=evidence, ledger=ledger, preflight=preflight)
 
         prerequisites: list[SecurityEvaluationPrerequisites] = []
         for item in evidence:
@@ -643,7 +744,10 @@ class FutuUniverseGateway:
             identity_decision = Decision.UNKNOWN if len(codes) > 1 else Decision.PASS
             identity_reason = "UNIVERSE_IDENTITY_BLOCKER" if len(codes) > 1 else "IDENTITY_RECONCILED"
             ledger.append(IdentityLedgerEntry(item.stock_id, item.futu_code, identity_decision, identity_reason, tuple(by_code[item.futu_code]), tuple(codes), item.provenance.references, reconciliation_completed=identity_decision is Decision.PASS))
-            prerequisites.append(SecurityEvaluationPrerequisites(item.stock_id, item.futu_code, self.normalized_active_status(delisting=item.delisting, suspension=item.suspension, raw_status=item.security_status_raw, evidence_references=item.provenance.references, mapping=active_status_mapping, provider="FUTU", provider_version=provider_version), NormalizedPrerequisiteDecision(identity_decision, identity_reason, item.provenance.references)))
+            prerequisites.append(SecurityEvaluationPrerequisites(item.stock_id, item.futu_code, self.normalized_active_status(delisting=item.delisting, suspension=item.suspension, raw_status=item.security_status_raw, evidence_references=item.provenance.references, mapping=active_status_mapping, provider="FUTU", provider_sdk_version=provider_sdk_version, opend_server_version=opend_server_version), NormalizedPrerequisiteDecision(identity_decision, identity_reason, item.provenance.references)))
         prerequisite_hash = prerequisites_sha256(prerequisites)
-        attempt_id = canonical_hash({"as_of_session": as_of_session.isoformat(), "observed_at_utc": observed_at_utc.isoformat(), "mapping": active_status_mapping.active_status_mapping_sha256, "prerequisites": prerequisite_hash, "batches": [item.response_hash for item in batches]})
-        return GatewayAttempt(attempt_id, as_of_session, observed_at_utc, preflight.provider_update_time, preflight.market_data_delay_class, active_status_mapping, prerequisite_hash, preflight, tuple(evidence), tuple(prerequisites), batches, tuple(ledger), AttemptStatus.SUCCEEDED, Completeness.COMPLETE, ())
+        failure_context["prerequisites"] = prerequisites
+        if not preflight.formal_ready:
+            return self._failed_attempt(as_of_session=as_of_session, observed_at_utc=observed_at_utc, mapping=active_status_mapping, provider_sdk_version=provider_sdk_version, opend_server_version=opend_server_version, runtime_evidence_window_seconds=runtime_evidence_window_seconds, reason_codes=preflight.reason_codes, batches=batches, evidence=evidence, prerequisites=prerequisites, ledger=ledger, preflight=preflight)
+        attempt_id = self._attempt_id(as_of_session=as_of_session, observed_at_utc=observed_at_utc, mapping=active_status_mapping, runtime_evidence_window_seconds=runtime_evidence_window_seconds, reasons=(), prerequisites_hash=prerequisite_hash, batches=batches)
+        return GatewayAttempt(attempt_id=attempt_id, as_of_session=as_of_session, observed_at_utc=observed_at_utc, provider_update_time=preflight.provider_update_time, runtime_evidence_window_seconds=runtime_evidence_window_seconds, market_data_delay_class=preflight.market_data_delay_class, active_status_mapping=active_status_mapping, prerequisites_sha256=prerequisite_hash, preflight=preflight, evidence=tuple(evidence), prerequisites=tuple(prerequisites), batches=batches, identity_ledger=tuple(ledger), attempt_status=AttemptStatus.SUCCEEDED, completeness=Completeness.COMPLETE, reason_codes=())

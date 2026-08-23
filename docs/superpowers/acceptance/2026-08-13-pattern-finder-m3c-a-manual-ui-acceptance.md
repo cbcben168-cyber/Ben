@@ -187,3 +187,36 @@ manual functional acceptance: it does not claim a provider evidence loading,
 Task 10 freshness/identity producer, Snapshot, Preview, publication, or live
 Futu workflow. `FIRST_REAL_MANUAL_FUNCTIONAL_TEST_AFTER_TASK=15` remains
 unchanged, and `MANUAL_UI_TEST_REQUIRED_AFTER_TASK_7=NO`.
+
+## M3C-A Task 12 Automated Persisted-Snapshot Projection Checkpoint
+
+Date: 2026-08-23
+
+`TASK12_CHECKPOINT`: `AUTOMATED_PERSISTED_SNAPSHOT_PROJECTION`
+
+`AUTOMATED_PERSISTED_SNAPSHOT_PROJECTION_RESULT`: `PASS`
+
+`NOT_FIRST_REAL_MANUAL_FUNCTIONAL_GATE`: `YES`
+
+The automated fixture was built as a production-shaped `UniverseSnapshot`,
+persisted through `UniverseSnapshotStore.append()`, and reloaded only through
+`UniverseSnapshotStore.get()`. The read model and 股票池设置 page projected the
+persisted Snapshot status, fixed funnel, separate MEMBER / FAIL / QUARANTINE
+sets, exact security search, all field decisions, raw Industry and every Owner
+Plate, classification evidence, normalized Identity/Active evidence, provider
+and mapping qualification bindings, prerequisite/member/content/record hashes,
+and Snapshot-derived downloads. Missing, corrupt, and invalid Snapshot
+contracts were displayed as explicit errors rather than zero members or an
+ineligible security.
+
+The fixture includes exact Liquidity and Listing History boundaries, listing
+auxiliary warning, Classification PASS/UNKNOWN, Identity and Active
+PASS/FAIL/UNKNOWN, both evidence conflicts, COMPLETE/INCOMPLETE, member,
+non-member, Quarantine, and first-exit cases. The Snapshot load path performs
+no evaluator, funnel, classification, mapping, freshness, reconciliation,
+normalization business-rule, provider, or Futu call.
+
+This is not a manual acceptance result and does not claim production Preview
+orchestration or a live end-to-end Universe workflow. The first real Manual
+Functional Gate remains Task 15. No manual Gate status was created or changed
+for Task 12.

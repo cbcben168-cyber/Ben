@@ -1,7 +1,10 @@
 from pathlib import Path
 from datetime import date, datetime, timezone
 from decimal import Decimal
+import importlib.util
 import json
+import sys
+from uuid import UUID
 
 from streamlit.testing.v1 import AppTest
 
@@ -17,6 +20,7 @@ from tv_quant.pattern_finder.universe_foundation import (
     RawIndustryEvidence,
     SecurityEvaluationPrerequisites,
     UniverseSecurityEvidence,
+    UniverseSnapshotStore,
     core_v1,
 )
 from tv_quant.pattern_finder.universe_foundation.ui_read_model import (
@@ -55,6 +59,19 @@ def _registry_containing_only_draft_core_v1(tmp_path) -> ProfileRegistry:
     payload["record_state"] = "DRAFT"
     published_path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
     return registry
+
+
+def _persisted_snapshot_fixture(tmp_path):
+    module_name = "task12_ui_read_model_fixture"
+    module = sys.modules.get(module_name)
+    if module is None:
+        path = ROOT / "tests/pattern_finder/universe_foundation/test_ui_read_model.py"
+        spec = importlib.util.spec_from_file_location(module_name, path)
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
+        spec.loader.exec_module(module)
+    return module._persist_complete_snapshot(tmp_path), module.SNAPSHOT_ID
 
 
 def _evaluation_state(*, identity: Decision) -> EvaluationUiState:
@@ -235,3 +252,127 @@ def test_universe_settings_renders_prebuilt_pass_and_quarantine_evaluations(tmp_
         "identity record could not be reconciled",
     ):
         assert expected in visible
+
+
+def test_universe_settings_renders_persisted_snapshot_evidence_and_search(tmp_path) -> None:
+    registry = ProfileRegistry(tmp_path / "registry")
+    registry.bootstrap(core_v1())
+    (store, snapshot), snapshot_id = _persisted_snapshot_fixture(tmp_path / "snapshots")
+    app = AppTest.from_file(ROOT / "app/pages/3_Universe_Settings.py")
+    app.session_state["universe_profile_registry"] = registry
+    app.session_state["universe_snapshot_store"] = store
+    app.session_state["universe_snapshot_id"] = snapshot_id
+    app.run()
+
+    visible = _visible_text(app)
+
+    assert not app.exception
+    for expected in (
+        "Snapshot evidence",
+        str(snapshot_id),
+        "FORMAL",
+        "COMPLETE",
+        "Member count: 1",
+        "Fail / non-member",
+        "Quarantine / unknown",
+        snapshot.header.members_sha256,
+        snapshot.header.snapshot_content_sha256,
+        snapshot.header.snapshot_record_sha256,
+        snapshot.header.active_status_mapping_sha256,
+        snapshot.header.prerequisites_sha256,
+        snapshot.header.gateway_attempt_sha256,
+        snapshot.header.market_state_consistency_sha256,
+        "Gateway preflight",
+        "Gateway batches",
+        "Identity ledger",
+        "Realtime capability probes",
+        "FUTU_AVG_TURNOVER_20D",
+        "futu-screening-liquidity/v1",
+        "FUTU_LISTED_DAYS",
+        "futu-screening-listing-history/v1",
+        "openfigi-api/v3",
+    ):
+        assert expected in visible or any(
+            expected in str(frame.value) for frame in app.dataframe
+        )
+    assert len(app.dataframe) >= 4
+    assert len(app.get("download_button")) >= 4
+    complete_download = next(
+        item
+        for item in app.get("download_button")
+        if item.label == "Download complete Snapshot projection"
+    )
+    assert complete_download.proto.url.endswith(".json")
+
+    search = next(item for item in app.text_input if item.label == "Security search")
+    search.set_value("US.CONFLICT")
+    app.run()
+    visible = _visible_text(app)
+
+    for expected in (
+        "CONFLICT",
+        "QUARANTINE",
+        "S8_LISTING_HISTORY_ALLOWED",
+        "LISTING_HISTORY_CONFLICT",
+        "LIQUIDITY_EVIDENCE_CONFLICT",
+        "Technology Hardware",
+        "PLATE-NDX",
+        "PLATE-TECH",
+        "active/v1",
+        "openfigi-api/v3",
+        "futu://screening/US.CONFLICT",
+        snapshot.header.members_sha256,
+        "FUTU / 10.10.7008 / 1009 / futu-screening/v2",
+    ):
+        assert expected in visible or any(
+            expected in str(frame.value) for frame in app.dataframe
+        )
+    plate_table = next(
+        frame.value
+        for frame in app.dataframe
+        if "plate_code" in frame.value.columns
+    )
+    assert "schema_version" in plate_table.columns
+    assert set(plate_table["schema_version"]) == {"futu-screening/v2"}
+
+
+def test_universe_settings_surfaces_snapshot_read_failures_without_empty_membership(
+    tmp_path,
+) -> None:
+    registry = ProfileRegistry(tmp_path / "registry")
+    registry.bootstrap(core_v1())
+    snapshot_id = UUID("14141414-1414-4414-8414-141414141414")
+    app = AppTest.from_file(ROOT / "app/pages/3_Universe_Settings.py")
+    app.session_state["universe_profile_registry"] = registry
+    app.session_state["universe_snapshot_store"] = UniverseSnapshotStore(
+        tmp_path / "missing"
+    )
+    app.session_state["universe_snapshot_id"] = snapshot_id
+    app.run()
+    visible = _visible_text(app)
+    assert not app.exception
+    assert "Snapshot not found" in visible
+    assert "Member count: 0" not in visible
+    assert "not eligible" not in visible.lower()
+
+    (store, _), persisted_id = _persisted_snapshot_fixture(tmp_path / "corrupt")
+    (tmp_path / "corrupt" / f"{persisted_id}.json").write_text(
+        "{not-json", encoding="utf-8"
+    )
+    app.session_state["universe_snapshot_store"] = store
+    app.session_state["universe_snapshot_id"] = persisted_id
+    app.run()
+    visible = _visible_text(app)
+    assert "Snapshot corrupt" in visible
+    assert "Member count: 0" not in visible
+
+    class InvalidStore:
+        def get(self, snapshot_id):
+            return {"snapshot_id": str(snapshot_id), "is_member": False}
+
+    app.session_state["universe_snapshot_store"] = InvalidStore()
+    app.session_state["universe_snapshot_id"] = snapshot_id
+    app.run()
+    visible = _visible_text(app)
+    assert "Snapshot invalid" in visible
+    assert "Member count: 0" not in visible

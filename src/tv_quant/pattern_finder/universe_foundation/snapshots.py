@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, fields, is_dataclass
 from datetime import UTC, date, datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from enum import Enum
 import json
 import os
@@ -33,7 +33,7 @@ from .evidence import (
     SecurityClassificationEvidence,
     evidence_record_sha256,
 )
-from .funnel import UniverseFunnel, build_funnel, funnel_sha256
+from .funnel import FunnelStage, UniverseFunnel, funnel_sha256
 from .futu_adapter import RawApiBatch
 from .futu_gateway import (
     ApiBatchRecord,
@@ -46,6 +46,8 @@ from .profiles import RecordState, UniverseDraft, UniverseProfile
 
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 _SCHEMA_VERSION = "universe-snapshot/v1"
+_CODEC_TYPE = "__snapshot_codec_type__"
+_CODEC_ITEMS = "items"
 
 
 class SnapshotValidationError(ValueError):
@@ -151,9 +153,22 @@ def _canonical(value: object) -> object:
     if isinstance(value, Mapping):
         if any(type(key) is not str for key in value):
             raise SnapshotValidationError("mapping: string keys required")
-        return {key: _canonical(item) for key, item in sorted(value.items())}
-    if isinstance(value, (tuple, list)):
-        return [_canonical(item) for item in value]
+        return {
+            _CODEC_TYPE: "mapping",
+            _CODEC_ITEMS: [
+                [key, _canonical(item)] for key, item in sorted(value.items())
+            ],
+        }
+    if isinstance(value, tuple):
+        return {
+            _CODEC_TYPE: "tuple",
+            _CODEC_ITEMS: [_canonical(item) for item in value],
+        }
+    if isinstance(value, list):
+        return {
+            _CODEC_TYPE: "list",
+            _CODEC_ITEMS: [_canonical(item) for item in value],
+        }
     if value is None or type(value) in (bool, int, str):
         return value
     raise SnapshotValidationError(
@@ -163,8 +178,33 @@ def _canonical(value: object) -> object:
 
 def _decode_audit(value: object) -> object:
     if isinstance(value, list):
-        return tuple(_decode_audit(item) for item in value)
+        return [_decode_audit(item) for item in value]
     if isinstance(value, dict):
+        if set(value) == {_CODEC_TYPE, _CODEC_ITEMS}:
+            kind = value[_CODEC_TYPE]
+            items = value[_CODEC_ITEMS]
+            if type(kind) is not str or not isinstance(items, list):
+                raise SnapshotValidationError("codec: valid kind/items required")
+            if kind == "mapping":
+                result: dict[str, object] = {}
+                for pair in items:
+                    if (
+                        not isinstance(pair, list)
+                        or len(pair) != 2
+                        or type(pair[0]) is not str
+                        or pair[0] in result
+                    ):
+                        raise SnapshotValidationError(
+                            "codec mapping: unique string-key pairs required"
+                        )
+                    result[pair[0]] = _decode_audit(pair[1])
+                return result
+            decoded = [_decode_audit(item) for item in items]
+            if kind == "tuple":
+                return tuple(decoded)
+            if kind == "list":
+                return decoded
+            raise SnapshotValidationError("codec: unknown collection kind")
         if set(value) == {"__uuid__"}:
             return UUID(str(value["__uuid__"]))
         if set(value) == {"__datetime__"}:
@@ -172,11 +212,25 @@ def _decode_audit(value: object) -> object:
         if set(value) == {"__date__"}:
             return date.fromisoformat(str(value["__date__"]))
         if set(value) == {"__decimal__"}:
-            return Decimal(str(value["__decimal__"]))
+            try:
+                return Decimal(str(value["__decimal__"]))
+            except InvalidOperation as error:
+                raise SnapshotValidationError("codec: invalid Decimal") from error
         if set(value) == {"__float__"}:
             return float(str(value["__float__"]))
         return {str(key): _decode_audit(item) for key, item in value.items()}
     return value
+
+
+def _tuple_from(value: object, field_id: str) -> tuple[object, ...]:
+    if (
+        not isinstance(value, Mapping)
+        or set(value) != {_CODEC_TYPE, _CODEC_ITEMS}
+        or value[_CODEC_TYPE] != "tuple"
+        or not isinstance(value[_CODEC_ITEMS], list)
+    ):
+        raise SnapshotValidationError(f"{field_id}: encoded tuple required")
+    return tuple(value[_CODEC_ITEMS])
 
 
 @dataclass(frozen=True, slots=True)
@@ -196,11 +250,15 @@ class UniverseSnapshotHeader:
     provider_update_time: datetime | None
     gateway_attempt_status: AttemptStatus
     gateway_preflight_formal_ready: bool
+    gateway_preflight_reason_codes: tuple[str, ...]
+    gateway_runtime_evidence_window_seconds: float
     gateway_attempt_reason_codes: tuple[str, ...]
     gateway_attempt_sha256: str
     provider: str
     provider_sdk_version: str
     opend_server_version: str
+    gateway_batches: tuple[ApiBatchRecord, ...]
+    gateway_identity_ledger: tuple[IdentityLedgerEntry, ...]
     market_data_delay_evidence: tuple[ApiBatchRecord, ...]
     realtime_capability_probes: tuple[RawApiBatch, ...]
     market_data_delay_class: str
@@ -245,6 +303,16 @@ class UniverseSnapshotHeader:
         if type(self.gateway_preflight_formal_ready) is not bool:
             raise SnapshotValidationError(
                 "gateway_preflight_formal_ready: bool required"
+            )
+        runtime_window = self.gateway_runtime_evidence_window_seconds
+        if (
+            type(runtime_window) is not float
+            or runtime_window != runtime_window
+            or runtime_window in (float("inf"), float("-inf"))
+            or runtime_window < 0
+        ):
+            raise SnapshotValidationError(
+                "gateway_runtime_evidence_window_seconds: finite nonnegative float required"
             )
         for field_id in (
             "gateway_attempt_id",
@@ -305,6 +373,11 @@ class UniverseSnapshotHeader:
         )
         object.__setattr__(
             self,
+            "gateway_preflight_reason_codes",
+            tuple(sorted(set(self.gateway_preflight_reason_codes))),
+        )
+        object.__setattr__(
+            self,
             "gateway_attempt_reason_codes",
             tuple(sorted(set(self.gateway_attempt_reason_codes))),
         )
@@ -313,17 +386,35 @@ class UniverseSnapshotHeader:
             "classification_source_versions",
             tuple(sorted(set(self.classification_source_versions))),
         )
-        batches = tuple(self.market_data_delay_evidence)
-        if any(type(item) is not ApiBatchRecord for item in batches):
+        gateway_batches = tuple(self.gateway_batches)
+        if any(type(item) is not ApiBatchRecord for item in gateway_batches):
+            raise SnapshotValidationError(
+                "gateway_batches: ApiBatchRecord values required"
+            )
+        identity_ledger = tuple(self.gateway_identity_ledger)
+        if any(type(item) is not IdentityLedgerEntry for item in identity_ledger):
+            raise SnapshotValidationError(
+                "gateway_identity_ledger: IdentityLedgerEntry values required"
+            )
+        delay_evidence = tuple(self.market_data_delay_evidence)
+        if any(type(item) is not ApiBatchRecord for item in delay_evidence):
             raise SnapshotValidationError(
                 "market_data_delay_evidence: ApiBatchRecord values required"
+            )
+        if delay_evidence != tuple(
+            batch for batch in gateway_batches if batch.endpoint == "qot_right_capture"
+        ):
+            raise SnapshotValidationError(
+                "market_data_delay_evidence: qot_right_capture ledger projection mismatch"
             )
         probes = tuple(self.realtime_capability_probes)
         if any(type(item) is not RawApiBatch for item in probes):
             raise SnapshotValidationError(
                 "realtime_capability_probes: RawApiBatch values required"
             )
-        object.__setattr__(self, "market_data_delay_evidence", batches)
+        object.__setattr__(self, "gateway_batches", gateway_batches)
+        object.__setattr__(self, "gateway_identity_ledger", identity_ledger)
+        object.__setattr__(self, "market_data_delay_evidence", delay_evidence)
         object.__setattr__(self, "realtime_capability_probes", probes)
         for field_id in ("candidate_count", "member_count", "quarantine_count"):
             value = getattr(self, field_id)
@@ -345,6 +436,7 @@ class UniverseSnapshotHeader:
                 self.completeness is not Completeness.COMPLETE
                 or self.gateway_attempt_status is not AttemptStatus.SUCCEEDED
                 or not self.gateway_preflight_formal_ready
+                or self.gateway_preflight_reason_codes
                 or self.gateway_attempt_reason_codes
             ):
                 raise SnapshotValidationError(
@@ -498,17 +590,19 @@ class UniverseSnapshotRow:
         )
 
 
-def _row_evaluation(row: UniverseSnapshotRow) -> SecurityEvaluation:
-    return SecurityEvaluation(
-        stock_id=row.stock_id,
-        futu_code=row.futu_code,
-        symbol=row.symbol,
-        name=row.name,
-        field_decisions=row.field_decisions,
-        first_exit_stage=row.first_exit_stage,
-        first_exit_reason_code=row.first_exit_reason_code,
-        is_member=row.is_member,
-        is_quarantined=row.is_quarantined,
+def _row_matches_evaluation(
+    row: UniverseSnapshotRow, evaluation: SecurityEvaluation
+) -> bool:
+    return (
+        row.stock_id == evaluation.stock_id
+        and row.futu_code == evaluation.futu_code
+        and row.symbol == evaluation.symbol
+        and row.name == evaluation.name
+        and row.field_decisions == evaluation.field_decisions
+        and row.first_exit_stage == evaluation.first_exit_stage
+        and row.first_exit_reason_code == evaluation.first_exit_reason_code
+        and row.is_member is evaluation.is_member
+        and row.is_quarantined is evaluation.is_quarantined
     )
 
 
@@ -558,10 +652,26 @@ class UniverseSnapshot:
         keys = tuple((row.stock_id, row.futu_code) for row in rows)
         if len(keys) != len(set(keys)):
             raise SnapshotValidationError("rows: duplicate composite key")
-        evaluations = tuple(_row_evaluation(row) for row in rows)
-        if evaluations != self.funnel.evaluations:
+        evaluations = tuple(self.funnel.evaluations)
+        if (
+            len(evaluations) != len(rows)
+            or any(type(item) is not SecurityEvaluation for item in evaluations)
+            or any(
+                not _row_matches_evaluation(row, evaluation)
+                for row, evaluation in zip(rows, evaluations, strict=True)
+            )
+        ):
             raise SnapshotValidationError(
                 "funnel: rows must exactly bind Task 6 evaluations"
+            )
+        expected_members = tuple(
+            evaluation
+            for row, evaluation in zip(rows, evaluations, strict=True)
+            if row.is_member
+        )
+        if self.funnel.members != expected_members:
+            raise SnapshotValidationError(
+                "funnel: members must preserve frozen Task 6 membership flags"
             )
         if self.header.candidate_count != len(rows):
             raise SnapshotValidationError("candidate_count: rows mismatch")
@@ -800,6 +910,7 @@ def build_snapshot(
             gateway_attempt.attempt_status is not AttemptStatus.SUCCEEDED
             or gateway_attempt.completeness is not Completeness.COMPLETE
             or not gateway_attempt.preflight.formal_ready
+            or gateway_attempt.preflight.reason_codes
             or gateway_attempt.reason_codes
         ):
             raise SnapshotValidationError(
@@ -898,6 +1009,10 @@ def build_snapshot(
         provider_update_time=gateway_attempt.provider_update_time,
         gateway_attempt_status=gateway_attempt.attempt_status,
         gateway_preflight_formal_ready=gateway_attempt.preflight.formal_ready,
+        gateway_preflight_reason_codes=gateway_attempt.preflight.reason_codes,
+        gateway_runtime_evidence_window_seconds=(
+            gateway_attempt.runtime_evidence_window_seconds
+        ),
         gateway_attempt_reason_codes=gateway_attempt.reason_codes,
         gateway_attempt_sha256=canonical_hash(
             {"gateway_attempt": attempt_payload}
@@ -905,6 +1020,8 @@ def build_snapshot(
         provider=gateway_attempt.preflight.provider,
         provider_sdk_version=gateway_attempt.preflight.provider_sdk_version,
         opend_server_version=gateway_attempt.preflight.opend_server_version,
+        gateway_batches=gateway_attempt.batches,
+        gateway_identity_ledger=gateway_attempt.identity_ledger,
         market_data_delay_evidence=tuple(
             batch
             for batch in gateway_attempt.batches
@@ -1024,9 +1141,7 @@ def _provenance_from(value: object) -> object:
     observed = _decode_audit(_required(value, "observed_at_utc"))
     if not isinstance(observed, datetime):
         raise SnapshotValidationError("provenance observed_at_utc required")
-    references = _required(value, "references")
-    if not isinstance(references, list):
-        raise SnapshotValidationError("provenance references required")
+    references = _tuple_from(_required(value, "references"), "provenance references")
     return EvidenceProvenance(
         provider=str(_required(value, "provider")),
         provider_version=str(_required(value, "provider_version")),
@@ -1061,9 +1176,10 @@ def _raw_plate_from(value: object) -> RawPlateEvidence:
 def _field_decision_from(value: object) -> FieldDecision:
     if not isinstance(value, Mapping):
         raise SnapshotValidationError("field_decision: mapping required")
-    references = _required(value, "evidence_references")
-    if not isinstance(references, list):
-        raise SnapshotValidationError("field_decision references required")
+    references = _tuple_from(
+        _required(value, "evidence_references"),
+        "field_decision evidence_references",
+    )
     return FieldDecision(
         field_id=str(_required(value, "field_id")),
         raw_value=_decode_audit(_required(value, "raw_value")),
@@ -1110,6 +1226,33 @@ def _batch_from(value: object) -> ApiBatchRecord:
     )
 
 
+def _identity_ledger_from(value: object) -> IdentityLedgerEntry:
+    if not isinstance(value, Mapping):
+        raise SnapshotValidationError("identity ledger: mapping required")
+    stock_ids = _tuple_from(
+        _required(value, "competing_stock_ids"), "competing_stock_ids"
+    )
+    codes = _tuple_from(
+        _required(value, "competing_futu_codes"), "competing_futu_codes"
+    )
+    references = _tuple_from(
+        _required(value, "evidence_references"),
+        "identity ledger evidence_references",
+    )
+    return IdentityLedgerEntry(
+        stock_id=str(_required(value, "stock_id")),
+        futu_code=str(_required(value, "futu_code")),
+        decision=Decision(str(_required(value, "decision"))),
+        reason_code=str(_required(value, "reason_code")),
+        competing_stock_ids=tuple(str(item) for item in stock_ids),
+        competing_futu_codes=tuple(str(item) for item in codes),
+        evidence_references=tuple(_reference_from(item) for item in references),
+        reconciliation_completed=_required(
+            value, "reconciliation_completed"
+        ),  # type: ignore[arg-type]
+    )
+
+
 def _probe_from(value: object) -> RawApiBatch:
     if not isinstance(value, Mapping):
         raise SnapshotValidationError("probe: mapping required")
@@ -1148,17 +1291,20 @@ def _row_from_payload(value: object) -> UniverseSnapshotRow:
         return item
 
     def references(key: str) -> tuple[EvidenceReference, ...]:
-        items = _required(value, key)
-        if not isinstance(items, list):
-            raise SnapshotValidationError(f"{key}: list required")
+        items = _tuple_from(_required(value, key), key)
         return tuple(_reference_from(item) for item in items)
 
-    classifications = _required(value, "classification_evidence")
-    plates = _required(value, "raw_plates")
-    decisions = _required(value, "field_decisions")
-    cross_check = _required(value, "listing_history_cross_check")
-    if not all(isinstance(item, list) for item in (classifications, plates, decisions, cross_check)):
-        raise SnapshotValidationError("row collections: lists required")
+    classifications = _tuple_from(
+        _required(value, "classification_evidence"), "classification_evidence"
+    )
+    plates = _tuple_from(_required(value, "raw_plates"), "raw_plates")
+    decisions = _tuple_from(
+        _required(value, "field_decisions"), "field_decisions"
+    )
+    cross_check = _tuple_from(
+        _required(value, "listing_history_cross_check"),
+        "listing_history_cross_check",
+    )
     price_observed = _decode_audit(_required(value, "price_observed_at_utc"))
     cap_observed = _decode_audit(_required(value, "market_cap_observed_at_utc"))
     window_end = _decode_audit(_required(value, "liquidity_window_end"))
@@ -1246,16 +1392,46 @@ def _header_from_payload(value: object) -> UniverseSnapshotHeader:
             raise SnapshotValidationError(f"{key}: {expected.__name__} required")
         return item
 
-    refs = _required(value, "active_status_mapping_qualification_references")
-    batches = _required(value, "market_data_delay_evidence")
-    probes = _required(value, "realtime_capability_probes")
-    reasons = _required(value, "gateway_attempt_reason_codes")
-    versions = _required(value, "classification_source_versions")
-    if not all(isinstance(item, list) for item in (refs, batches, probes, reasons, versions)):
-        raise SnapshotValidationError("header collections: lists required")
+    refs = _tuple_from(
+        _required(value, "active_status_mapping_qualification_references"),
+        "active_status_mapping_qualification_references",
+    )
+    batches = _tuple_from(
+        _required(value, "market_data_delay_evidence"),
+        "market_data_delay_evidence",
+    )
+    gateway_batches = _tuple_from(
+        _required(value, "gateway_batches"), "gateway_batches"
+    )
+    identity_ledger = _tuple_from(
+        _required(value, "gateway_identity_ledger"), "gateway_identity_ledger"
+    )
+    probes = _tuple_from(
+        _required(value, "realtime_capability_probes"),
+        "realtime_capability_probes",
+    )
+    preflight_reasons = _tuple_from(
+        _required(value, "gateway_preflight_reason_codes"),
+        "gateway_preflight_reason_codes",
+    )
+    reasons = _tuple_from(
+        _required(value, "gateway_attempt_reason_codes"),
+        "gateway_attempt_reason_codes",
+    )
+    versions = _tuple_from(
+        _required(value, "classification_source_versions"),
+        "classification_source_versions",
+    )
     provider_update = _decode_audit(_required(value, "provider_update_time"))
     if provider_update is not None and not isinstance(provider_update, datetime):
         raise SnapshotValidationError("provider_update_time: datetime or None required")
+    runtime_window = _decode_audit(
+        _required(value, "gateway_runtime_evidence_window_seconds")
+    )
+    if type(runtime_window) is not float:
+        raise SnapshotValidationError(
+            "gateway_runtime_evidence_window_seconds: float required"
+        )
     return UniverseSnapshotHeader(
         universe_snapshot_id=decoded("universe_snapshot_id", UUID),
         snapshot_schema_version=str(_required(value, "snapshot_schema_version")),
@@ -1278,11 +1454,19 @@ def _header_from_payload(value: object) -> UniverseSnapshotHeader:
         gateway_preflight_formal_ready=_required(
             value, "gateway_preflight_formal_ready"
         ),  # type: ignore[arg-type]
+        gateway_preflight_reason_codes=tuple(
+            str(item) for item in preflight_reasons
+        ),
+        gateway_runtime_evidence_window_seconds=runtime_window,
         gateway_attempt_reason_codes=tuple(str(item) for item in reasons),
         gateway_attempt_sha256=str(_required(value, "gateway_attempt_sha256")),
         provider=str(_required(value, "provider")),
         provider_sdk_version=str(_required(value, "provider_sdk_version")),
         opend_server_version=str(_required(value, "opend_server_version")),
+        gateway_batches=tuple(_batch_from(item) for item in gateway_batches),
+        gateway_identity_ledger=tuple(
+            _identity_ledger_from(item) for item in identity_ledger
+        ),
         market_data_delay_evidence=tuple(_batch_from(item) for item in batches),
         realtime_capability_probes=tuple(_probe_from(item) for item in probes),
         market_data_delay_class=str(_required(value, "market_data_delay_class")),
@@ -1335,6 +1519,102 @@ def _header_from_payload(value: object) -> UniverseSnapshotHeader:
     )
 
 
+def _evaluation_from_payload(value: object) -> SecurityEvaluation:
+    """Parse frozen Task 6 facts without invoking Task 6 derivation."""
+
+    if not isinstance(value, Mapping):
+        raise SnapshotValidationError("funnel evaluation: mapping required")
+    decisions = tuple(
+        _field_decision_from(item)
+        for item in _tuple_from(
+            _required(value, "field_decisions"),
+            "funnel evaluation field_decisions",
+        )
+    )
+    first_exit_stage = _required(value, "first_exit_stage")
+    first_exit_reason = _required(value, "first_exit_reason_code")
+    is_member = _required(value, "is_member")
+    is_quarantined = _required(value, "is_quarantined")
+    if first_exit_stage is not None and type(first_exit_stage) is not str:
+        raise SnapshotValidationError("first_exit_stage: string or None required")
+    if first_exit_reason is not None and type(first_exit_reason) is not str:
+        raise SnapshotValidationError(
+            "first_exit_reason_code: string or None required"
+        )
+    if type(is_member) is not bool or type(is_quarantined) is not bool:
+        raise SnapshotValidationError(
+            "funnel evaluation membership flags: bool required"
+        )
+    evaluation = object.__new__(SecurityEvaluation)
+    for field_id, item in (
+        ("stock_id", _non_empty(_required(value, "stock_id"), "stock_id")),
+        ("futu_code", _non_empty(_required(value, "futu_code"), "futu_code")),
+        ("symbol", _non_empty(_required(value, "symbol"), "symbol")),
+        ("name", _non_empty(_required(value, "name"), "name")),
+        ("field_decisions", decisions),
+        ("first_exit_stage", first_exit_stage),
+        ("first_exit_reason_code", first_exit_reason),
+        ("is_member", is_member),
+        ("is_quarantined", is_quarantined),
+    ):
+        object.__setattr__(evaluation, field_id, item)
+    return evaluation
+
+
+def _funnel_stage_from(value: object) -> FunnelStage:
+    if not isinstance(value, Mapping):
+        raise SnapshotValidationError("funnel stage: mapping required")
+    reason_values = _tuple_from(
+        _required(value, "reason_counts"), "funnel stage reason_counts"
+    )
+    reasons: list[tuple[str, int]] = []
+    for item in reason_values:
+        decoded = _decode_audit(item)
+        if type(decoded) is not tuple or len(decoded) != 2:
+            raise SnapshotValidationError(
+                "funnel stage reason_counts: pairs required"
+            )
+        reasons.append((str(decoded[0]), int(decoded[1])))
+    return FunnelStage(
+        stage_order=int(_required(value, "stage_order")),
+        stage_id=str(_required(value, "stage_id")),
+        input_count=int(_required(value, "input_count")),
+        pass_count=int(_required(value, "pass_count")),
+        fail_count=int(_required(value, "fail_count")),
+        unknown_count=int(_required(value, "unknown_count")),
+        reason_counts=tuple(reasons),
+        output_count=int(_required(value, "output_count")),
+    )
+
+
+def _funnel_from_payload(value: object) -> UniverseFunnel:
+    """Parse frozen Task 8 aggregation without calling Task 8 reconciliation."""
+
+    if not isinstance(value, Mapping):
+        raise SnapshotValidationError("funnel: mapping required")
+    evaluations = tuple(
+        _evaluation_from_payload(item)
+        for item in _tuple_from(
+            _required(value, "evaluations"), "funnel evaluations"
+        )
+    )
+    stages = tuple(
+        _funnel_stage_from(item)
+        for item in _tuple_from(_required(value, "stages"), "funnel stages")
+    )
+    members = tuple(
+        _evaluation_from_payload(item)
+        for item in _tuple_from(_required(value, "members"), "funnel members")
+    )
+    if any(stage.stage_order != index for index, stage in enumerate(stages)):
+        raise SnapshotValidationError("funnel stages: persisted order mismatch")
+    funnel = object.__new__(UniverseFunnel)
+    object.__setattr__(funnel, "evaluations", evaluations)
+    object.__setattr__(funnel, "stages", stages)
+    object.__setattr__(funnel, "members", members)
+    return funnel
+
+
 def _snapshot_from_payload(value: object) -> UniverseSnapshot:
     if not isinstance(value, Mapping):
         raise SnapshotValidationError("snapshot record: mapping required")
@@ -1344,9 +1624,7 @@ def _snapshot_from_payload(value: object) -> UniverseSnapshot:
     if not isinstance(row_values, list) or not isinstance(funnel_value, Mapping):
         raise SnapshotValidationError("snapshot rows/funnel required")
     rows = tuple(_row_from_payload(item) for item in row_values)
-    funnel = build_funnel(tuple(_row_evaluation(row) for row in rows))
-    if _canonical(funnel) != funnel_value:
-        raise SnapshotValidationError("funnel: persisted aggregation mismatch")
+    funnel = _funnel_from_payload(funnel_value)
     return UniverseSnapshot(header, rows, funnel)
 
 

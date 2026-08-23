@@ -22,12 +22,14 @@ from tv_quant.pattern_finder.universe_foundation import (
     FieldDecision,
     GatewayAttempt,
     GatewayPreflight,
+    IdentityLedgerEntry,
     LiquidityEvidence,
     ListingHistoryEvidence,
     NormalizedPrerequisiteDecision,
     QualifiedActiveStatusMapping,
     QualifiedMarketStateConsistencyContract,
     QualifiedMarketStateRelationship,
+    RawApiBatch,
     RawIndustryEvidence,
     SecurityEvaluation,
     SecurityEvaluationPrerequisites,
@@ -261,6 +263,10 @@ def _attempt(
     completeness: Completeness = Completeness.COMPLETE,
     formal_ready: bool = True,
     reason_codes: tuple[str, ...] = (),
+    preflight_reason_codes: tuple[str, ...] | None = None,
+    batches: tuple[ApiBatchRecord, ...] | None = None,
+    identity_ledger: tuple[IdentityLedgerEntry, ...] = (),
+    realtime_capability_probes: tuple[RawApiBatch, ...] = (),
 ) -> GatewayAttempt:
     selected_mapping = mapping or _mapping()
     return GatewayAttempt(
@@ -282,19 +288,22 @@ def _attempt(
             provider_update_time=NOW,
             market_data_delay_class="UNKNOWN",
             formal_ready=formal_ready,
-            reason_codes=reason_codes,
+            reason_codes=(
+                reason_codes
+                if preflight_reason_codes is None
+                else preflight_reason_codes
+            ),
         ),
         evidence=evidence,
         prerequisites=prerequisites,
-        batches=(
-            ApiBatchRecord(
-                "qot_right_capture", 1, SHA_A, SHA_B, NOW
-            ),
+        batches=batches or (
+            ApiBatchRecord("qot_right_capture", 1, SHA_A, SHA_B, NOW),
         ),
-        identity_ledger=(),
+        identity_ledger=identity_ledger,
         attempt_status=status,
         completeness=completeness,
         reason_codes=reason_codes,
+        realtime_capability_probes=realtime_capability_probes,
     )
 
 
@@ -739,3 +748,199 @@ def test_store_failure_leaves_no_partial_record(
     with pytest.raises(SnapshotStoreError, match="simulated storage failure"):
         store.append(snapshot)
     assert not (tmp_path / f"{snapshot.header.universe_snapshot_id}.json").exists()
+
+
+def test_snapshot_retains_complete_batch_and_identity_ledgers_in_content_hash(
+    tmp_path: Path,
+) -> None:
+    evidence = _evidence("AAPL")
+    prerequisite = _prerequisite(evidence)
+    evaluation = _evaluation(evidence, prerequisite)
+    evaluations = (evaluation,)
+    batches = (
+        ApiBatchRecord("qot_right_capture", 1, SHA_A, SHA_B, NOW),
+        ApiBatchRecord("market_snapshots", 2, SHA_B, SHA_A, NOW),
+    )
+    ledger = (
+        IdentityLedgerEntry(
+            stock_id=evidence.stock_id,
+            futu_code=evidence.futu_code,
+            decision=Decision.PASS,
+            reason_code="IDENTITY_RECONCILED",
+            competing_stock_ids=(evidence.stock_id,),
+            competing_futu_codes=(evidence.futu_code,),
+            evidence_references=evidence.provenance.references,
+            reconciliation_completed=True,
+        ),
+    )
+    attempt = _attempt(
+        (evidence,),
+        (prerequisite,),
+        batches=batches,
+        identity_ledger=ledger,
+    )
+    snapshot = build_snapshot(
+        kind=SnapshotKind.FORMAL,
+        profile=core_v1(),
+        draft=None,
+        gateway_attempt=attempt,
+        evaluations=evaluations,
+        funnel=build_funnel(evaluations),
+        universe_snapshot_id=UUID("12121212-1212-4212-8212-121212121212"),
+        created_at_utc=NOW,
+    )
+
+    assert snapshot.header.gateway_batches == batches
+    assert snapshot.header.gateway_identity_ledger == ledger
+    loaded = UniverseSnapshotStore(tmp_path).append(snapshot)
+    assert loaded.header.gateway_batches == batches
+    assert loaded.header.gateway_identity_ledger == ledger
+
+    changed_attempt = replace(
+        attempt,
+        batches=(batches[0], replace(batches[1], response_hash="c" * 64)),
+    )
+    changed = build_snapshot(
+        kind=SnapshotKind.FORMAL,
+        profile=core_v1(),
+        draft=None,
+        gateway_attempt=changed_attempt,
+        evaluations=evaluations,
+        funnel=build_funnel(evaluations),
+        universe_snapshot_id=UUID("13131313-1313-4313-8313-131313131313"),
+        created_at_utc=NOW,
+    )
+    assert snapshot.header.snapshot_sha256 != changed.header.snapshot_sha256
+
+    changed_attempt = replace(
+        attempt,
+        identity_ledger=(replace(ledger[0], reason_code="IDENTITY_RECONCILED_V2"),),
+    )
+    changed = build_snapshot(
+        kind=SnapshotKind.FORMAL,
+        profile=core_v1(),
+        draft=None,
+        gateway_attempt=changed_attempt,
+        evaluations=evaluations,
+        funnel=build_funnel(evaluations),
+        universe_snapshot_id=UUID("14141414-1414-4414-8414-141414141414"),
+        created_at_utc=NOW,
+    )
+    assert snapshot.header.snapshot_sha256 != changed.header.snapshot_sha256
+
+
+def test_store_round_trip_preserves_nested_sequences_and_reserved_tag_mappings(
+    tmp_path: Path,
+) -> None:
+    evaluations, attempt, funnel = _inputs()
+    decisions = list(evaluations[0].field_decisions)
+    decisions[4] = replace(
+        decisions[4],
+        raw_value=["outer-list", ["inner-list"]],
+        normalized_value=("outer-tuple", ["nested-list"]),
+        threshold={"__decimal__": "raw-mapping-value"},
+    )
+    evaluations = (replace(evaluations[0], field_decisions=tuple(decisions)),)
+    funnel = build_funnel(evaluations)
+    probe = RawApiBatch(
+        endpoint="realtime_quote_capability_probe",
+        batch_index=1,
+        raw_request={
+            "code": "US.AAPL",
+            "subtype": "QUOTE",
+            "subscribe_push": False,
+            "nested": [1, [2, 3]],
+        },
+        raw_response={
+            "reserved_decimal": {"__decimal__": "not-a-decimal"},
+            "reserved_codec": {"__snapshot_type__": "tuple", "items": [1]},
+            "rows": [{"values": ["a", "b"]}],
+        },
+        request_hash=SHA_A,
+        response_hash=SHA_B,
+        ret_code=0,
+        acquisition_status="SUCCESS",
+        acquired_at_utc=NOW,
+    )
+    attempt = replace(attempt, realtime_capability_probes=(probe,))
+    snapshot = build_snapshot(
+        kind=SnapshotKind.FORMAL,
+        profile=core_v1(),
+        draft=None,
+        gateway_attempt=attempt,
+        evaluations=evaluations,
+        funnel=funnel,  # type: ignore[arg-type]
+        universe_snapshot_id=UUID("15151515-1515-4515-8515-151515151515"),
+        created_at_utc=NOW,
+    )
+
+    loaded = UniverseSnapshotStore(tmp_path).append(snapshot)
+
+    assert loaded == snapshot
+    assert loaded.header.realtime_capability_probes[0].raw_request == probe.raw_request
+    assert loaded.header.realtime_capability_probes[0].raw_response == probe.raw_response
+    assert isinstance(
+        loaded.header.realtime_capability_probes[0].raw_request["nested"], tuple
+    )
+    loaded_decision = loaded.rows[0].field_decisions[4]
+    assert type(loaded_decision.raw_value) is list
+    assert type(loaded_decision.raw_value[1]) is list
+    assert type(loaded_decision.normalized_value) is tuple
+    assert type(loaded_decision.normalized_value[1]) is list
+    assert loaded_decision.threshold == {"__decimal__": "raw-mapping-value"}
+
+
+def test_formal_rejects_preflight_only_blockers() -> None:
+    evaluations, attempt, funnel = _inputs()
+    blocked = replace(
+        attempt,
+        preflight=replace(
+            attempt.preflight,
+            formal_ready=True,
+            reason_codes=("UNIVERSE_FRESHNESS_BLOCKER",),
+        ),
+        reason_codes=(),
+    )
+
+    with pytest.raises(SnapshotValidationError, match="FORMAL"):
+        build_snapshot(
+            kind=SnapshotKind.FORMAL,
+            profile=core_v1(),
+            draft=None,
+            gateway_attempt=blocked,
+            evaluations=evaluations,
+            funnel=funnel,  # type: ignore[arg-type]
+            universe_snapshot_id=UUID("16161616-1616-4616-8616-161616161616"),
+            created_at_utc=NOW,
+        )
+
+
+def test_invalid_decimal_codec_is_typed_corruption(tmp_path: Path) -> None:
+    store = UniverseSnapshotStore(tmp_path)
+    snapshot = store.append(_snapshot())
+    path = tmp_path / f"{snapshot.header.universe_snapshot_id}.json"
+    payload = path.read_text(encoding="utf-8").replace(
+        '"__decimal__":"10.00"', '"__decimal__":"not-a-decimal"', 1
+    )
+    assert "not-a-decimal" in payload
+    path.write_text(payload, encoding="utf-8")
+
+    with pytest.raises(SnapshotCorruptError):
+        store.get(snapshot.header.universe_snapshot_id)
+
+
+def test_get_is_pure_parse_and_does_not_call_task6_or_task8_derivation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tv_quant.pattern_finder.universe_foundation import funnel as funnel_module
+
+    store = UniverseSnapshotStore(tmp_path)
+    snapshot = store.append(_snapshot())
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("upstream derivation called during get")
+
+    monkeypatch.setattr(funnel_module, "build_funnel", forbidden)
+    monkeypatch.setattr(SecurityEvaluation, "__post_init__", forbidden)
+
+    assert store.get(snapshot.header.universe_snapshot_id) == snapshot

@@ -25,6 +25,7 @@ from tv_quant.pattern_finder.universe_foundation import (
 )
 from tv_quant.pattern_finder.universe_foundation.evidence import SecurityClassificationEvidence
 from tv_quant.pattern_finder.universe_foundation.futu_adapter import RawApiBatch, RawApiPage
+from tv_quant.pattern_finder.universe_foundation import futu_gateway as futu_gateway_module
 from tv_quant.pattern_finder.universe_foundation.futu_gateway import _parse_us_update_time
 
 
@@ -177,6 +178,7 @@ class _Adapter:
         runtime_batches: tuple[RawApiBatch, ...] | None = None,
         state_rows: list[object] | None = None,
         snapshot_update_time: str = "2026-08-21 16:00:00",
+        snapshot_update_times: dict[str, str] | None = None,
         qot_events: list[dict[str, object]] | None = None,
         sdk_version: str = SDK_VERSION,
         opend_version: str = OPEND_VERSION,
@@ -187,6 +189,7 @@ class _Adapter:
         self.runtime_batches = runtime_batches
         self.state_rows = state_rows
         self.snapshot_update_time = snapshot_update_time
+        self.snapshot_update_times = snapshot_update_times or {}
         self.qot_events = qot_events or []
         self.sdk_version = sdk_version
         self.opend_version = opend_version
@@ -211,7 +214,15 @@ class _Adapter:
 
     def market_snapshots(self, codes):
         self.calls.append(("market_snapshots", tuple(codes)))
-        rows = [{"code": code, "suspension": False, "sec_status": "NORMAL", "update_time": self.snapshot_update_time} for code in codes]
+        rows = [
+            {
+                "code": code,
+                "suspension": False,
+                "sec_status": "NORMAL",
+                "update_time": self.snapshot_update_times.get(code, self.snapshot_update_time),
+            }
+            for code in codes
+        ]
         self.last_snapshot_rows = rows
         return (self._batch("market_snapshots", {"rows": rows}),)
 
@@ -365,6 +376,112 @@ def test_us_snapshot_time_accepts_optional_fractional_seconds_as_new_york_wall_t
 @pytest.mark.parametrize("value", ("2026-11-01 01:30:00", "2026-03-08 02:30:00", "not-a-time", "2026-08-21T16:00:00+00:00"))
 def test_us_snapshot_time_rejects_ambiguous_nonexistent_and_non_contract_values(value: str) -> None:
     assert _parse_us_update_time(value) is None
+
+
+def _timestamp_only_preflight(
+    monkeypatch: pytest.MonkeyPatch,
+    update_times: tuple[str, ...],
+    *,
+    observed_at_utc: datetime = NOW,
+):
+    snapshots = tuple(
+        {"code": f"US.{index}", "update_time": value}
+        for index, value in enumerate(update_times, start=1)
+    )
+    market_states = tuple(
+        {"code": row["code"], "market_state": "AFTER_HOURS_END"}
+        for row in snapshots
+    )
+    with monkeypatch.context() as authority:
+        authority.setattr(
+            futu_gateway_module,
+            "PROVIDER_OR_ACCOUNT_LEVEL_CURRENT_QUOTE_RIGHT_AUTHORITY",
+            "QUALIFIED",
+        )
+        authority.setattr(futu_gateway_module, "FORMAL_FRESHNESS_AUTHORITY", "QUALIFIED")
+        return _gateway(_Adapter())._preflight(
+            as_of_session=date(2026, 8, 21),
+            observed_at_utc=observed_at_utc,
+            provider_sdk_version=SDK_VERSION,
+            opend_server_version=OPEND_VERSION,
+            snapshots=snapshots,
+            market_states=market_states,
+            market_state_consistency_contract=_market_state_contract(),
+        )
+
+
+def test_multi_security_different_valid_timestamps_use_oldest_watermark_without_extra_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    timestamp_preflight = _timestamp_only_preflight(
+        monkeypatch,
+        ("2026-08-21 16:00:00", "2026-08-21 16:00:01"),
+    )
+
+    assert timestamp_preflight.provider_update_time == datetime(2026, 8, 21, 20, tzinfo=UTC)
+    assert timestamp_preflight.formal_ready is True
+    assert timestamp_preflight.reason_codes == ()
+
+    adapter = _Adapter(
+        discovery_rows=[
+            {"stock_id": "1", "code": "US.AAA", "delisting": False, "exchange_type": "NASDAQ", "stock_type": "STOCK"},
+            {"stock_id": "2", "code": "US.BBB", "delisting": False, "exchange_type": "NASDAQ", "stock_type": "STOCK"},
+        ],
+        snapshot_update_times={
+            "US.AAA": "2026-08-21 16:00:00",
+            "US.BBB": "2026-08-21 16:00:01",
+        },
+    )
+    attempt = _collect(adapter)
+
+    assert attempt.preflight.provider_update_time == datetime(2026, 8, 21, 20, tzinfo=UTC)
+    assert attempt.attempt_status.value == "FAILED"
+    assert attempt.completeness.value == "INCOMPLETE"
+    assert attempt.reason_codes == ("UNIVERSE_FRESHNESS_BLOCKER",)
+
+
+def test_multi_security_one_invalid_timestamp_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    preflight = _timestamp_only_preflight(
+        monkeypatch,
+        ("2026-08-21 16:00:00", "not-a-time"),
+    )
+
+    assert preflight.provider_update_time is None
+    assert preflight.formal_ready is False
+    assert preflight.reason_codes == ("UNIVERSE_FRESHNESS_BLOCKER",)
+
+
+def test_multi_security_any_future_timestamp_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    preflight = _timestamp_only_preflight(
+        monkeypatch,
+        ("2026-08-21 16:00:00", "2026-08-21 17:00:01"),
+    )
+
+    assert preflight.provider_update_time == datetime(2026, 8, 21, 20, tzinfo=UTC)
+    assert preflight.formal_ready is False
+    assert preflight.reason_codes == ("UNIVERSE_FRESHNESS_BLOCKER",)
+
+
+def test_multi_security_any_stale_timestamp_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    preflight = _timestamp_only_preflight(
+        monkeypatch,
+        ("2026-08-21 15:59:59", "2026-08-21 16:00:01"),
+    )
+
+    assert preflight.provider_update_time == datetime(2026, 8, 21, 19, 59, 59, tzinfo=UTC)
+    assert preflight.formal_ready is False
+    assert preflight.reason_codes == ("UNIVERSE_FRESHNESS_BLOCKER",)
+
+
+def test_multi_security_same_valid_timestamp_preserves_existing_behavior(monkeypatch: pytest.MonkeyPatch) -> None:
+    preflight = _timestamp_only_preflight(
+        monkeypatch,
+        ("2026-08-21 16:00:00", "2026-08-21 16:00:00"),
+    )
+
+    assert preflight.provider_update_time == datetime(2026, 8, 21, 20, tzinfo=UTC)
+    assert preflight.formal_ready is True
+    assert preflight.reason_codes == ()
 
 
 def test_missing_duplicate_null_or_unqualified_market_state_rows_fail_closed() -> None:

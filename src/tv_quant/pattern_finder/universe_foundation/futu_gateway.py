@@ -626,9 +626,19 @@ class FutuUniverseGateway:
         market_states: Sequence[Mapping[str, Any]],
         market_state_consistency_contract: QualifiedMarketStateConsistencyContract,
     ) -> GatewayPreflight:
-        update_values = {_parse_us_update_time(_field(row, "update_time")) for row in snapshots}
+        parsed_update_times = tuple(
+            _parse_us_update_time(_field(row, "update_time"))
+            for row in snapshots
+        )
+        valid_update_times = tuple(
+            value for value in parsed_update_times if value is not None
+        )
+        timestamps_valid = (
+            bool(parsed_update_times)
+            and len(valid_update_times) == len(parsed_update_times)
+        )
         reasons: list[str] = []
-        provider_update_time = next(iter(update_values)) if len(update_values) == 1 else None
+        provider_update_time = min(valid_update_times) if timestamps_valid else None
         delay = "UNKNOWN"
         calendar_relationship: str | None = None
         try:
@@ -648,6 +658,15 @@ class FutuUniverseGateway:
             )
         except Exception:
             latest, session_close = None, None
+        timestamps_not_future = (
+            timestamps_valid
+            and all(value <= observed_at_utc for value in valid_update_times)
+        )
+        timestamps_in_required_session = (
+            timestamps_valid
+            and session_close is not None
+            and all(value >= session_close for value in valid_update_times)
+        )
         contract_matches_runtime = (
             market_state_consistency_contract.provider == "FUTU"
             and market_state_consistency_contract.provider_sdk_version == provider_sdk_version
@@ -668,8 +687,8 @@ class FutuUniverseGateway:
             as_of_session != latest
             or session_close is None
             or provider_update_time is None
-            or provider_update_time < session_close
-            or provider_update_time > observed_at_utc
+            or not timestamps_not_future
+            or not timestamps_in_required_session
             or not market_states_qualified
             # Scalable current quote-right authority is intentionally not yet qualified.
             or PROVIDER_OR_ACCOUNT_LEVEL_CURRENT_QUOTE_RIGHT_AUTHORITY != "QUALIFIED"

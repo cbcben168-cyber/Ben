@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import re
 import tempfile
+from types import MappingProxyType
 from typing import Any
 from uuid import UUID
 
@@ -48,6 +49,21 @@ _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 _SCHEMA_VERSION = "universe-snapshot/v1"
 _CODEC_TYPE = "__snapshot_codec_type__"
 _CODEC_ITEMS = "items"
+_AUDIT_NAME = "name"
+
+_FUNNEL_STAGE_IDS = (
+    "S0_DISCOVERED_US_CASH_SECURITIES",
+    "S1_IDENTITY_VALID",
+    "S2_EXCHANGE_ALLOWED",
+    "S3_SECURITY_CLASS_ALLOWED",
+    "S4_ACTIVE_STATUS_ALLOWED",
+    "S5_PRICE_ALLOWED",
+    "S6_MARKET_CAP_ALLOWED",
+    "S7_SECTOR_INDUSTRY_ALLOWED",
+    "S8_LISTING_HISTORY_ALLOWED",
+    "S9_LIQUIDITY_ALLOWED",
+    "S10_CORE_UNIVERSE",
+)
 
 
 class SnapshotValidationError(ValueError):
@@ -73,6 +89,114 @@ class SnapshotCorruptError(SnapshotStoreError):
 class SnapshotKind(str, Enum):
     FORMAL = "FORMAL"
     PREVIEW = "PREVIEW"
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class _FrozenAuditList(Sequence[object]):
+    """Logical list whose snapshot-owned contents cannot be mutated."""
+
+    _items: tuple[object, ...]
+
+    def __getitem__(self, index: int | slice) -> object:
+        return self._items[index]
+
+    def __len__(self) -> int:
+        return len(self._items)
+
+    def __iter__(self):  # type: ignore[no-untyped-def]
+        return iter(self._items)
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, Sequence) and not isinstance(
+            other, (str, bytes, bytearray)
+        ) and tuple(self) == tuple(other)
+
+    def __hash__(self) -> int:
+        return hash(self._items)
+
+
+def _freeze_audit(value: object) -> object:
+    if value is None or type(value) in (bool, int, str):
+        return value
+    if type(value) in (float, Decimal, UUID, datetime, date, Decision, EvidenceReference):
+        if type(value) is float and (
+            value != value or value in (float("inf"), float("-inf"))
+        ):
+            raise SnapshotValidationError("audit float: finite value required")
+        if type(value) is Decimal and not value.is_finite():
+            raise SnapshotValidationError("audit Decimal: finite value required")
+        if type(value) is datetime:
+            _utc(value, "audit datetime")
+        return value
+    if type(value) is _FrozenAuditList:
+        return value
+    if type(value) is list:
+        return _FrozenAuditList(tuple(_freeze_audit(item) for item in value))
+    if type(value) is tuple:
+        return tuple(_freeze_audit(item) for item in value)
+    if isinstance(value, Mapping):
+        if any(type(key) is not str for key in value):
+            raise SnapshotValidationError("audit mapping: string keys required")
+        return MappingProxyType(
+            {key: _freeze_audit(item) for key, item in sorted(value.items())}
+        )
+    if isinstance(value, Enum) or (is_dataclass(value) and not isinstance(value, type)):
+        raise SnapshotValidationError(
+            f"unsupported audit type: {type(value).__name__}"
+        )
+    raise SnapshotValidationError(f"unsupported audit type: {type(value).__name__}")
+
+
+def _audit_canonical(value: object) -> object:
+    value = _freeze_audit(value)
+    if type(value) is Decision:
+        return {_CODEC_TYPE: "audit-enum", _AUDIT_NAME: "Decision", "value": value.value}
+    if type(value) is EvidenceReference:
+        return {
+            _CODEC_TYPE: "audit-dataclass",
+            _AUDIT_NAME: "EvidenceReference",
+            "fields": {
+                "source_id": value.source_id,
+                "source_locator": value.source_locator,
+                "source_record_sha256": value.source_record_sha256,
+            },
+        }
+    if type(value) is _FrozenAuditList:
+        return {
+            _CODEC_TYPE: "list",
+            _CODEC_ITEMS: [_audit_canonical(item) for item in value],
+        }
+    if type(value) is tuple:
+        return {
+            _CODEC_TYPE: "tuple",
+            _CODEC_ITEMS: [_audit_canonical(item) for item in value],
+        }
+    if isinstance(value, Mapping):
+        return {
+            _CODEC_TYPE: "mapping",
+            _CODEC_ITEMS: [
+                [key, _audit_canonical(item)] for key, item in sorted(value.items())
+            ],
+        }
+    return _canonical(value)
+
+
+def _freeze_field_decision(value: FieldDecision) -> FieldDecision:
+    if type(value) is not FieldDecision:
+        raise SnapshotValidationError("field_decision: FieldDecision required")
+    return FieldDecision(
+        field_id=value.field_id,
+        raw_value=_freeze_audit(value.raw_value),
+        normalized_value=_freeze_audit(value.normalized_value),
+        operator=value.operator,
+        threshold=_freeze_audit(value.threshold),
+        decision=value.decision,
+        reason_code=value.reason_code,
+        evidence_source=value.evidence_source,
+        evidence_observed_at_utc=value.evidence_observed_at_utc,
+        evidence_version=value.evidence_version,
+        evidence_references=value.evidence_references,
+    )
 
 
 def _non_empty(value: object, field_id: str) -> str:
@@ -129,6 +253,20 @@ def _references(
 def _canonical(value: object) -> object:
     """Convert typed immutable values to canonical-JSON values for shared hashing."""
 
+    if type(value) is FieldDecision:
+        return {
+            field.name: (
+                _audit_canonical(getattr(value, field.name))
+                if field.name in {"raw_value", "normalized_value", "threshold"}
+                else _canonical(getattr(value, field.name))
+            )
+            for field in fields(value)
+        }
+    if type(value) is _FrozenAuditList:
+        return {
+            _CODEC_TYPE: "list",
+            _CODEC_ITEMS: [_canonical(item) for item in value],
+        }
     if is_dataclass(value) and not isinstance(value, type):
         return {
             field.name: _canonical(getattr(value, field.name))
@@ -180,6 +318,18 @@ def _decode_audit(value: object) -> object:
     if isinstance(value, list):
         return [_decode_audit(item) for item in value]
     if isinstance(value, dict):
+        if set(value) == {_CODEC_TYPE, _AUDIT_NAME, "value"}:
+            if value[_CODEC_TYPE] != "audit-enum" or value[_AUDIT_NAME] != "Decision":
+                raise SnapshotValidationError("codec: unsupported audit enum")
+            return Decision(str(value["value"]))
+        if set(value) == {_CODEC_TYPE, _AUDIT_NAME, "fields"}:
+            if (
+                value[_CODEC_TYPE] != "audit-dataclass"
+                or value[_AUDIT_NAME] != "EvidenceReference"
+                or not isinstance(value["fields"], Mapping)
+            ):
+                raise SnapshotValidationError("codec: unsupported audit dataclass")
+            return _reference_from(value["fields"])
         if set(value) == {_CODEC_TYPE, _CODEC_ITEMS}:
             kind = value[_CODEC_TYPE]
             items = value[_CODEC_ITEMS]
@@ -198,12 +348,12 @@ def _decode_audit(value: object) -> object:
                             "codec mapping: unique string-key pairs required"
                         )
                     result[pair[0]] = _decode_audit(pair[1])
-                return result
+                return MappingProxyType(result)
             decoded = [_decode_audit(item) for item in items]
             if kind == "tuple":
                 return tuple(decoded)
             if kind == "list":
-                return decoded
+                return _FrozenAuditList(tuple(decoded))
             raise SnapshotValidationError("codec: unknown collection kind")
         if set(value) == {"__uuid__"}:
             return UUID(str(value["__uuid__"]))
@@ -218,7 +368,9 @@ def _decode_audit(value: object) -> object:
                 raise SnapshotValidationError("codec: invalid Decimal") from error
         if set(value) == {"__float__"}:
             return float(str(value["__float__"]))
-        return {str(key): _decode_audit(item) for key, item in value.items()}
+        return MappingProxyType(
+            {str(key): _decode_audit(item) for key, item in value.items()}
+        )
     return value
 
 
@@ -249,6 +401,10 @@ class UniverseSnapshotHeader:
     gateway_attempt_observed_at_utc: datetime
     provider_update_time: datetime | None
     gateway_attempt_status: AttemptStatus
+    gateway_preflight_as_of_session: date
+    gateway_preflight_observed_at_utc: datetime
+    gateway_preflight_provider_update_time: datetime | None
+    gateway_preflight_market_data_delay_class: str
     gateway_preflight_formal_ready: bool
     gateway_preflight_reason_codes: tuple[str, ...]
     gateway_runtime_evidence_window_seconds: float
@@ -320,6 +476,7 @@ class UniverseSnapshotHeader:
             "provider_sdk_version",
             "opend_server_version",
             "market_data_delay_class",
+            "gateway_preflight_market_data_delay_class",
             "active_status_mapping_provider",
             "active_status_mapping_provider_sdk_version",
             "active_status_mapping_opend_server_version",
@@ -341,8 +498,21 @@ class UniverseSnapshotHeader:
             self.gateway_attempt_observed_at_utc,
             "gateway_attempt_observed_at_utc",
         )
+        if type(self.gateway_preflight_as_of_session) is not date:
+            raise SnapshotValidationError(
+                "gateway_preflight_as_of_session: date required"
+            )
+        _utc(
+            self.gateway_preflight_observed_at_utc,
+            "gateway_preflight_observed_at_utc",
+        )
         if self.provider_update_time is not None:
             _utc(self.provider_update_time, "provider_update_time")
+        if self.gateway_preflight_provider_update_time is not None:
+            _utc(
+                self.gateway_preflight_provider_update_time,
+                "gateway_preflight_provider_update_time",
+            )
         _utc(
             self.active_status_mapping_qualified_at_utc,
             "active_status_mapping_qualified_at_utc",
@@ -416,6 +586,23 @@ class UniverseSnapshotHeader:
         object.__setattr__(self, "gateway_identity_ledger", identity_ledger)
         object.__setattr__(self, "market_data_delay_evidence", delay_evidence)
         object.__setattr__(self, "realtime_capability_probes", probes)
+        if (
+            self.gateway_preflight_as_of_session != self.as_of_session
+            or self.gateway_preflight_observed_at_utc
+            != self.gateway_attempt_observed_at_utc
+            or self.gateway_preflight_provider_update_time
+            != self.provider_update_time
+            or self.gateway_preflight_market_data_delay_class
+            != self.market_data_delay_class
+            or self.provider != self.active_status_mapping_provider
+            or self.provider_sdk_version
+            != self.active_status_mapping_provider_sdk_version
+            or self.opend_server_version
+            != self.active_status_mapping_opend_server_version
+        ):
+            raise SnapshotValidationError(
+                "gateway preflight: attempt/mapping provenance mismatch"
+            )
         for field_id in ("candidate_count", "member_count", "quarantine_count"):
             value = getattr(self, field_id)
             if type(value) is not int or value < 0:
@@ -565,7 +752,7 @@ class UniverseSnapshotRow:
             raise SnapshotValidationError(
                 "classification_evidence: values required"
             )
-        decisions = tuple(self.field_decisions)
+        decisions = tuple(_freeze_field_decision(item) for item in self.field_decisions)
         if any(type(item) is not FieldDecision for item in decisions):
             raise SnapshotValidationError("field_decisions: values required")
         if tuple(item.field_id for item in decisions) != (
@@ -653,6 +840,17 @@ class UniverseSnapshot:
         if len(keys) != len(set(keys)):
             raise SnapshotValidationError("rows: duplicate composite key")
         evaluations = tuple(self.funnel.evaluations)
+        if (
+            tuple(stage.stage_id for stage in self.funnel.stages)
+            != _FUNNEL_STAGE_IDS
+            or any(
+                stage.stage_order != index
+                for index, stage in enumerate(self.funnel.stages)
+            )
+        ):
+            raise SnapshotValidationError(
+                "funnel stages: fixed S0-S10 ID/order contract required"
+            )
         if (
             len(evaluations) != len(rows)
             or any(type(item) is not SecurityEvaluation for item in evaluations)
@@ -874,6 +1072,60 @@ def _assert_prerequisite_binding(
             )
 
 
+def _assert_preflight_binding(attempt: GatewayAttempt) -> None:
+    preflight = attempt.preflight
+    mapping = attempt.active_status_mapping
+    contract = attempt.market_state_consistency_contract
+    if (
+        preflight.as_of_session != attempt.as_of_session
+        or preflight.observed_at_utc != attempt.observed_at_utc
+        or preflight.provider_update_time != attempt.provider_update_time
+        or preflight.market_data_delay_class != attempt.market_data_delay_class
+        or preflight.provider != mapping.provider
+        or preflight.provider_sdk_version != mapping.provider_sdk_version
+        or preflight.opend_server_version != mapping.opend_server_version
+        or preflight.provider != contract.provider
+        or preflight.provider_sdk_version != contract.provider_sdk_version
+        or preflight.opend_server_version != contract.opend_server_version
+    ):
+        raise SnapshotValidationError(
+            "gateway preflight: attempt/mapping/contract provenance mismatch"
+        )
+
+
+def _frozen_evaluation(value: SecurityEvaluation) -> SecurityEvaluation:
+    evaluation = object.__new__(SecurityEvaluation)
+    for field_id in (
+        "stock_id",
+        "futu_code",
+        "symbol",
+        "name",
+        "first_exit_stage",
+        "first_exit_reason_code",
+        "is_member",
+        "is_quarantined",
+    ):
+        object.__setattr__(evaluation, field_id, getattr(value, field_id))
+    object.__setattr__(
+        evaluation,
+        "field_decisions",
+        tuple(_freeze_field_decision(item) for item in value.field_decisions),
+    )
+    return evaluation
+
+
+def _frozen_funnel(
+    source: UniverseFunnel, evaluations: tuple[SecurityEvaluation, ...]
+) -> UniverseFunnel:
+    by_key = {(item.stock_id, item.futu_code): item for item in evaluations}
+    member_keys = tuple((item.stock_id, item.futu_code) for item in source.members)
+    funnel = object.__new__(UniverseFunnel)
+    object.__setattr__(funnel, "evaluations", evaluations)
+    object.__setattr__(funnel, "stages", tuple(source.stages))
+    object.__setattr__(funnel, "members", tuple(by_key[key] for key in member_keys))
+    return funnel
+
+
 def build_snapshot(
     *,
     kind: SnapshotKind,
@@ -891,6 +1143,7 @@ def build_snapshot(
         raise SnapshotValidationError("kind: SnapshotKind required")
     if type(gateway_attempt) is not GatewayAttempt:
         raise SnapshotValidationError("gateway_attempt: GatewayAttempt required")
+    _assert_preflight_binding(gateway_attempt)
     if type(funnel) is not UniverseFunnel:
         raise SnapshotValidationError("funnel: UniverseFunnel required")
     if type(universe_snapshot_id) is not UUID or universe_snapshot_id.int == 0:
@@ -941,6 +1194,10 @@ def build_snapshot(
         raise SnapshotValidationError(
             "funnel: must exactly bind supplied Task 6 evaluations"
         )
+    ordered_evaluations = tuple(
+        _frozen_evaluation(item) for item in ordered_evaluations
+    )
+    funnel = _frozen_funnel(funnel, ordered_evaluations)
     evidence_by_key = {
         (item.stock_id, item.futu_code): item for item in gateway_attempt.evidence
     }
@@ -1008,6 +1265,16 @@ def build_snapshot(
         gateway_attempt_observed_at_utc=gateway_attempt.observed_at_utc,
         provider_update_time=gateway_attempt.provider_update_time,
         gateway_attempt_status=gateway_attempt.attempt_status,
+        gateway_preflight_as_of_session=gateway_attempt.preflight.as_of_session,
+        gateway_preflight_observed_at_utc=(
+            gateway_attempt.preflight.observed_at_utc
+        ),
+        gateway_preflight_provider_update_time=(
+            gateway_attempt.preflight.provider_update_time
+        ),
+        gateway_preflight_market_data_delay_class=(
+            gateway_attempt.preflight.market_data_delay_class
+        ),
         gateway_preflight_formal_ready=gateway_attempt.preflight.formal_ready,
         gateway_preflight_reason_codes=gateway_attempt.preflight.reason_codes,
         gateway_runtime_evidence_window_seconds=(
@@ -1425,6 +1692,15 @@ def _header_from_payload(value: object) -> UniverseSnapshotHeader:
     provider_update = _decode_audit(_required(value, "provider_update_time"))
     if provider_update is not None and not isinstance(provider_update, datetime):
         raise SnapshotValidationError("provider_update_time: datetime or None required")
+    preflight_provider_update = _decode_audit(
+        _required(value, "gateway_preflight_provider_update_time")
+    )
+    if preflight_provider_update is not None and not isinstance(
+        preflight_provider_update, datetime
+    ):
+        raise SnapshotValidationError(
+            "gateway_preflight_provider_update_time: datetime or None required"
+        )
     runtime_window = _decode_audit(
         _required(value, "gateway_runtime_evidence_window_seconds")
     )
@@ -1450,6 +1726,16 @@ def _header_from_payload(value: object) -> UniverseSnapshotHeader:
         provider_update_time=provider_update,
         gateway_attempt_status=AttemptStatus(
             str(_required(value, "gateway_attempt_status"))
+        ),
+        gateway_preflight_as_of_session=decoded(
+            "gateway_preflight_as_of_session", date
+        ),
+        gateway_preflight_observed_at_utc=decoded(
+            "gateway_preflight_observed_at_utc", datetime
+        ),
+        gateway_preflight_provider_update_time=preflight_provider_update,
+        gateway_preflight_market_data_delay_class=str(
+            _required(value, "gateway_preflight_market_data_delay_class")
         ),
         gateway_preflight_formal_ready=_required(
             value, "gateway_preflight_formal_ready"
@@ -1598,16 +1884,32 @@ def _funnel_from_payload(value: object) -> UniverseFunnel:
             _required(value, "evaluations"), "funnel evaluations"
         )
     )
-    stages = tuple(
-        _funnel_stage_from(item)
-        for item in _tuple_from(_required(value, "stages"), "funnel stages")
-    )
+    stage_payloads = _tuple_from(_required(value, "stages"), "funnel stages")
+    if (
+        len(stage_payloads) != len(_FUNNEL_STAGE_IDS)
+        or any(not isinstance(item, Mapping) for item in stage_payloads)
+        or tuple(str(_required(item, "stage_id")) for item in stage_payloads)  # type: ignore[arg-type]
+        != _FUNNEL_STAGE_IDS
+        or any(
+            int(_required(item, "stage_order")) != index  # type: ignore[arg-type]
+            for index, item in enumerate(stage_payloads)
+        )
+    ):
+        raise SnapshotValidationError(
+            "funnel stages: fixed S0-S10 ID/order contract required"
+        )
+    stages = tuple(_funnel_stage_from(item) for item in stage_payloads)
     members = tuple(
         _evaluation_from_payload(item)
         for item in _tuple_from(_required(value, "members"), "funnel members")
     )
-    if any(stage.stage_order != index for index, stage in enumerate(stages)):
-        raise SnapshotValidationError("funnel stages: persisted order mismatch")
+    if (
+        tuple(stage.stage_id for stage in stages) != _FUNNEL_STAGE_IDS
+        or any(stage.stage_order != index for index, stage in enumerate(stages))
+    ):
+        raise SnapshotValidationError(
+            "funnel stages: fixed S0-S10 ID/order contract required"
+        )
     funnel = object.__new__(UniverseFunnel)
     object.__setattr__(funnel, "evaluations", evaluations)
     object.__setattr__(funnel, "stages", stages)
@@ -1669,22 +1971,28 @@ class UniverseSnapshotStore:
         # Re-run every binding and hash validation before touching storage.
         snapshot = UniverseSnapshot(snapshot.header, snapshot.rows, snapshot.funnel)
         payload = _canonical_json_bytes(snapshot)
+        parsed = json.loads(payload.decode("utf-8"))
+        round_trip = _snapshot_from_payload(parsed)
+        if _canonical_json_bytes(round_trip) != payload or round_trip != snapshot:
+            raise SnapshotValidationError(
+                "snapshot: canonical readable round-trip required"
+            )
         path = self._root / f"{snapshot.header.universe_snapshot_id}.json"
         try:
             self._root.mkdir(parents=True, exist_ok=True)
             if path.exists():
-                existing = path.read_bytes()
-                if existing == payload:
-                    return self.get(snapshot.header.universe_snapshot_id)
+                existing = self.get(snapshot.header.universe_snapshot_id)
+                if _canonical_json_bytes(existing) == payload:
+                    return existing
                 raise SnapshotConflictError(
                     f"snapshot ID already exists: {snapshot.header.universe_snapshot_id}"
                 )
             try:
                 _atomic_create(path, payload)
             except FileExistsError:
-                existing = path.read_bytes()
-                if existing == payload:
-                    return self.get(snapshot.header.universe_snapshot_id)
+                existing = self.get(snapshot.header.universe_snapshot_id)
+                if _canonical_json_bytes(existing) == payload:
+                    return existing
                 raise SnapshotConflictError(
                     f"snapshot ID already exists: {snapshot.header.universe_snapshot_id}"
                 )

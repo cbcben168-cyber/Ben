@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import inspect
-from dataclasses import FrozenInstanceError, replace
-from datetime import UTC, date, datetime
+import json
+from collections.abc import Mapping, Sequence
+from dataclasses import FrozenInstanceError, dataclass, replace
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from uuid import UUID
@@ -883,10 +885,13 @@ def test_store_round_trip_preserves_nested_sequences_and_reserved_tag_mappings(
         loaded.header.realtime_capability_probes[0].raw_request["nested"], tuple
     )
     loaded_decision = loaded.rows[0].field_decisions[4]
-    assert type(loaded_decision.raw_value) is list
-    assert type(loaded_decision.raw_value[1]) is list
+    assert isinstance(loaded_decision.raw_value, Sequence)
+    assert not isinstance(loaded_decision.raw_value, list)
+    assert isinstance(loaded_decision.raw_value[1], Sequence)
+    assert not isinstance(loaded_decision.raw_value[1], list)
     assert type(loaded_decision.normalized_value) is tuple
-    assert type(loaded_decision.normalized_value[1]) is list
+    assert isinstance(loaded_decision.normalized_value[1], Sequence)
+    assert not isinstance(loaded_decision.normalized_value[1], list)
     assert loaded_decision.threshold == {"__decimal__": "raw-mapping-value"}
 
 
@@ -944,3 +949,249 @@ def test_get_is_pure_parse_and_does_not_call_task6_or_task8_derivation(
     monkeypatch.setattr(SecurityEvaluation, "__post_init__", forbidden)
 
     assert store.get(snapshot.header.universe_snapshot_id) == snapshot
+
+
+@pytest.mark.parametrize(
+    ("field_id", "replacement"),
+    (
+        ("as_of_session", date(2026, 8, 20)),
+        ("observed_at_utc", NOW + timedelta(seconds=1)),
+        ("provider_update_time", NOW + timedelta(seconds=1)),
+        ("market_data_delay_class", "DELAYED"),
+        ("provider", "OTHER"),
+        ("provider_sdk_version", "other-sdk"),
+        ("opend_server_version", "other-opend"),
+    ),
+)
+def test_formal_rejects_preflight_provenance_mismatch(
+    field_id: str, replacement: object
+) -> None:
+    evaluations, attempt, funnel = _inputs()
+    mismatched = replace(
+        attempt,
+        preflight=replace(attempt.preflight, **{field_id: replacement}),
+    )
+
+    with pytest.raises(SnapshotValidationError, match="preflight"):
+        build_snapshot(
+            kind=SnapshotKind.FORMAL,
+            profile=core_v1(),
+            draft=None,
+            gateway_attempt=mismatched,
+            evaluations=evaluations,
+            funnel=funnel,  # type: ignore[arg-type]
+            universe_snapshot_id=UUID("17171717-1717-4717-8717-171717171717"),
+            created_at_utc=NOW,
+        )
+
+
+def test_preflight_provenance_is_persisted_and_content_sensitive() -> None:
+    evaluations, attempt, funnel = _inputs()
+    first = build_snapshot(
+        kind=SnapshotKind.FORMAL,
+        profile=core_v1(),
+        draft=None,
+        gateway_attempt=attempt,
+        evaluations=evaluations,
+        funnel=funnel,  # type: ignore[arg-type]
+        universe_snapshot_id=UUID("18181818-1818-4818-8818-181818181818"),
+        created_at_utc=NOW,
+    )
+    changed_time = NOW + timedelta(seconds=1)
+    changed_attempt = replace(
+        attempt,
+        observed_at_utc=changed_time,
+        preflight=replace(attempt.preflight, observed_at_utc=changed_time),
+    )
+    second = build_snapshot(
+        kind=SnapshotKind.FORMAL,
+        profile=core_v1(),
+        draft=None,
+        gateway_attempt=changed_attempt,
+        evaluations=evaluations,
+        funnel=funnel,  # type: ignore[arg-type]
+        universe_snapshot_id=UUID("19191919-1919-4919-8919-191919191919"),
+        created_at_utc=NOW,
+    )
+
+    assert first.header.gateway_preflight_as_of_session == attempt.preflight.as_of_session
+    assert (
+        first.header.gateway_preflight_observed_at_utc
+        == attempt.preflight.observed_at_utc
+    )
+    assert (
+        first.header.gateway_preflight_provider_update_time
+        == attempt.preflight.provider_update_time
+    )
+    assert (
+        first.header.gateway_preflight_market_data_delay_class
+        == attempt.preflight.market_data_delay_class
+    )
+    assert first.header.snapshot_sha256 != second.header.snapshot_sha256
+
+
+def test_audit_codec_round_trips_whitelisted_enum_and_dataclass(
+    tmp_path: Path,
+) -> None:
+    evaluations, attempt, _ = _inputs()
+    reference = _reference("futu://nested/audit")
+    nested = {
+        "enum": Decision.UNKNOWN,
+        "dataclass": reference,
+        "list": [Decision.FAIL, {"reference": reference}],
+    }
+    decisions = list(evaluations[0].field_decisions)
+    decisions[4] = replace(
+        decisions[4],
+        raw_value=nested,
+        normalized_value=(Decision.PASS, reference),
+        threshold={"decision": Decision.FAIL, "reference": reference},
+    )
+    evaluations = (replace(evaluations[0], field_decisions=tuple(decisions)),)
+    snapshot = build_snapshot(
+        kind=SnapshotKind.FORMAL,
+        profile=core_v1(),
+        draft=None,
+        gateway_attempt=attempt,
+        evaluations=evaluations,
+        funnel=build_funnel(evaluations),
+        universe_snapshot_id=UUID("20202020-2020-4020-8020-202020202020"),
+        created_at_utc=NOW,
+    )
+
+    loaded = UniverseSnapshotStore(tmp_path).append(snapshot)
+    raw_value = loaded.rows[0].field_decisions[4].raw_value
+    assert isinstance(raw_value, Mapping)
+    assert raw_value["enum"] is Decision.UNKNOWN
+    assert raw_value["dataclass"] == reference
+    assert raw_value["list"][0] is Decision.FAIL
+    assert raw_value["list"][1]["reference"] == reference
+    assert loaded == snapshot
+
+
+def test_snapshot_defensively_freezes_nested_audit_values() -> None:
+    evaluations, attempt, _ = _inputs()
+    caller_owned = {"items": [{"values": [1, 2]}]}
+    decisions = list(evaluations[0].field_decisions)
+    decisions[4] = replace(decisions[4], raw_value=caller_owned)
+    evaluations = (replace(evaluations[0], field_decisions=tuple(decisions)),)
+    snapshot = build_snapshot(
+        kind=SnapshotKind.FORMAL,
+        profile=core_v1(),
+        draft=None,
+        gateway_attempt=attempt,
+        evaluations=evaluations,
+        funnel=build_funnel(evaluations),
+        universe_snapshot_id=UUID("21212121-2121-4121-8121-212121212121"),
+        created_at_utc=NOW,
+    )
+    before = snapshot.header.snapshot_sha256
+    frozen = snapshot.rows[0].field_decisions[4].raw_value
+
+    caller_owned["items"][0]["values"].append(3)
+    assert snapshot.header.snapshot_sha256 == before
+    assert tuple(frozen["items"][0]["values"]) == (1, 2)
+    with pytest.raises((AttributeError, TypeError)):
+        frozen["items"][0]["values"].append(4)
+    with pytest.raises(TypeError):
+        frozen["new"] = "mutation"  # type: ignore[index]
+
+
+def test_unsupported_audit_dataclass_is_rejected_before_persistence(
+    tmp_path: Path,
+) -> None:
+    @dataclass(frozen=True)
+    class UnsupportedAuditValue:
+        value: str
+
+    evaluations, attempt, _ = _inputs()
+    decisions = list(evaluations[0].field_decisions)
+    decisions[4] = replace(
+        decisions[4], raw_value=UnsupportedAuditValue("unsafe-type")
+    )
+    evaluations = (replace(evaluations[0], field_decisions=tuple(decisions)),)
+
+    with pytest.raises(SnapshotValidationError, match="unsupported audit"):
+        build_snapshot(
+            kind=SnapshotKind.FORMAL,
+            profile=core_v1(),
+            draft=None,
+            gateway_attempt=attempt,
+            evaluations=evaluations,
+            funnel=build_funnel(evaluations),
+            universe_snapshot_id=UUID("22222222-2222-4222-8222-222222222223"),
+            created_at_utc=NOW,
+        )
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize(
+    "corruption",
+    ("malformed", "truncated", "noncanonical", "hash_mismatch"),
+)
+def test_append_propagates_existing_corruption_instead_of_conflict(
+    tmp_path: Path, corruption: str
+) -> None:
+    store = UniverseSnapshotStore(tmp_path)
+    snapshot = store.append(_snapshot())
+    path = tmp_path / f"{snapshot.header.universe_snapshot_id}.json"
+    original = path.read_bytes()
+    if corruption == "malformed":
+        payload = b"{"
+    elif corruption == "truncated":
+        payload = original[:-7]
+    elif corruption == "noncanonical":
+        payload = json.dumps(json.loads(original), indent=2).encode("utf-8")
+    else:
+        payload = original.replace(b'"symbol":"AAPL"', b'"symbol":"EVIL"', 1)
+    path.write_bytes(payload)
+
+    with pytest.raises(SnapshotCorruptError):
+        store.append(snapshot)
+
+
+def test_append_validates_round_trip_before_final_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = UniverseSnapshotStore(tmp_path)
+    snapshot = _snapshot()
+
+    def fail_round_trip(*args: object, **kwargs: object) -> None:
+        raise SnapshotValidationError("simulated unreadable record")
+
+    monkeypatch.setattr(snapshots_module, "_snapshot_from_payload", fail_round_trip)
+    with pytest.raises(SnapshotValidationError, match="unreadable"):
+        store.append(snapshot)
+    assert not (tmp_path / f"{snapshot.header.universe_snapshot_id}.json").exists()
+
+
+@pytest.mark.parametrize("corruption", ("duplicate", "missing", "swapped"))
+def test_store_rejects_invalid_fixed_funnel_stage_schema(
+    tmp_path: Path, corruption: str
+) -> None:
+    store = UniverseSnapshotStore(tmp_path)
+    snapshot = store.append(_snapshot())
+    path = tmp_path / f"{snapshot.header.universe_snapshot_id}.json"
+    payload = json.loads(path.read_bytes())
+    stage_items = payload["funnel"]["stages"]["items"]
+    if corruption == "duplicate":
+        stage_items[1]["stage_id"] = stage_items[0]["stage_id"]
+    elif corruption == "missing":
+        stage_items.pop(5)
+    else:
+        stage_items[1], stage_items[2] = stage_items[2], stage_items[1]
+    with pytest.raises(SnapshotValidationError, match="fixed S0-S10"):
+        snapshots_module._funnel_from_payload(payload["funnel"])
+    path.write_text(
+        json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SnapshotCorruptError):
+        store.get(snapshot.header.universe_snapshot_id)

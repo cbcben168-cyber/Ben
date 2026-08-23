@@ -1,0 +1,741 @@
+"""Task 11 deterministic universe snapshot and immutable-store contracts."""
+
+from __future__ import annotations
+
+import inspect
+from dataclasses import FrozenInstanceError, replace
+from datetime import UTC, date, datetime
+from decimal import Decimal
+from pathlib import Path
+from uuid import UUID
+
+import pytest
+
+from tv_quant.pattern_finder.universe_foundation import (
+    ActiveStatusMappingEntry,
+    ApiBatchRecord,
+    AttemptStatus,
+    Completeness,
+    Decision,
+    EvidenceProvenance,
+    EvidenceReference,
+    FieldDecision,
+    GatewayAttempt,
+    GatewayPreflight,
+    LiquidityEvidence,
+    ListingHistoryEvidence,
+    NormalizedPrerequisiteDecision,
+    QualifiedActiveStatusMapping,
+    QualifiedMarketStateConsistencyContract,
+    QualifiedMarketStateRelationship,
+    RawIndustryEvidence,
+    SecurityEvaluation,
+    SecurityEvaluationPrerequisites,
+    SnapshotConflictError,
+    SnapshotCorruptError,
+    SnapshotKind,
+    SnapshotNotFoundError,
+    SnapshotStoreError,
+    SnapshotValidationError,
+    UniverseSecurityEvidence,
+    UniverseSnapshot,
+    UniverseSnapshotStore,
+    build_funnel,
+    build_snapshot,
+    core_v1,
+    members_sha256,
+    prerequisites_sha256,
+    snapshot_content_sha256,
+    snapshot_record_sha256,
+)
+from tv_quant.pattern_finder.universe_foundation import snapshots as snapshots_module
+
+
+NOW = datetime(2026, 8, 21, 21, tzinfo=UTC)
+SHA_A = "a" * 64
+SHA_B = "b" * 64
+SDK_VERSION = "10.10.7008"
+OPEND_VERSION = "1009"
+STAGES = (
+    "S1_IDENTITY_VALID",
+    "S2_EXCHANGE_ALLOWED",
+    "S3_SECURITY_CLASS_ALLOWED",
+    "S4_ACTIVE_STATUS_ALLOWED",
+    "S5_PRICE_ALLOWED",
+    "S6_MARKET_CAP_ALLOWED",
+    "S7_SECTOR_INDUSTRY_ALLOWED",
+    "S8_LISTING_HISTORY_ALLOWED",
+    "S9_LIQUIDITY_ALLOWED",
+)
+
+
+def _reference(locator: str, sha256: str = SHA_A) -> EvidenceReference:
+    return EvidenceReference("FUTU", locator, sha256)
+
+
+def _mapping(*, reference_sha256: str = SHA_A) -> QualifiedActiveStatusMapping:
+    return QualifiedActiveStatusMapping(
+        provider="FUTU",
+        provider_sdk_version=SDK_VERSION,
+        opend_server_version=OPEND_VERSION,
+        mapping_version="active/v1",
+        entries=(ActiveStatusMappingEntry("NORMAL", Decision.PASS, "ACTIVE_ALLOWED"),),
+        qualified_at_utc=NOW,
+        qualification_references=(
+            EvidenceReference(
+                "qualification",
+                "futu://qualification/active/v1",
+                reference_sha256,
+            ),
+        ),
+    )
+
+
+def _market_state_contract() -> QualifiedMarketStateConsistencyContract:
+    return QualifiedMarketStateConsistencyContract(
+        provider="FUTU",
+        provider_sdk_version=SDK_VERSION,
+        opend_server_version=OPEND_VERSION,
+        mapping_version="market-state-consistency/after-hours-end-v1",
+        qualified_at_utc=NOW,
+        qualification_references=(
+            EvidenceReference(
+                "qualification",
+                "futu://qualification/market-state/after-hours-end",
+                SHA_A,
+            ),
+        ),
+        qualified_relationships=(
+            QualifiedMarketStateRelationship(
+                "AFTER_HOURS_END", "XNYS_NON_SESSION"
+            ),
+        ),
+    )
+
+
+def _provenance(code: str, *, sha256: str = SHA_A) -> EvidenceProvenance:
+    return EvidenceProvenance(
+        provider="FUTU",
+        provider_version=SDK_VERSION,
+        source_version=OPEND_VERSION,
+        schema_version="futu-screening/v2",
+        observed_at_utc=NOW,
+        references=(_reference(f"futu://screening/{code}", sha256),),
+    )
+
+
+def _evidence(
+    symbol: str,
+    *,
+    stock_id: str | None = None,
+    futu_code: str | None = None,
+    sha256: str = SHA_A,
+) -> UniverseSecurityEvidence:
+    code = futu_code or f"US.{symbol}"
+    provenance = _provenance(code, sha256=sha256)
+    return UniverseSecurityEvidence(
+        schema_version="universe-security-evidence/v1",
+        stock_id=stock_id or f"stock-{symbol}",
+        futu_code=code,
+        symbol=symbol,
+        name=f"{symbol} Inc.",
+        exchange_raw="NASDAQ",
+        security_type_raw="STOCK",
+        delisting=False,
+        suspension=False,
+        security_status_raw="NORMAL",
+        price_usd=Decimal("10.00"),
+        market_cap_usd=Decimal("1000000000.00"),
+        provenance=provenance,
+        raw_industry=RawIndustryEvidence("Technology", provenance),
+        raw_plates=(),
+        classification_evidence=(),
+        liquidity=LiquidityEvidence(
+            metric_id="FUTU_AVG_TURNOVER_20D",
+            evidence_version="futu-screening-liquidity/v1",
+            avg_turnover_20d_usd=Decimal("20000000.00"),
+            avg_volume_20d_shares=Decimal("2000000"),
+            window_days=20,
+            currency="USD",
+            raw_value="20000000.00",
+            provenance=provenance,
+            reason_codes=(),
+        ),
+        listing_history=ListingHistoryEvidence(
+            metric_id="FUTU_LISTED_DAYS",
+            evidence_version="futu-screening-listing-history/v1",
+            listed_days=300,
+            listing_date=date(2020, 1, 2),
+            raw_value="300",
+            provenance=provenance,
+            reason_codes=(),
+        ),
+        reason_codes=(),
+    )
+
+
+def _normalized(
+    decision: Decision, reason_code: str, reference: EvidenceReference
+) -> NormalizedPrerequisiteDecision:
+    return NormalizedPrerequisiteDecision(decision, reason_code, (reference,))
+
+
+def _prerequisite(
+    evidence: UniverseSecurityEvidence,
+    *,
+    identity: tuple[Decision, str] = (Decision.PASS, "IDENTITY_VERIFIED"),
+    active: tuple[Decision, str] = (Decision.PASS, "ACTIVE_ALLOWED"),
+) -> SecurityEvaluationPrerequisites:
+    reference = evidence.provenance.references[0]
+    return SecurityEvaluationPrerequisites(
+        stock_id=evidence.stock_id,
+        futu_code=evidence.futu_code,
+        active_status=_normalized(*active, reference),
+        identity=_normalized(*identity, reference),
+    )
+
+
+def _evaluation(
+    evidence: UniverseSecurityEvidence,
+    prerequisite: SecurityEvaluationPrerequisites,
+    *,
+    change: tuple[str, Decision, str] | None = None,
+) -> SecurityEvaluation:
+    changes = {} if change is None else {change[0]: (change[1], change[2])}
+    identity = prerequisite.identity
+    active = prerequisite.active_status
+    assert identity is not None and active is not None
+    changes.setdefault("S1_IDENTITY_VALID", (identity.decision, identity.reason_code))
+    changes.setdefault("S4_ACTIVE_STATUS_ALLOWED", (active.decision, active.reason_code))
+    decisions = tuple(
+        FieldDecision(
+            field_id=stage,
+            raw_value="upstream raw",
+            normalized_value=(
+                "NASDAQ"
+                if stage == "S2_EXCHANGE_ALLOWED"
+                else "COMMON_STOCK"
+                if stage == "S3_SECURITY_CLASS_ALLOWED"
+                else "upstream normalized"
+            ),
+            operator=None,
+            threshold=None,
+            decision=changes.get(stage, (Decision.PASS, f"{stage}_PASS"))[0],
+            reason_code=changes.get(stage, (Decision.PASS, f"{stage}_PASS"))[1],
+            evidence_source="TASK_6",
+            evidence_observed_at_utc=NOW,
+            evidence_version="task-6/v1",
+            evidence_references=(
+                identity.evidence_references
+                if stage == "S1_IDENTITY_VALID"
+                else active.evidence_references
+                if stage == "S4_ACTIVE_STATUS_ALLOWED"
+                else evidence.provenance.references
+            ),
+        )
+        for stage in STAGES
+    )
+    first = next((item for item in decisions if item.decision is not Decision.PASS), None)
+    return SecurityEvaluation(
+        stock_id=evidence.stock_id,
+        futu_code=evidence.futu_code,
+        symbol=evidence.symbol,
+        name=evidence.name,
+        field_decisions=decisions,
+        first_exit_stage=None if first is None else first.field_id,
+        first_exit_reason_code=None if first is None else first.reason_code,
+        is_member=first is None,
+        is_quarantined=any(
+            item.decision is Decision.UNKNOWN for item in decisions
+        ),
+    )
+
+
+def _attempt(
+    evidence: tuple[UniverseSecurityEvidence, ...],
+    prerequisites: tuple[SecurityEvaluationPrerequisites, ...],
+    *,
+    mapping: QualifiedActiveStatusMapping | None = None,
+    attempt_id: str = "attempt-11-fixture",
+    status: AttemptStatus = AttemptStatus.SUCCEEDED,
+    completeness: Completeness = Completeness.COMPLETE,
+    formal_ready: bool = True,
+    reason_codes: tuple[str, ...] = (),
+) -> GatewayAttempt:
+    selected_mapping = mapping or _mapping()
+    return GatewayAttempt(
+        attempt_id=attempt_id,
+        as_of_session=date(2026, 8, 21),
+        observed_at_utc=NOW,
+        provider_update_time=NOW,
+        runtime_evidence_window_seconds=0.0,
+        market_data_delay_class="UNKNOWN",
+        market_state_consistency_contract=_market_state_contract(),
+        active_status_mapping=selected_mapping,
+        prerequisites_sha256=prerequisites_sha256(prerequisites),
+        preflight=GatewayPreflight(
+            provider="FUTU",
+            provider_sdk_version=SDK_VERSION,
+            opend_server_version=OPEND_VERSION,
+            as_of_session=date(2026, 8, 21),
+            observed_at_utc=NOW,
+            provider_update_time=NOW,
+            market_data_delay_class="UNKNOWN",
+            formal_ready=formal_ready,
+            reason_codes=reason_codes,
+        ),
+        evidence=evidence,
+        prerequisites=prerequisites,
+        batches=(
+            ApiBatchRecord(
+                "qot_right_capture", 1, SHA_A, SHA_B, NOW
+            ),
+        ),
+        identity_ledger=(),
+        attempt_status=status,
+        completeness=completeness,
+        reason_codes=reason_codes,
+    )
+
+
+def _inputs(
+    *,
+    unknown: bool = False,
+    mapping: QualifiedActiveStatusMapping | None = None,
+    attempt_id: str = "attempt-11-fixture",
+) -> tuple[
+    tuple[SecurityEvaluation, ...], GatewayAttempt, object
+]:
+    evidence = _evidence("AAPL")
+    active = (
+        (Decision.UNKNOWN, "ACTIVE_STATUS_UNKNOWN")
+        if unknown
+        else (Decision.PASS, "ACTIVE_ALLOWED")
+    )
+    prerequisite = _prerequisite(evidence, active=active)
+    evaluation = _evaluation(evidence, prerequisite)
+    evaluations = (evaluation,)
+    return (
+        evaluations,
+        _attempt(
+            (evidence,),
+            (prerequisite,),
+            mapping=mapping,
+            attempt_id=attempt_id,
+        ),
+        build_funnel(evaluations),
+    )
+
+
+def _snapshot(
+    *,
+    snapshot_id: UUID = UUID("11111111-1111-4111-8111-111111111111"),
+    created_at_utc: datetime = NOW,
+    unknown: bool = False,
+    mapping: QualifiedActiveStatusMapping | None = None,
+    attempt_id: str = "attempt-11-fixture",
+) -> UniverseSnapshot:
+    evaluations, attempt, funnel = _inputs(
+        unknown=unknown, mapping=mapping, attempt_id=attempt_id
+    )
+    return build_snapshot(
+        kind=SnapshotKind.FORMAL,
+        profile=core_v1(),
+        draft=None,
+        gateway_attempt=attempt,
+        evaluations=evaluations,
+        funnel=funnel,  # type: ignore[arg-type]
+        universe_snapshot_id=snapshot_id,
+        created_at_utc=created_at_utc,
+    )
+
+
+def test_snapshot_is_frozen_utc_and_exports_three_distinct_hashes() -> None:
+    snapshot = _snapshot()
+
+    assert snapshot.header.snapshot_schema_version == "universe-snapshot/v1"
+    assert len(snapshot.header.members_sha256) == 64
+    assert len(snapshot.header.snapshot_sha256) == 64
+    assert len(snapshot.header.snapshot_record_sha256) == 64
+    assert snapshot.header.members_sha256 == members_sha256(snapshot.rows)
+    assert snapshot.header.snapshot_sha256 == snapshot_content_sha256(snapshot)
+    assert snapshot.header.snapshot_record_sha256 == snapshot_record_sha256(snapshot)
+    with pytest.raises(FrozenInstanceError):
+        snapshot.rows[0].is_member = False  # type: ignore[misc]
+    with pytest.raises(FrozenInstanceError):
+        snapshot.header.member_count = 0  # type: ignore[misc]
+    with pytest.raises(SnapshotValidationError, match="UTC"):
+        _snapshot(created_at_utc=NOW.replace(tzinfo=None))
+    with pytest.raises(SnapshotValidationError, match="UUID"):
+        _snapshot(snapshot_id=UUID(int=0))
+
+
+def test_build_binds_profile_attempt_mapping_prerequisites_and_projected_rows() -> None:
+    evaluations, attempt, funnel = _inputs()
+    snapshot = build_snapshot(
+        kind=SnapshotKind.FORMAL,
+        profile=core_v1(),
+        draft=None,
+        gateway_attempt=attempt,
+        evaluations=evaluations,
+        funnel=funnel,  # type: ignore[arg-type]
+        universe_snapshot_id=UUID("22222222-2222-4222-8222-222222222222"),
+        created_at_utc=NOW,
+    )
+    header, row = snapshot.header, snapshot.rows[0]
+
+    assert header.profile_version_id == "CORE:v1"
+    assert header.profile_content_sha256 == core_v1().content_sha256
+    assert header.gateway_attempt_id == attempt.attempt_id
+    assert header.active_status_mapping_provider == "FUTU"
+    assert header.active_status_mapping_provider_sdk_version == SDK_VERSION
+    assert header.active_status_mapping_opend_server_version == OPEND_VERSION
+    assert (
+        header.active_status_mapping_qualification_references
+        == attempt.active_status_mapping.qualification_references
+    )
+    assert (
+        header.active_status_mapping_sha256
+        == attempt.active_status_mapping.active_status_mapping_sha256
+    )
+    assert header.prerequisites_sha256 == attempt.prerequisites_sha256
+    assert row.identity_decision is Decision.PASS
+    assert row.identity_reason_code == "IDENTITY_VERIFIED"
+    assert row.active_status_decision is Decision.PASS
+    assert row.active_status_reason_code == "ACTIVE_ALLOWED"
+    assert row.raw_evidence_references == attempt.evidence[0].provenance.references
+    assert row.is_member is evaluations[0].is_member
+
+
+def test_input_order_is_canonical_and_duplicate_or_mismatched_keys_fail_closed() -> None:
+    first_evidence, second_evidence = _evidence("MSFT"), _evidence("AAPL")
+    first_prereq, second_prereq = _prerequisite(first_evidence), _prerequisite(second_evidence)
+    first_eval = _evaluation(first_evidence, first_prereq)
+    second_eval = _evaluation(second_evidence, second_prereq)
+    attempt = _attempt((second_evidence, first_evidence), (first_prereq, second_prereq))
+    forward = (first_eval, second_eval)
+    reverse = tuple(reversed(forward))
+
+    one = build_snapshot(
+        kind=SnapshotKind.FORMAL,
+        profile=core_v1(),
+        draft=None,
+        gateway_attempt=attempt,
+        evaluations=forward,
+        funnel=build_funnel(forward),
+        universe_snapshot_id=UUID("33333333-3333-4333-8333-333333333333"),
+        created_at_utc=NOW,
+    )
+    two = build_snapshot(
+        kind=SnapshotKind.FORMAL,
+        profile=core_v1(),
+        draft=None,
+        gateway_attempt=attempt,
+        evaluations=reverse,
+        funnel=build_funnel(reverse),
+        universe_snapshot_id=one.header.universe_snapshot_id,
+        created_at_utc=NOW,
+    )
+    assert one == two
+    assert tuple((row.stock_id, row.futu_code) for row in one.rows) == tuple(
+        sorted((row.stock_id, row.futu_code) for row in one.rows)
+    )
+
+    with pytest.raises(SnapshotValidationError, match="duplicate"):
+        build_snapshot(
+            kind=SnapshotKind.FORMAL,
+            profile=core_v1(),
+            draft=None,
+            gateway_attempt=attempt,
+            evaluations=(first_eval, first_eval),
+            funnel=build_funnel((first_eval,)),
+            universe_snapshot_id=UUID("44444444-4444-4444-8444-444444444444"),
+            created_at_utc=NOW,
+        )
+
+    mismatched_evidence = replace(first_evidence, futu_code="US.WRONG")
+    mismatched_prereq = _prerequisite(mismatched_evidence)
+    mismatched_eval = _evaluation(mismatched_evidence, mismatched_prereq)
+    with pytest.raises(SnapshotValidationError, match="composite"):
+        build_snapshot(
+            kind=SnapshotKind.FORMAL,
+            profile=core_v1(),
+            draft=None,
+            gateway_attempt=attempt,
+            evaluations=(mismatched_eval, second_eval),
+            funnel=build_funnel((mismatched_eval, second_eval)),
+            universe_snapshot_id=UUID("55555555-5555-4555-8555-555555555555"),
+            created_at_utc=NOW,
+        )
+
+
+def test_same_stock_id_multiple_codes_conflict_rows_are_all_preserved() -> None:
+    first_evidence = _evidence("AAA", stock_id="same", futu_code="US.AAA")
+    second_evidence = _evidence("AAB", stock_id="same", futu_code="US.AAB")
+    identity = (Decision.UNKNOWN, "UNIVERSE_IDENTITY_BLOCKER")
+    first_prereq = _prerequisite(first_evidence, identity=identity)
+    second_prereq = _prerequisite(second_evidence, identity=identity)
+    evaluations = (
+        _evaluation(first_evidence, first_prereq),
+        _evaluation(second_evidence, second_prereq),
+    )
+    attempt = _attempt(
+        (first_evidence, second_evidence), (first_prereq, second_prereq)
+    )
+
+    snapshot = build_snapshot(
+        kind=SnapshotKind.FORMAL,
+        profile=core_v1(),
+        draft=None,
+        gateway_attempt=attempt,
+        evaluations=evaluations,
+        funnel=build_funnel(evaluations),
+        universe_snapshot_id=UUID("66666666-6666-4666-8666-666666666666"),
+        created_at_utc=NOW,
+    )
+
+    assert tuple(row.futu_code for row in snapshot.rows) == ("US.AAA", "US.AAB")
+    assert all(row.is_quarantined for row in snapshot.rows)
+    assert snapshot.header.candidate_count == 2
+    assert snapshot.header.quarantine_count == 2
+
+
+def test_formal_and_preview_bindings_and_formal_attempt_gate() -> None:
+    evaluations, attempt, funnel = _inputs()
+    draft = replace(
+        core_v1(),
+        record_state=core_v1().record_state.DRAFT,
+        published_at_utc=None,
+        content_sha256=None,
+        filter_content_sha256=None,
+    )
+    from tv_quant.pattern_finder.universe_foundation import UniverseDraft, draft_content_sha256
+
+    draft_value = object.__new__(UniverseDraft)
+    for field_id, value in {
+        "draft_id": "draft-11",
+        "profile_family_id": draft.profile_family_id,
+        "profile_kind": draft.profile_kind,
+        "display_name": draft.display_name,
+        "parent_profile_version_id": draft.parent_profile_version_id,
+        "created_at_utc": NOW,
+        "change_note": "preview",
+        "filters": draft.filters,
+        "draft_content_sha256": "0" * 64,
+    }.items():
+        object.__setattr__(draft_value, field_id, value)
+    object.__setattr__(
+        draft_value, "draft_content_sha256", draft_content_sha256(draft_value)
+    )
+    draft_value.__post_init__()
+
+    preview = build_snapshot(
+        kind=SnapshotKind.PREVIEW,
+        profile=None,
+        draft=draft_value,
+        gateway_attempt=attempt,
+        evaluations=evaluations,
+        funnel=funnel,  # type: ignore[arg-type]
+        universe_snapshot_id=UUID("77777777-7777-4777-8777-777777777777"),
+        created_at_utc=NOW,
+    )
+    assert preview.header.profile_version_id is None
+    assert preview.header.draft_id == "draft-11"
+
+    for profile, supplied_draft in ((core_v1(), draft_value), (None, None)):
+        with pytest.raises(SnapshotValidationError, match="profile|draft"):
+            build_snapshot(
+                kind=SnapshotKind.FORMAL,
+                profile=profile,
+                draft=supplied_draft,
+                gateway_attempt=attempt,
+                evaluations=evaluations,
+                funnel=funnel,  # type: ignore[arg-type]
+                universe_snapshot_id=UUID("88888888-8888-4888-8888-888888888888"),
+                created_at_utc=NOW,
+            )
+
+    failed = replace(
+        attempt,
+        attempt_status=AttemptStatus.FAILED,
+        completeness=Completeness.INCOMPLETE,
+        preflight=replace(attempt.preflight, formal_ready=False),
+    )
+    with pytest.raises(SnapshotValidationError, match="FORMAL"):
+        build_snapshot(
+            kind=SnapshotKind.FORMAL,
+            profile=core_v1(),
+            draft=None,
+            gateway_attempt=failed,
+            evaluations=evaluations,
+            funnel=funnel,  # type: ignore[arg-type]
+            universe_snapshot_id=UUID("99999999-9999-4999-8999-999999999999"),
+            created_at_utc=NOW,
+        )
+
+
+def test_formal_rejects_partial_rows_and_prerequisite_projection_tamper() -> None:
+    first_evidence, second_evidence = _evidence("AAPL"), _evidence("MSFT")
+    first_prereq, second_prereq = _prerequisite(first_evidence), _prerequisite(second_evidence)
+    first_eval, second_eval = _evaluation(first_evidence, first_prereq), _evaluation(second_evidence, second_prereq)
+    attempt = _attempt((first_evidence, second_evidence), (first_prereq, second_prereq))
+
+    with pytest.raises(SnapshotValidationError, match="partial|composite"):
+        build_snapshot(
+            kind=SnapshotKind.FORMAL,
+            profile=core_v1(),
+            draft=None,
+            gateway_attempt=attempt,
+            evaluations=(first_eval,),
+            funnel=build_funnel((first_eval,)),
+            universe_snapshot_id=UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"),
+            created_at_utc=NOW,
+        )
+
+    tampered_decisions = list(first_eval.field_decisions)
+    tampered_decisions[3] = replace(
+        tampered_decisions[3], reason_code="FABRICATED_ACTIVE_REASON"
+    )
+    tampered = replace(first_eval, field_decisions=tuple(tampered_decisions))
+    with pytest.raises(SnapshotValidationError, match="prerequisite|Active|active"):
+        build_snapshot(
+            kind=SnapshotKind.FORMAL,
+            profile=core_v1(),
+            draft=None,
+            gateway_attempt=_attempt((first_evidence,), (first_prereq,)),
+            evaluations=(tampered,),
+            funnel=build_funnel((tampered,)),
+            universe_snapshot_id=UUID("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"),
+            created_at_utc=NOW,
+        )
+
+
+def test_three_hash_scopes_and_provenance_tamper_sensitivity() -> None:
+    first = _snapshot()
+    runtime_only = _snapshot(
+        snapshot_id=UUID("cccccccc-cccc-4ccc-8ccc-cccccccccccc"),
+        created_at_utc=NOW.replace(microsecond=1),
+        attempt_id="different-runtime-attempt-id",
+    )
+    changed_mapping = _snapshot(mapping=_mapping(reference_sha256=SHA_B))
+
+    assert first.header.members_sha256 == runtime_only.header.members_sha256
+    assert first.header.snapshot_sha256 == runtime_only.header.snapshot_sha256
+    assert first.header.snapshot_record_sha256 != runtime_only.header.snapshot_record_sha256
+    assert first.header.members_sha256 == changed_mapping.header.members_sha256
+    assert first.header.snapshot_sha256 != changed_mapping.header.snapshot_sha256
+
+    non_member_evaluations, attempt, _ = _inputs()
+    failed_decisions = list(non_member_evaluations[0].field_decisions)
+    failed_decisions[4] = replace(
+        failed_decisions[4], decision=Decision.FAIL, reason_code="PRICE_BELOW_MINIMUM"
+    )
+    failed_eval = replace(
+        non_member_evaluations[0],
+        field_decisions=tuple(failed_decisions),
+        first_exit_stage="S5_PRICE_ALLOWED",
+        first_exit_reason_code="PRICE_BELOW_MINIMUM",
+        is_member=False,
+    )
+    non_member = build_snapshot(
+        kind=SnapshotKind.FORMAL,
+        profile=core_v1(),
+        draft=None,
+        gateway_attempt=attempt,
+        evaluations=(failed_eval,),
+        funnel=build_funnel((failed_eval,)),
+        universe_snapshot_id=UUID("dddddddd-dddd-4ddd-8ddd-dddddddddddd"),
+        created_at_utc=NOW,
+    )
+    assert first.header.members_sha256 != non_member.header.members_sha256
+
+    with pytest.raises(SnapshotValidationError, match="members_sha256"):
+        replace(
+            first,
+            header=replace(first.header, members_sha256=SHA_B),
+        )
+
+
+def test_unknown_quarantine_provenance_is_preserved_without_recalculation() -> None:
+    evaluations, _, _ = _inputs(unknown=True)
+    snapshot = _snapshot(unknown=True)
+    row = snapshot.rows[0]
+
+    assert row.active_status_decision is Decision.UNKNOWN
+    assert row.active_status_reason_code == "ACTIVE_STATUS_UNKNOWN"
+    assert row.active_status_evidence_references
+    assert row.is_quarantined is True
+    assert row.is_member is evaluations[0].is_member is False
+    assert row.first_exit_stage == evaluations[0].first_exit_stage
+
+
+def test_store_append_get_idempotence_conflict_missing_and_forbidden_methods(
+    tmp_path: Path,
+) -> None:
+    store = UniverseSnapshotStore(root=tmp_path)
+    snapshot = _snapshot()
+
+    persisted = store.append(snapshot)
+    path = tmp_path / f"{snapshot.header.universe_snapshot_id}.json"
+    before = path.stat().st_mtime_ns
+    assert persisted == snapshot
+    assert store.get(snapshot.header.universe_snapshot_id) == snapshot
+    assert store.append(snapshot) == snapshot
+    assert path.stat().st_mtime_ns == before
+
+    conflicting = _snapshot(created_at_utc=NOW.replace(microsecond=2))
+    with pytest.raises(SnapshotConflictError):
+        store.append(conflicting)
+    with pytest.raises(SnapshotNotFoundError):
+        store.get(UUID("eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"))
+
+    assert set(vars(UniverseSnapshotStore)) & {
+        "overwrite",
+        "update",
+        "delete",
+        "latest",
+        "list",
+        "read",
+    } == set()
+    assert tuple(inspect.signature(UniverseSnapshotStore).parameters) == ("root",)
+
+
+@pytest.mark.parametrize("payload", (b"{", b"{}", b'{"truncated":true}'))
+def test_store_corruption_is_fail_closed(tmp_path: Path, payload: bytes) -> None:
+    store = UniverseSnapshotStore(root=tmp_path)
+    snapshot = _snapshot()
+    store.append(snapshot)
+    path = tmp_path / f"{snapshot.header.universe_snapshot_id}.json"
+    path.write_bytes(payload)
+
+    with pytest.raises(SnapshotCorruptError):
+        store.get(snapshot.header.universe_snapshot_id)
+
+
+def test_store_hash_mismatch_is_corruption(tmp_path: Path) -> None:
+    store = UniverseSnapshotStore(root=tmp_path)
+    snapshot = _snapshot()
+    store.append(snapshot)
+    path = tmp_path / f"{snapshot.header.universe_snapshot_id}.json"
+    payload = path.read_text(encoding="utf-8").replace(
+        snapshot.rows[0].symbol, "TAMPERED", 1
+    )
+    path.write_text(payload, encoding="utf-8")
+
+    with pytest.raises(SnapshotCorruptError):
+        store.get(snapshot.header.universe_snapshot_id)
+
+
+def test_store_failure_leaves_no_partial_record(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = UniverseSnapshotStore(root=tmp_path)
+    snapshot = _snapshot()
+
+    def fail_atomic_create(*args: object, **kwargs: object) -> None:
+        raise OSError("simulated storage failure")
+
+    monkeypatch.setattr(snapshots_module, "_atomic_create", fail_atomic_create)
+    with pytest.raises(SnapshotStoreError, match="simulated storage failure"):
+        store.append(snapshot)
+    assert not (tmp_path / f"{snapshot.header.universe_snapshot_id}.json").exists()

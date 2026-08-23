@@ -129,7 +129,7 @@ def _freeze_audit(value: object) -> object:
             _utc(value, "audit datetime")
         return value
     if type(value) is _FrozenAuditList:
-        return value
+        return _FrozenAuditList(tuple(_freeze_audit(item) for item in value))
     if type(value) is list:
         return _FrozenAuditList(tuple(_freeze_audit(item) for item in value))
     if type(value) is tuple:
@@ -193,9 +193,25 @@ def _freeze_field_decision(value: FieldDecision) -> FieldDecision:
         decision=value.decision,
         reason_code=value.reason_code,
         evidence_source=value.evidence_source,
-        evidence_observed_at_utc=value.evidence_observed_at_utc,
+        evidence_observed_at_utc=_freeze_audit(value.evidence_observed_at_utc),
         evidence_version=value.evidence_version,
         evidence_references=value.evidence_references,
+    )
+
+
+def _freeze_probe(value: RawApiBatch) -> RawApiBatch:
+    if type(value) is not RawApiBatch:
+        raise SnapshotValidationError("probe: RawApiBatch required")
+    return RawApiBatch(
+        endpoint=value.endpoint,
+        batch_index=value.batch_index,
+        raw_request=value.raw_request,
+        raw_response=value.raw_response,
+        request_hash=value.request_hash,
+        response_hash=value.response_hash,
+        ret_code=_freeze_audit(value.ret_code),
+        acquisition_status=value.acquisition_status,
+        acquired_at_utc=value.acquired_at_utc,
     )
 
 
@@ -257,7 +273,22 @@ def _canonical(value: object) -> object:
         return {
             field.name: (
                 _audit_canonical(getattr(value, field.name))
-                if field.name in {"raw_value", "normalized_value", "threshold"}
+                if field.name
+                in {
+                    "raw_value",
+                    "normalized_value",
+                    "threshold",
+                    "evidence_observed_at_utc",
+                }
+                else _canonical(getattr(value, field.name))
+            )
+            for field in fields(value)
+        }
+    if type(value) is RawApiBatch:
+        return {
+            field.name: (
+                _audit_canonical(value.ret_code)
+                if field.name == "ret_code"
                 else _canonical(getattr(value, field.name))
             )
             for field in fields(value)
@@ -273,6 +304,10 @@ def _canonical(value: object) -> object:
             for field in fields(value)
         }
     if isinstance(value, Enum):
+        if type(value) not in (SnapshotKind, AttemptStatus, Completeness, Decision):
+            raise SnapshotValidationError(
+                f"unsupported audit type: {type(value).__name__}"
+            )
         return value.value
     if isinstance(value, UUID):
         return {"__uuid__": str(value)}
@@ -355,6 +390,8 @@ def _decode_audit(value: object) -> object:
             if kind == "list":
                 return _FrozenAuditList(tuple(decoded))
             raise SnapshotValidationError("codec: unknown collection kind")
+        if _CODEC_TYPE in value:
+            raise SnapshotValidationError("codec: malformed or unsupported tag")
         if set(value) == {"__uuid__"}:
             return UUID(str(value["__uuid__"]))
         if set(value) == {"__datetime__"}:
@@ -582,6 +619,7 @@ class UniverseSnapshotHeader:
             raise SnapshotValidationError(
                 "realtime_capability_probes: RawApiBatch values required"
             )
+        probes = tuple(_freeze_probe(item) for item in probes)
         object.__setattr__(self, "gateway_batches", gateway_batches)
         object.__setattr__(self, "gateway_identity_ledger", identity_ledger)
         object.__setattr__(self, "market_data_delay_evidence", delay_evidence)
@@ -1366,10 +1404,15 @@ def _required(mapping: Mapping[str, object], key: str) -> object:
 def _reference_from(value: object) -> EvidenceReference:
     if not isinstance(value, Mapping):
         raise SnapshotValidationError("reference: mapping required")
+    field_names = ("source_id", "source_locator", "source_record_sha256")
+    if set(value) != set(field_names):
+        raise SnapshotValidationError("reference: exact field schema required")
+    if any(type(value[field_name]) is not str for field_name in field_names):
+        raise SnapshotValidationError("reference: string fields required")
     return EvidenceReference(
-        str(_required(value, "source_id")),
-        str(_required(value, "source_locator")),
-        str(_required(value, "source_record_sha256")),
+        value["source_id"],
+        value["source_locator"],
+        value["source_record_sha256"],
     )
 
 

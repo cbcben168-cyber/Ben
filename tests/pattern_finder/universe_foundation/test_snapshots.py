@@ -8,6 +8,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import FrozenInstanceError, dataclass, replace
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
+from enum import Enum, IntEnum
 from pathlib import Path
 from uuid import UUID
 
@@ -71,6 +72,14 @@ STAGES = (
     "S8_LISTING_HISTORY_ALLOWED",
     "S9_LIQUIDITY_ALLOWED",
 )
+
+
+class StringEnum(str, Enum):
+    OK = "OK"
+
+
+class NumericEnum(IntEnum):
+    OK = 0
 
 
 def _reference(locator: str, sha256: str = SHA_A) -> EvidenceReference:
@@ -1195,3 +1204,321 @@ def test_store_rejects_invalid_fixed_funnel_stage_schema(
 
     with pytest.raises(SnapshotCorruptError):
         store.get(snapshot.header.universe_snapshot_id)
+
+
+@pytest.mark.parametrize("ret_code", (StringEnum.OK, NumericEnum.OK))
+def test_unsupported_probe_enum_fails_closed_before_persistence(
+    tmp_path: Path, ret_code: object
+) -> None:
+    evaluations, attempt, funnel = _inputs()
+    probe = RawApiBatch(
+        endpoint="realtime_quote_capability_probe",
+        batch_index=1,
+        raw_request={
+            "code": "US.AAPL",
+            "subtype": "QUOTE",
+            "subscribe_push": False,
+        },
+        raw_response={"rows": []},
+        request_hash=SHA_A,
+        response_hash=SHA_B,
+        ret_code=ret_code,
+        acquisition_status="SUCCESS",
+        acquired_at_utc=NOW,
+    )
+    attempt = replace(attempt, realtime_capability_probes=(probe,))
+
+    with pytest.raises(SnapshotValidationError, match="unsupported audit type"):
+        build_snapshot(
+            kind=SnapshotKind.FORMAL,
+            profile=core_v1(),
+            draft=None,
+            gateway_attempt=attempt,
+            evaluations=evaluations,
+            funnel=funnel,  # type: ignore[arg-type]
+            universe_snapshot_id=UUID("24242424-2424-4424-8424-242424242424"),
+            created_at_utc=NOW,
+        )
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_whitelisted_probe_enum_round_trip_preserves_exact_type(tmp_path: Path) -> None:
+    evaluations, attempt, funnel = _inputs()
+    probe = RawApiBatch(
+        endpoint="realtime_quote_capability_probe",
+        batch_index=1,
+        raw_request={
+            "code": "US.AAPL",
+            "subtype": "QUOTE",
+            "subscribe_push": False,
+        },
+        raw_response={"rows": []},
+        request_hash=SHA_A,
+        response_hash=SHA_B,
+        ret_code=Decision.UNKNOWN,
+        acquisition_status="SUCCESS",
+        acquired_at_utc=NOW,
+    )
+    attempt = replace(attempt, realtime_capability_probes=(probe,))
+    snapshot = build_snapshot(
+        kind=SnapshotKind.FORMAL,
+        profile=core_v1(),
+        draft=None,
+        gateway_attempt=attempt,
+        evaluations=evaluations,
+        funnel=funnel,  # type: ignore[arg-type]
+        universe_snapshot_id=UUID("25252525-2525-4525-8525-252525252525"),
+        created_at_utc=NOW,
+    )
+
+    loaded = UniverseSnapshotStore(tmp_path).append(snapshot)
+    restored = loaded.header.realtime_capability_probes[0].ret_code
+    assert type(restored) is Decision
+    assert restored is Decision.UNKNOWN
+
+
+@pytest.mark.parametrize(
+    "encoded",
+    (
+        {
+            "__snapshot_codec_type__": "audit-enum",
+            "name": "UnknownEnum",
+            "value": "OK",
+        },
+        {
+            "__snapshot_codec_type__": "audit-enum",
+            "name": "Decision",
+            "value": "NOT_A_DECISION",
+        },
+        {
+            "__snapshot_codec_type__": "audit-enum",
+            "name": "Decision",
+            "value": "PASS",
+            "module": "untrusted.module",
+        },
+        {
+            "__snapshot_codec_type__": "enum",
+            "module": "untrusted.module",
+            "qualname": "SomeEnum",
+            "name": "OK",
+            "value": "OK",
+        },
+    ),
+)
+def test_unknown_or_mismatched_enum_codec_tag_fails_closed(
+    encoded: dict[str, object]
+) -> None:
+    with pytest.raises((SnapshotValidationError, ValueError)):
+        snapshots_module._decode_audit(encoded)
+
+
+def test_persisted_unknown_enum_tag_is_typed_corruption(tmp_path: Path) -> None:
+    evaluations, attempt, funnel = _inputs()
+    probe = RawApiBatch(
+        endpoint="realtime_quote_capability_probe",
+        batch_index=1,
+        raw_request={
+            "code": "US.AAPL",
+            "subtype": "QUOTE",
+            "subscribe_push": False,
+        },
+        raw_response={"rows": []},
+        request_hash=SHA_A,
+        response_hash=SHA_B,
+        ret_code=Decision.UNKNOWN,
+        acquisition_status="SUCCESS",
+        acquired_at_utc=NOW,
+    )
+    attempt = replace(attempt, realtime_capability_probes=(probe,))
+    snapshot = build_snapshot(
+        kind=SnapshotKind.FORMAL,
+        profile=core_v1(),
+        draft=None,
+        gateway_attempt=attempt,
+        evaluations=evaluations,
+        funnel=funnel,  # type: ignore[arg-type]
+        universe_snapshot_id=UUID("27272727-2727-4727-8727-272727272727"),
+        created_at_utc=NOW,
+    )
+    store = UniverseSnapshotStore(tmp_path)
+    store.append(snapshot)
+    path = tmp_path / f"{snapshot.header.universe_snapshot_id}.json"
+    payload = json.loads(path.read_bytes())
+    payload["header"]["realtime_capability_probes"]["items"][0]["ret_code"] = {
+        "__snapshot_codec_type__": "audit-enum",
+        "name": "UnknownEnum",
+        "value": "OK",
+    }
+    path.write_text(
+        json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SnapshotCorruptError):
+        store.get(snapshot.header.universe_snapshot_id)
+
+
+def test_snapshot_takes_deep_ownership_of_all_generic_audit_values(
+    tmp_path: Path,
+) -> None:
+    evaluations, attempt, _ = _inputs()
+    ret_code_payload = {
+        "a": [{"b": [1, 2]}],
+        "nested": {"value": "original"},
+    }
+    observed_payload = {
+        "observed": [{"values": ["original"]}],
+    }
+    probe = RawApiBatch(
+        endpoint="realtime_quote_capability_probe",
+        batch_index=1,
+        raw_request={
+            "code": "US.AAPL",
+            "subtype": "QUOTE",
+            "subscribe_push": False,
+            "nested": [{"request": [1, 2]}],
+        },
+        raw_response={"rows": [{"response": [3, 4]}]},
+        request_hash=SHA_A,
+        response_hash=SHA_B,
+        ret_code=ret_code_payload,
+        acquisition_status="SUCCESS",
+        acquired_at_utc=NOW,
+    )
+    attempt = replace(attempt, realtime_capability_probes=(probe,))
+    decisions = list(evaluations[0].field_decisions)
+    decisions[4] = replace(
+        decisions[4], evidence_observed_at_utc=observed_payload
+    )
+    evaluations = (replace(evaluations[0], field_decisions=tuple(decisions)),)
+    snapshot = build_snapshot(
+        kind=SnapshotKind.FORMAL,
+        profile=core_v1(),
+        draft=None,
+        gateway_attempt=attempt,
+        evaluations=evaluations,
+        funnel=build_funnel(evaluations),
+        universe_snapshot_id=UUID("26262626-2626-4626-8626-262626262626"),
+        created_at_utc=NOW,
+    )
+    before_hashes = (
+        members_sha256(snapshot.rows),
+        snapshot_content_sha256(snapshot),
+        snapshot_record_sha256(snapshot),
+    )
+
+    ret_code_payload["a"][0]["b"].append(3)
+    ret_code_payload["nested"]["value"] = "changed"
+    observed_payload["observed"][0]["values"].append("changed")
+
+    assert (
+        members_sha256(snapshot.rows),
+        snapshot_content_sha256(snapshot),
+        snapshot_record_sha256(snapshot),
+    ) == before_hashes
+    frozen_ret_code = snapshot.header.realtime_capability_probes[0].ret_code
+    frozen_observed = snapshot.rows[0].field_decisions[4].evidence_observed_at_utc
+    assert tuple(frozen_ret_code["a"][0]["b"]) == (1, 2)
+    assert frozen_ret_code["nested"]["value"] == "original"
+    assert tuple(frozen_observed["observed"][0]["values"]) == ("original",)
+    with pytest.raises(TypeError):
+        frozen_ret_code["nested"]["value"] = "mutation"  # type: ignore[index]
+    with pytest.raises(AttributeError):
+        frozen_ret_code["a"][0]["b"].append(4)
+
+    loaded = UniverseSnapshotStore(tmp_path).append(snapshot)
+    assert snapshot_record_sha256(loaded) == snapshot_record_sha256(snapshot)
+    assert loaded == snapshot
+    loaded_ret_code = loaded.header.realtime_capability_probes[0].ret_code
+    loaded_observed = loaded.rows[0].field_decisions[4].evidence_observed_at_utc
+    with pytest.raises(TypeError):
+        loaded_ret_code["nested"]["value"] = "mutation"  # type: ignore[index]
+    with pytest.raises(AttributeError):
+        loaded_observed["observed"][0]["values"].append("mutation")
+
+
+def test_existing_frozen_audit_list_is_defensively_rebuilt(tmp_path: Path) -> None:
+    evaluations, attempt, funnel = _inputs()
+    caller_nested = {"values": [1, 2]}
+    caller_frozen = snapshots_module._FrozenAuditList((caller_nested,))
+    probe = RawApiBatch(
+        endpoint="realtime_quote_capability_probe",
+        batch_index=1,
+        raw_request={
+            "code": "US.AAPL",
+            "subtype": "QUOTE",
+            "subscribe_push": False,
+        },
+        raw_response={"rows": []},
+        request_hash=SHA_A,
+        response_hash=SHA_B,
+        ret_code=caller_frozen,
+        acquisition_status="SUCCESS",
+        acquired_at_utc=NOW,
+    )
+    attempt = replace(attempt, realtime_capability_probes=(probe,))
+    snapshot = build_snapshot(
+        kind=SnapshotKind.FORMAL,
+        profile=core_v1(),
+        draft=None,
+        gateway_attempt=attempt,
+        evaluations=evaluations,
+        funnel=funnel,  # type: ignore[arg-type]
+        universe_snapshot_id=UUID("28282828-2828-4828-8828-282828282828"),
+        created_at_utc=NOW,
+    )
+    owned = snapshot.header.realtime_capability_probes[0].ret_code
+    before_hashes = (
+        members_sha256(snapshot.rows),
+        snapshot_content_sha256(snapshot),
+        snapshot_record_sha256(snapshot),
+    )
+
+    assert owned is not caller_frozen
+    assert owned[0] is not caller_nested
+    caller_nested["values"].append(3)
+    assert tuple(owned[0]["values"]) == (1, 2)
+    assert (
+        members_sha256(snapshot.rows),
+        snapshot_content_sha256(snapshot),
+        snapshot_record_sha256(snapshot),
+    ) == before_hashes
+    assert UniverseSnapshotStore(tmp_path).append(snapshot) == snapshot
+
+
+@pytest.mark.parametrize(
+    "fields_payload",
+    (
+        {
+            "source_id": "FUTU",
+            "source_locator": "futu://reference",
+            "source_record_sha256": SHA_A,
+            "module": "untrusted.module",
+        },
+        {
+            "source_id": 123,
+            "source_locator": "futu://reference",
+            "source_record_sha256": SHA_A,
+        },
+        {
+            "source_id": "FUTU",
+            "source_locator": "futu://reference",
+        },
+    ),
+)
+def test_evidence_reference_codec_requires_exact_typed_field_schema(
+    fields_payload: dict[str, object]
+) -> None:
+    encoded = {
+        "__snapshot_codec_type__": "audit-dataclass",
+        "name": "EvidenceReference",
+        "fields": fields_payload,
+    }
+    with pytest.raises((SnapshotValidationError, ValueError)):
+        snapshots_module._decode_audit(encoded)

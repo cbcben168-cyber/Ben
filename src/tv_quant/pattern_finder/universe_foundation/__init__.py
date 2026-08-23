@@ -38,6 +38,18 @@ from .futu_adapter import (
     RawApiBatch,
     RawApiPage,
 )
+from .futu_gateway import (
+    ActiveStatusMappingEntry,
+    ApiBatchRecord,
+    FutuUniverseGateway,
+    GatewayAttempt,
+    GatewayPreflight,
+    IdentityLedgerEntry,
+    QualifiedActiveStatusMapping,
+    QualifiedMarketStateConsistencyContract,
+    QualifiedMarketStateRelationship,
+    prerequisites_sha256,
+)
 from .profiles import (
     Exchange,
     ProfileKind,
@@ -70,6 +82,8 @@ from .ui_read_model import (
 
 __all__ = (
     "AppendOnlyClassificationLedger",
+    "ActiveStatusMappingEntry",
+    "ApiBatchRecord",
     "AttemptStatus",
     "CLASSIFICATION_EVIDENCE_CONFLICT",
     "CLASSIFICATION_UNKNOWN",
@@ -83,6 +97,10 @@ __all__ = (
     "FunnelStage",
     "FutuProviderAdapter",
     "FutuProviderError",
+    "FutuUniverseGateway",
+    "GatewayAttempt",
+    "GatewayPreflight",
+    "IdentityLedgerEntry",
     "LiquidityEvidence",
     "ListingHistoryEvidence",
     "ProfileAvailabilityAction",
@@ -91,6 +109,9 @@ __all__ = (
     "ProfileKind",
     "ProfileRegistry",
     "ProfileUiState",
+    "QualifiedActiveStatusMapping",
+    "QualifiedMarketStateConsistencyContract",
+    "QualifiedMarketStateRelationship",
     "RecordState",
     "RatePolicy",
     "RawApiBatch",
@@ -120,6 +141,7 @@ __all__ = (
     "funnel_sha256",
     "load_profile_ui_state",
     "profile_content_sha256",
+    "prerequisites_sha256",
     "quantize_usd_cent",
     "resolve_classification",
     "render_profile_status",

@@ -510,6 +510,187 @@ class FutuProviderAdapter:
         finally:
             context.close()
 
+    def probe_realtime_quote_capability(self, code: str) -> RawApiBatch:
+        """Capture one scope-limited QUOTE capability and cleanup lifecycle."""
+        if type(code) is not str or not code.strip():
+            raise ValueError("code must be a non-empty string")
+        sdk_version = getattr(self._sdk, "__version__", None)
+        subtype = getattr(getattr(self._sdk, "SubType", None), "QUOTE", None)
+        if not isinstance(sdk_version, str) or not sdk_version:
+            raise FutuProviderError("Futu runtime SDK version is unavailable")
+        if subtype is None:
+            raise FutuProviderError("Futu runtime does not expose SubType.QUOTE")
+
+        def raw_record(endpoint: str, operation_request: Mapping[str, Any], result: object) -> Mapping[str, Any]:
+            canonical_request = _canonical_raw(operation_request)
+            if not isinstance(result, tuple) or len(result) < 2:
+                response: Any = {"error": repr(result)}
+                return {
+                    "request": canonical_request,
+                    "ret": None,
+                    "response": response,
+                    "request_hash": _raw_hash(endpoint, "request", canonical_request),
+                    "response_hash": _raw_hash(endpoint, "response", response),
+                }
+            record: dict[str, Any] = {
+                "request": canonical_request,
+                "ret": _canonical_raw(result[0]),
+                "response": _canonical_raw(result[1]),
+            }
+            if len(result) > 2:
+                record["extra"] = _canonical_raw(result[2:])
+            record["request_hash"] = _raw_hash(endpoint, "request", canonical_request)
+            record["response_hash"] = _raw_hash(endpoint, "response", {
+                key: value for key, value in record.items() if key not in {"request_hash", "response_hash"}
+            })
+            return record
+
+        def successful_payload(result: object) -> Mapping[str, Any]:
+            if not isinstance(result, tuple) or len(result) < 2 or result[0] != self._ret_ok():
+                return {}
+            payload = _canonical_raw(result[1])
+            return payload if isinstance(payload, Mapping) else {"data": payload}
+
+        def remaining_quota(record: Mapping[str, Any]) -> int | float | None:
+            response = record.get("response")
+            if not isinstance(response, Mapping):
+                return None
+            value = response.get("remain")
+            return value if type(value) in {int, float} else None
+
+        def contains_code(value: object, target: str) -> bool:
+            if isinstance(value, Mapping):
+                return any(contains_code(item, target) for item in value.values())
+            if isinstance(value, (tuple, list)):
+                return any(contains_code(item, target) for item in value)
+            return value == target
+
+        request = {"code": code.strip(), "subtype": "QUOTE", "subscribe_push": False}
+        context = self._open_context()
+        started_at = _utc(self._clock())
+        close_attempted = False
+        try:
+            global_result = context.get_global_state()
+            global_payload = successful_payload(global_result)
+            opend_version = global_payload.get("server_ver")
+            if not isinstance(opend_version, str) or not opend_version:
+                opend_version = "UNKNOWN"
+
+            try:
+                subscribe_result: object = context.subscribe(
+                    code_list=[code.strip()],
+                    subtype_list=[subtype],
+                    subscribe_push=False,
+                )
+            except Exception as error:
+                subscribe_result = (None, {"error": repr(error)})
+            subscribed_at = _utc(self._clock())
+            subscribe_ok = (
+                isinstance(subscribe_result, tuple)
+                and len(subscribe_result) >= 2
+                and subscribe_result[0] == self._ret_ok()
+            )
+
+            query_after_subscribe: Mapping[str, Any] = {}
+            query_after_unsubscribe: Mapping[str, Any] = {}
+            unsubscribe_record: Mapping[str, Any] = {}
+            capability_verdict = "PROVEN_SCOPE_LIMITED" if subscribe_ok else "UNKNOWN"
+            cleanup_verdict = "UNKNOWN"
+            if subscribe_ok:
+                try:
+                    query_result = context.query_subscription()
+                    query_after_subscribe = raw_record("query_subscription_after_subscribe", {}, query_result)
+                except Exception as error:
+                    query_after_subscribe = raw_record(
+                        "query_subscription_after_subscribe", {}, (None, {"error": repr(error)})
+                    )
+                self._sleep(60.0)
+                try:
+                    unsubscribe_result: object = context.unsubscribe(
+                        code_list=[code.strip()],
+                        subtype_list=[subtype],
+                    )
+                except Exception as error:
+                    unsubscribe_result = (None, {"error": repr(error)})
+                unsubscribe_record = raw_record(
+                    "unsubscribe", {"code_list": [code.strip()], "subtype_list": ["QUOTE"]}, unsubscribe_result
+                )
+                unsubscribe_ok = (
+                    isinstance(unsubscribe_result, tuple)
+                    and len(unsubscribe_result) >= 2
+                    and unsubscribe_result[0] == self._ret_ok()
+                )
+                query_after_unsubscribe_ok = False
+                try:
+                    query_after_unsubscribe_result = context.query_subscription()
+                    query_after_unsubscribe = raw_record(
+                        "query_subscription_after_unsubscribe", {}, query_after_unsubscribe_result
+                    )
+                    query_after_unsubscribe_ok = (
+                        isinstance(query_after_unsubscribe_result, tuple)
+                        and len(query_after_unsubscribe_result) >= 2
+                        and query_after_unsubscribe_result[0] == self._ret_ok()
+                    )
+                except Exception as error:
+                    query_after_unsubscribe = raw_record(
+                        "query_subscription_after_unsubscribe", {}, (None, {"error": repr(error)})
+                    )
+
+                held_seconds = int(max((_utc(self._clock()) - subscribed_at).total_seconds(), 0.0))
+                pre_remaining = remaining_quota(query_after_subscribe)
+                post_remaining = remaining_quota(query_after_unsubscribe)
+                post_response = query_after_unsubscribe.get("response")
+                target_absent = not contains_code(post_response, code.strip())
+                quota_restored = (
+                    pre_remaining is not None
+                    and post_remaining is not None
+                    and post_remaining > pre_remaining
+                )
+                if held_seconds < 60.0:
+                    cleanup_verdict = "DELAYED_RELEASE_RISK"
+                elif unsubscribe_ok and query_after_unsubscribe_ok and target_absent and quota_restored:
+                    cleanup_verdict = "UNSUBSCRIBE_CONFIRMED"
+                else:
+                    cleanup_verdict = "CLEANUP_FAILED"
+            else:
+                held_seconds = int(max((_utc(self._clock()) - subscribed_at).total_seconds(), 0.0))
+
+            close_attempted = True
+            try:
+                close_result = context.close()
+                close_response: Mapping[str, Any] = {"attempted": True, "succeeded": True, "result": _canonical_raw(close_result)}
+            except Exception as error:
+                close_response = {"attempted": True, "succeeded": False, "error": repr(error)}
+                if cleanup_verdict == "UNSUBSCRIBE_CONFIRMED":
+                    cleanup_verdict = "CLEANUP_FAILED"
+            close_record = dict(close_response)
+            close_record["response_hash"] = _raw_hash("close", "response", close_response)
+
+            response = {
+                "provider_sdk_version": sdk_version,
+                "opend_server_version": opend_version,
+                "started_at_utc": started_at.isoformat(),
+                "subscribed_at_utc": subscribed_at.isoformat(),
+                "cleanup_at_utc": _utc(self._clock()).isoformat(),
+                "held_seconds": held_seconds,
+                "subscribe": raw_record("subscribe", request, subscribe_result),
+                "query_after_subscribe": query_after_subscribe,
+                "unsubscribe": unsubscribe_record,
+                "query_after_unsubscribe": query_after_unsubscribe,
+                "close": close_record,
+                "capability_verdict": capability_verdict,
+                "cleanup_verdict": cleanup_verdict,
+            }
+            return self._batch(
+                endpoint="realtime_quote_capability_probe",
+                batch_index=1,
+                request=request,
+                result=(self._ret_ok(), response),
+            )
+        finally:
+            if not close_attempted:
+                context.close()
+
     def _qot_right_handler(self, events: list[Mapping[str, Any]]) -> Any:
         handler_base = getattr(self._sdk, "SysNotifyHandlerBase", None)
         notify_types = getattr(self._sdk, "SysNotifyType", None)

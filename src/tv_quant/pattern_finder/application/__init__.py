@@ -1,0 +1,1 @@
+"""Pattern Finder application services."""

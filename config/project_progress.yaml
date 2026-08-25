@@ -1,0 +1,52 @@
+version: 1
+milestones:
+  - id: M1
+    name: Data and research foundation
+    tasks: [{id: m1-foundation, name: Foundation accepted, status: done}]
+  - id: M2
+    name: Pattern Finder workflow
+    tasks: [{id: m2-workflow, name: Workflow accepted, status: done}]
+  - id: M3A
+    name: Flat Base detector
+    tasks: [{id: m3a-flat-base, name: Flat Base v1 accepted, status: done}]
+  - id: M3B
+    name: Human validation framework
+    tasks: [{id: m3b-review, name: Human review accepted, status: done}]
+  - id: M3C-A
+    name: Universe Snapshot foundation
+    tasks:
+      - {id: m3ca-profile, name: Versioned Profile, status: done}
+      - {id: m3ca-snapshot, name: Immutable Snapshot, status: done}
+      - {id: m3ca-ui, name: Snapshot read model, status: done}
+  - id: M3C-B
+    name: Local application runtime
+    tasks:
+      - {id: m3cb-config, name: Runtime configuration, status: done}
+      - {id: m3cb-launcher, name: Windows launcher, status: done}
+      - {id: m3cb-health, name: Owned service health, status: done}
+      - {id: m3cb-logs, name: Runtime logs, status: done}
+  - id: M3C-C
+    name: SQLite data foundation
+    tasks:
+      - {id: m3cc-migrations, name: Versioned migrations, status: done}
+      - {id: m3cc-repositories, name: Repository layer, status: done}
+      - {id: m3cc-snapshot, name: Snapshot persistence, status: done}
+      - {id: m3cc-legacy, name: Legacy import, status: done}
+  - id: M3C-D
+    name: System dashboard
+    tasks:
+      - {id: m3cd-dashboard, name: Status dashboard, status: done}
+      - {id: m3cd-progress, name: Project progress, status: done}
+      - {id: m3cd-diagnostics, name: Diagnostics, status: done}
+  - id: M3D
+    name: Scan persistence
+    tasks: [{id: m3d-flat-base, name: Persist Flat Base scan batches, status: not_started}]
+  - id: M4
+    name: Research and label engine
+    tasks: [{id: m4-labels, name: Database-backed review metrics, status: not_started}]
+  - id: M5
+    name: Forward return and backtest
+    tasks: [{id: m5-horizons, name: 5D 10D 20D outcomes, status: not_started}]
+  - id: M6
+    name: Pattern Edge Lab
+    tasks: [{id: m6-edge, name: Conditional edge research, status: not_started}]

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import sqlite3
 import sys
@@ -64,6 +65,72 @@ def test_failed_migration_rolls_back_schema_and_version(tmp_path: Path) -> None:
     assert "schema_migrations" not in tables
 
 
+def test_multiple_pending_migrations_commit_as_one_atomic_set(tmp_path: Path) -> None:
+    database = SqliteDatabase(
+        tmp_path / "atomic.db",
+        migrations=(
+            Migration(1, "first", (
+                "CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY, migration_id TEXT NOT NULL UNIQUE, checksum TEXT NOT NULL, applied_at_utc TEXT NOT NULL)",
+                "CREATE TABLE first_table(id INTEGER)",
+            )),
+            Migration(2, "broken", ("CREATE TABLE second_table(id INTEGER)", "INVALID SQL")),
+        ),
+    )
+    with pytest.raises(MigrationError):
+        database.migrate()
+    with database.connect() as connection:
+        tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    assert "schema_migrations" not in tables
+    assert "first_table" not in tables
+    assert "second_table" not in tables
+
+
+def test_checksum_mismatch_blocks_all_pending_migrations(tmp_path: Path) -> None:
+    first = Migration(1, "first", (
+        "CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY, migration_id TEXT NOT NULL UNIQUE, checksum TEXT NOT NULL, applied_at_utc TEXT NOT NULL)",
+        "CREATE TABLE first_table(id INTEGER)",
+    ))
+    path = tmp_path / "checksum.db"
+    SqliteDatabase(path, migrations=(first,)).migrate()
+    with sqlite3.connect(path) as connection:
+        connection.execute("UPDATE schema_migrations SET checksum='tampered' WHERE version=1")
+    database = SqliteDatabase(
+        path,
+        migrations=(first, Migration(2, "second", ("CREATE TABLE second_table(id INTEGER)",))),
+    )
+    with pytest.raises(MigrationError, match="checksum mismatch"):
+        database.migrate()
+    with pytest.raises(MigrationError, match="checksum mismatch"):
+        database.validate_schema()
+    with database.connect() as connection:
+        tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    assert "second_table" not in tables
+
+
+def test_concurrent_migration_attempts_serialize_cleanly(tmp_path: Path) -> None:
+    path = tmp_path / "concurrent.db"
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        versions = tuple(pool.map(lambda _: SqliteDatabase(path).migrate(), range(2)))
+    assert versions == (1, 1)
+    with SqliteDatabase(path).connect() as connection:
+        assert connection.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == 1
+
+
+def test_foreign_keys_reject_orphan_profile_version(tmp_path: Path) -> None:
+    database = SqliteDatabase(tmp_path / "foreign-key.db")
+    database.migrate()
+    with database.connect() as connection, pytest.raises(sqlite3.IntegrityError, match="FOREIGN KEY"):
+        connection.execute(
+            """INSERT INTO profile_versions(
+                profile_version_id,profile_id,version,status,parent_profile_version_id,
+                created_at_utc,published_at_utc,change_note,schema_version,profile_payload_json,
+                content_sha256,filter_content_sha256
+            ) VALUES('MISSING:v1','MISSING',1,'PUBLISHED',NULL,'2026-01-01T00:00:00+00:00',
+                     '2026-01-01T00:00:00+00:00','x','v1','{}',?,?)""",
+            ("0" * 64, "0" * 64),
+        )
+
+
 def test_published_profile_is_idempotent_and_immutable(tmp_path: Path) -> None:
     database = SqliteDatabase(tmp_path / "profiles.db")
     database.migrate()
@@ -74,10 +141,27 @@ def test_published_profile_is_idempotent_and_immutable(tmp_path: Path) -> None:
     repository.put_published(profile)
     loaded = repository.get_published("CORE:v1")
 
-    assert loaded is not None
-    assert loaded["content_sha256"] == profile.content_sha256
+    assert loaded == profile
     with database.connect() as connection, pytest.raises(sqlite3.IntegrityError, match="immutable"):
         connection.execute("UPDATE profile_versions SET change_note='changed' WHERE profile_version_id='CORE:v1'")
+    with database.connect() as connection, pytest.raises(sqlite3.IntegrityError, match="immutable"):
+        connection.execute("UPDATE profile_rules SET rules_json='{}' WHERE profile_version_id='CORE:v1'")
+    with database.connect() as connection, pytest.raises(sqlite3.IntegrityError, match="immutable"):
+        connection.execute("DELETE FROM profile_rules WHERE profile_version_id='CORE:v1'")
+
+
+def test_profile_payload_reconstruction_rejects_hash_tampering(tmp_path: Path) -> None:
+    database = SqliteDatabase(tmp_path / "profile-integrity.db")
+    database.migrate()
+    repository = ProfileRepository(database)
+    repository.put_published(core_v1())
+    with database.connect() as connection:
+        connection.execute("DROP TRIGGER profile_versions_immutable_update")
+        connection.execute(
+            "UPDATE profile_versions SET profile_payload_json=replace(profile_payload_json, 'universe-profile/v1', 'universe-profile/v2') WHERE profile_version_id='CORE:v1'"
+        )
+    with pytest.raises(ValueError, match="canonical profile payload hash"):
+        repository.get_published("CORE:v1")
 
 
 def test_snapshot_round_trip_preserves_rows_hashes_and_s0_s10(tmp_path: Path) -> None:

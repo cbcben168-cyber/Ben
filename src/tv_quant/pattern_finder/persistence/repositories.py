@@ -16,6 +16,10 @@ from tv_quant.pattern_finder.universe_foundation.profiles import (
     UniverseProfile,
     canonical_filter_payload,
 )
+from tv_quant.pattern_finder.universe_foundation.registry import (
+    _profile_from_payload,
+    _profile_payload,
+)
 from tv_quant.pattern_finder.universe_foundation.snapshots import (
     SnapshotConflictError,
     SnapshotNotFoundError,
@@ -67,13 +71,15 @@ class ProfileRepository:
                 connection.execute(
                     """INSERT INTO profile_versions(
                         profile_version_id,profile_id,version,status,parent_profile_version_id,
-                        created_at_utc,published_at_utc,change_note,content_sha256,filter_content_sha256
-                    ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
+                        created_at_utc,published_at_utc,change_note,schema_version,profile_payload_json,
+                        content_sha256,filter_content_sha256
+                    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (
                         profile.profile_version_id, profile.profile_family_id, profile.profile_version,
                         profile.record_state.value, profile.parent_profile_version_id,
                         profile.created_at_utc.isoformat(), profile.published_at_utc.isoformat(),
-                        profile.change_note, profile.content_sha256, profile.filter_content_sha256,
+                        profile.change_note, profile.schema_version, _json(_profile_payload(profile)),
+                        profile.content_sha256, profile.filter_content_sha256,
                     ),
                 )
                 connection.execute(
@@ -85,16 +91,26 @@ class ProfileRepository:
                 connection.execute("ROLLBACK")
                 raise
 
-    def get_published(self, profile_version_id: str) -> dict[str, object] | None:
+    def get_published(self, profile_version_id: str) -> UniverseProfile | None:
         with self.database.connect() as connection:
             row = connection.execute(
-                """SELECT pv.*, p.profile_kind, p.display_name, pr.rules_json
+                """SELECT pv.profile_payload_json, pv.content_sha256,
+                          pv.filter_content_sha256, pr.rules_json
                    FROM profile_versions pv JOIN profiles p ON p.profile_id=pv.profile_id
                    JOIN profile_rules pr ON pr.profile_version_id=pv.profile_version_id
                    WHERE pv.profile_version_id=? AND pv.status='PUBLISHED'""",
                 (profile_version_id,),
             ).fetchone()
-        return None if row is None else dict(row)
+        if row is None:
+            return None
+        profile = _profile_from_payload(json.loads(row["profile_payload_json"]))
+        if profile.content_sha256 != row["content_sha256"]:
+            raise ValueError("profile content hash column mismatch")
+        if profile.filter_content_sha256 != row["filter_content_sha256"]:
+            raise ValueError("profile filter hash column mismatch")
+        if json.loads(row["rules_json"]) != canonical_filter_payload(profile.filters):
+            raise ValueError("profile rules payload mismatch")
+        return profile
 
     def active(self) -> dict[str, object] | None:
         with self.database.connect() as connection:

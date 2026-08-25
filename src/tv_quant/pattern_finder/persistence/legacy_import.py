@@ -6,7 +6,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID
 
-from tv_quant.pattern_finder.universe_foundation.snapshots import UniverseSnapshotStore
+from tv_quant.pattern_finder.universe_foundation.snapshots import (
+    SnapshotNotFoundError,
+    UniverseSnapshotStore,
+)
 
 from .repositories import SnapshotRepository
 
@@ -36,18 +39,17 @@ def migrate_snapshot_store(
             snapshot_id = UUID(path.stem)
             snapshot = source.get(snapshot_id)
             validated += 1
-            if dry_run:
-                continue
             try:
                 existing = target.get(snapshot_id)
-            except Exception as error:
-                if "not found" not in str(error).lower():
-                    raise
+            except SnapshotNotFoundError:
+                existing = None
             else:
                 if existing.header.snapshot_record_sha256 == snapshot.header.snapshot_record_sha256:
                     skipped += 1
                     continue
                 conflicts += 1
+                continue
+            if dry_run:
                 continue
             loaded = target.append(snapshot)
             if (

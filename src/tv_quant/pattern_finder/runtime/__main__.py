@@ -15,8 +15,8 @@ def main() -> int:
     args = parser.parse_args()
     config = RuntimeConfig.from_environment()
     if args.command == "migrate":
-        from tv_quant.pattern_finder.persistence.database import SqliteDatabase
-        print(SqliteDatabase(config.database_path).migrate())
+        from tv_quant.pattern_finder.persistence.bootstrap import initialize_local_foundation
+        print(initialize_local_foundation(config).current_version())
         return 0
     if args.command == "health":
         state = service_health(config)

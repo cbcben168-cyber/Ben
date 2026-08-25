@@ -34,11 +34,11 @@
 
 **Interfaces:** Produces `RuntimeConfig`, `ServiceHealth`, `start_service`, `stop_service`, and CLI commands `migrate`, `health`, `start`, `stop`.
 
-- [ ] Write configuration, owned-process, duplicate-start, unrelated-port, database-health, and launcher contract tests.
-- [ ] Run the focused test and confirm missing modules/contracts fail.
-- [ ] Implement the minimum runtime code and Windows scripts.
-- [ ] Run the focused tests and Pattern Finder regression.
-- [ ] Commit M3C-B independently.
+- [x] Write configuration, owned-process, duplicate-start, unrelated-port, database-health, and launcher contract tests.
+- [x] Run the focused test and confirm missing modules/contracts fail.
+- [x] Implement the minimum runtime code and Windows scripts.
+- [x] Run the focused tests and Pattern Finder regression.
+- [x] Commit M3C-B independently.
 
 ### Task 2: M3C-C SQLite data foundation
 
@@ -51,11 +51,11 @@
 
 **Interfaces:** Produces `SqliteDatabase`, repository classes, `MigrationReport`, and `migrate_snapshot_store`.
 
-- [ ] Write initialization, idempotency, rollback, foreign-key, immutability, duplicate, Snapshot round-trip, S0-S10, Profile version, and legacy dry-run/import tests.
-- [ ] Run focused tests and confirm missing modules/contracts fail.
-- [ ] Implement schema migration v1 and Repository persistence.
-- [ ] Run focused tests, Snapshot regression, and Pattern Finder regression.
-- [ ] Commit M3C-C independently.
+- [x] Write initialization, idempotency, rollback, foreign-key, immutability, duplicate, Snapshot round-trip, S0-S10, Profile version, and legacy dry-run/import tests.
+- [x] Run focused tests and confirm missing modules/contracts fail.
+- [x] Implement schema migration v1 and Repository persistence.
+- [x] Run focused tests, Snapshot regression, and Pattern Finder regression.
+- [x] Commit M3C-C independently.
 
 ### Task 3: M3C-D system dashboard
 
@@ -69,20 +69,20 @@
 
 **Interfaces:** Produces `DashboardState`, `DiagnosticsState`, `ProjectProgress`, and display-only render functions.
 
-- [ ] Write progress computation, real repository status, stale-data, no-secret diagnostics, and Streamlit navigation/render tests.
-- [ ] Run focused tests and confirm missing application/UI contracts fail.
-- [ ] Implement application read models, YAML source-of-truth, and Streamlit pages.
-- [ ] Run focused tests and Pattern Finder regression.
-- [ ] Commit M3C-D independently.
+- [x] Write progress computation, real repository status, stale-data, no-secret diagnostics, and Streamlit navigation/render tests.
+- [x] Run focused tests and confirm missing application/UI contracts fail.
+- [x] Implement application read models, YAML source-of-truth, and Streamlit pages.
+- [x] Run focused tests and Pattern Finder regression.
+- [x] Commit M3C-D independently.
 
 ### Task 4: Acceptance and handoff
 
 **Files:**
 - Modify only files required by defects demonstrated by the acceptance commands.
 
-- [ ] Run `PYTHONPATH=src .venv/bin/python -m pytest tests/pattern_finder -q -p no:cacheprovider`.
-- [ ] Run `PYTHONPATH=src .venv/bin/python -m pytest tests -q -p no:cacheprovider`.
-- [ ] Run `.venv/bin/python -m compileall -q src tests`.
-- [ ] Run `git diff --check` and inspect `git status --short`.
-- [ ] Verify a temporary database migration and Dashboard read model against real repository code.
-- [ ] Report Windows-only manual acceptance separately from automated evidence.
+- [x] Run `PYTHONPATH=src .venv/bin/python -m pytest tests/pattern_finder -q -p no:cacheprovider`.
+- [x] Run `PYTHONPATH=src .venv/bin/python -m pytest tests -q -p no:cacheprovider`.
+- [x] Run `.venv/bin/python -m compileall -q src tests`.
+- [x] Run `git diff --check` and inspect `git status --short`.
+- [x] Verify a temporary database migration and Dashboard read model against real repository code.
+- [x] Report Windows-only manual acceptance separately from automated evidence.

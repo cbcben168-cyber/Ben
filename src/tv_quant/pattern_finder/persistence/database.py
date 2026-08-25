@@ -67,29 +67,63 @@ class SqliteDatabase:
             row = connection.execute("SELECT coalesce(max(version), 0) FROM schema_migrations").fetchone()
             return int(row[0])
 
+    def validate_schema(self) -> int:
+        """Validate the complete migration ledger without changing the database."""
+        with self.connect() as connection:
+            exists = connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='schema_migrations'"
+            ).fetchone()
+            if not exists:
+                raise MigrationError("database schema is not initialized")
+            rows = connection.execute(
+                "SELECT version, migration_id, checksum FROM schema_migrations ORDER BY version"
+            ).fetchall()
+        if len(rows) > len(self.migrations):
+            raise MigrationError("database schema is newer than this application")
+        for index, row in enumerate(rows):
+            expected = self.migrations[index]
+            if row["version"] != expected.version or row["migration_id"] != expected.migration_id:
+                raise MigrationError(f"migration ledger mismatch at version {expected.version}")
+            if row["checksum"] != expected.checksum:
+                raise MigrationError(f"migration checksum mismatch at version {expected.version}")
+        if len(rows) != len(self.migrations):
+            raise MigrationError("database schema version is not current")
+        return len(rows)
+
     def migrate(self) -> int:
         with self.connect() as connection:
-            current = self.current_version()
-            for migration in self.migrations[current:]:
-                try:
-                    connection.execute("BEGIN IMMEDIATE")
+            rows: list[sqlite3.Row] = []
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                exists = connection.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='schema_migrations'"
+                ).fetchone()
+                rows = [] if not exists else connection.execute(
+                    "SELECT version, migration_id, checksum FROM schema_migrations ORDER BY version"
+                ).fetchall()
+                if len(rows) > len(self.migrations):
+                    raise MigrationError("database schema is newer than this application")
+                for index, row in enumerate(rows):
+                    expected = self.migrations[index]
+                    if row["version"] != expected.version or row["migration_id"] != expected.migration_id:
+                        raise MigrationError(f"migration ledger mismatch at version {expected.version}")
+                    if row["checksum"] != expected.checksum:
+                        raise MigrationError(f"migration checksum mismatch at version {expected.version}")
+                for migration in self.migrations[len(rows):]:
                     for statement in migration.statements:
                         connection.execute(statement)
                     connection.execute(
                         "INSERT INTO schema_migrations(version,migration_id,checksum,applied_at_utc) VALUES(?,?,?,?)",
                         (migration.version, migration.migration_id, migration.checksum, datetime.now(UTC).isoformat()),
                     )
-                    connection.execute("COMMIT")
-                except sqlite3.Error as error:
-                    try:
-                        connection.execute("ROLLBACK")
-                    except sqlite3.Error:
-                        pass
-                    raise MigrationError(f"migration {migration.version} failed: {error}") from error
-            rows = connection.execute(
-                "SELECT version, checksum FROM schema_migrations ORDER BY version"
-            ).fetchall()
-            for row, expected in zip(rows, self.migrations, strict=True):
-                if row["version"] != expected.version or row["checksum"] != expected.checksum:
-                    raise MigrationError(f"migration checksum mismatch at version {expected.version}")
-        return self.current_version()
+                connection.execute("COMMIT")
+            except (sqlite3.Error, MigrationError) as error:
+                try:
+                    connection.execute("ROLLBACK")
+                except sqlite3.Error:
+                    pass
+                if isinstance(error, MigrationError):
+                    raise
+                version = self.migrations[len(rows)].version if len(rows) < len(self.migrations) else "validation"
+                raise MigrationError(f"migration {version} failed: {error}") from error
+        return self.latest_version

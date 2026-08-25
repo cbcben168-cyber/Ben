@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
+import ctypes
+from ctypes import wintypes
 import json
 import os
 from pathlib import Path
@@ -95,14 +97,70 @@ def _runtime_log(config: RuntimeConfig, event: str, detail: str) -> None:
         )
 
 
+def _windows_pid_alive(pid: int, *, kernel32: object | None = None) -> bool:
+    """Query process state through a read-only Windows handle."""
+    if pid <= 0:
+        return False
+    api = kernel32 if kernel32 is not None else ctypes.windll.kernel32  # type: ignore[attr-defined]
+    if kernel32 is None:
+        api.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+        api.OpenProcess.restype = wintypes.HANDLE
+        api.GetExitCodeProcess.argtypes = (wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD))
+        api.GetExitCodeProcess.restype = wintypes.BOOL
+        api.CloseHandle.argtypes = (wintypes.HANDLE,)
+        api.CloseHandle.restype = wintypes.BOOL
+    handle = api.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+    if not handle:
+        return False
+    try:
+        exit_code = ctypes.c_ulong()
+        if not api.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+            return False
+        return exit_code.value == 259  # STILL_ACTIVE
+    finally:
+        api.CloseHandle(handle)
+
+
 def _pid_alive(pid: int) -> bool:
     if pid <= 0:
         return False
+    if os.name == "nt":
+        return _windows_pid_alive(pid)
     try:
         os.kill(pid, 0)
     except (OSError, ProcessLookupError):
         return False
     return True
+
+
+def _remove_pid_record(config: RuntimeConfig, expected_pid: int) -> None:
+    record = _read_pid(config.pid_path)
+    if record is not None and record.pid != expected_pid:
+        return
+    try:
+        config.pid_path.unlink()
+    except FileNotFoundError:
+        pass
+
+
+def _terminate_known_child(process: subprocess.Popen[object], *, timeout_seconds: float = 5.0) -> None:
+    """Terminate only the exact child handle returned by this start attempt."""
+    if process.poll() is not None:
+        return
+    if os.name == "nt":
+        subprocess.run(
+            ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+            check=False,
+            capture_output=True,
+        )
+    else:
+        process.terminate()
+    try:
+        process.wait(timeout=timeout_seconds)
+    except subprocess.TimeoutExpired:
+        if os.name != "nt":
+            process.kill()
+            process.wait(timeout=timeout_seconds)
 
 
 def _command_line(pid: int) -> str:
@@ -146,7 +204,10 @@ def _database_health(config: RuntimeConfig) -> tuple[bool, bool]:
 
         database = SqliteDatabase(config.database_path)
         version = database.current_version()
-        return True, version == database.latest_version
+        if version != database.latest_version:
+            return True, False
+        database.validate_schema()
+        return True, True
     except Exception:
         return False, False
 
@@ -177,11 +238,10 @@ def start_service(
     open_browser: Callable[[str], object] = webbrowser.open,
     timeout_seconds: float = 30.0,
 ) -> ServiceHealth:
-    from tv_quant.pattern_finder.persistence.database import SqliteDatabase
+    from tv_quant.pattern_finder.persistence.bootstrap import initialize_local_foundation
     from tv_quant.pattern_finder.persistence.repositories import SystemRepository
 
-    database = SqliteDatabase(config.database_path)
-    database.migrate()
+    database = initialize_local_foundation(config)
     existing = service_health(config)
     url = f"http://{config.host}:{config.port}"
     if existing.healthy:
@@ -202,28 +262,50 @@ def start_service(
     environment["PATTERN_FINDER_REPOSITORY_ROOT"] = str(config.repository_root)
     environment["PATTERN_FINDER_DB_PATH"] = str(config.database_path)
     handle = log_path.open("a", encoding="utf-8")
-    process = subprocess.Popen(command, cwd=config.repository_root, env=environment, stdout=handle, stderr=subprocess.STDOUT)
-    handle.close()
+    try:
+        process = subprocess.Popen(command, cwd=config.repository_root, env=environment, stdout=handle, stderr=subprocess.STDOUT)
+    finally:
+        handle.close()
     record = PidRecord(process.pid, str(config.repository_root), str(config.app_path), config.host, config.port, datetime.now(UTC).isoformat(), run_id)
-    _write_pid(config.pid_path, record)
-    _runtime_log(
-        config,
-        "start",
-        f"run_id={run_id} pid={process.pid} port={config.port} db={config.database_path} schema={database.latest_version}",
-    )
-    SystemRepository(database).start_app_run(run_id, process.pid, config.port)
-    deadline = time.monotonic() + timeout_seconds
-    while time.monotonic() < deadline:
-        if process.poll() is not None:
-            SystemRepository(database).finish_app_run(run_id, "ERROR", "Streamlit exited during startup")
-            raise RuntimeError(f"Streamlit startup failed; inspect {log_path}")
-        state = service_health(config)
-        if state.healthy:
-            open_browser(url)
-            return state
-        time.sleep(0.2)
-    SystemRepository(database).finish_app_run(run_id, "ERROR", "startup health timeout")
-    raise RuntimeError(f"Streamlit health timeout; inspect {log_path}")
+    run_started = False
+    try:
+        _write_pid(config.pid_path, record)
+        _runtime_log(
+            config,
+            "start",
+            f"run_id={run_id} pid={process.pid} port={config.port} db={config.database_path} schema={database.latest_version}",
+        )
+        SystemRepository(database).start_app_run(run_id, process.pid, config.port)
+        run_started = True
+        deadline = time.monotonic() + timeout_seconds
+        while time.monotonic() < deadline:
+            if process.poll() is not None:
+                raise RuntimeError(f"Streamlit startup failed; inspect {log_path}")
+            state = service_health(config)
+            if state.healthy:
+                open_browser(url)
+                return state
+            time.sleep(0.2)
+        raise RuntimeError(f"Streamlit health timeout; inspect {log_path}")
+    except BaseException as error:
+        try:
+            _terminate_known_child(process)
+        except Exception:
+            pass
+        try:
+            _remove_pid_record(config, process.pid)
+        except Exception:
+            pass
+        if run_started:
+            try:
+                SystemRepository(database).finish_app_run(run_id, "ERROR", str(error))
+            except Exception:
+                pass
+        try:
+            _runtime_log(config, "start_error", f"run_id={run_id} pid={process.pid} error={type(error).__name__}")
+        except Exception:
+            pass
+        raise
 
 
 def stop_service(config: RuntimeConfig, *, timeout_seconds: float = 10.0) -> bool:

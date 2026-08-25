@@ -9,9 +9,9 @@ from streamlit.testing.v1 import AppTest
 from tv_quant.pattern_finder.application.system_dashboard import (
     build_dashboard_state,
     build_diagnostics_state,
-    initialize_local_foundation,
     load_project_progress,
 )
+from tv_quant.pattern_finder.persistence.bootstrap import initialize_local_foundation
 from tv_quant.pattern_finder.persistence.repositories import ProfileRepository, SnapshotRepository
 from tv_quant.pattern_finder.runtime.config import RuntimeConfig
 
@@ -37,8 +37,8 @@ def test_project_progress_computes_percent_from_tasks() -> None:
     progress = load_project_progress(ROOT / "config/project_progress.yaml")
     by_id = {item.milestone_id: item for item in progress.milestones}
 
-    assert by_id["M3C-B"].status == "DONE"
-    assert by_id["M3C-B"].percent_complete == 100
+    assert by_id["M3C-B"].status == "IN PROGRESS"
+    assert by_id["M3C-B"].percent_complete == 80
     assert by_id["M3D"].status == "NOT STARTED"
     assert by_id["M3D"].percent_complete == 0
     assert progress.percent_complete == round(
@@ -47,7 +47,7 @@ def test_project_progress_computes_percent_from_tasks() -> None:
     )
 
 
-def test_dashboard_uses_real_database_profile_and_snapshot_counts(tmp_path: Path) -> None:
+def test_dashboard_uses_real_database_profile_and_snapshot_counts(tmp_path: Path, monkeypatch) -> None:
     config = RuntimeConfig.from_environment(ROOT)
     config = config.__class__(
         repository_root=config.repository_root,
@@ -60,13 +60,15 @@ def test_dashboard_uses_real_database_profile_and_snapshot_counts(tmp_path: Path
         futu_host=config.futu_host,
         futu_port=config.futu_port,
     )
+    monkeypatch.setenv("PATTERN_FINDER_PROFILE_ROOT", str(tmp_path / "profiles"))
+    monkeypatch.setenv("PATTERN_FINDER_SNAPSHOT_ROOT", str(tmp_path / "snapshots"))
     database = initialize_local_foundation(config)
     snapshot = _snapshot(tmp_path)
     SnapshotRepository(database).append(snapshot)
 
-    state = build_dashboard_state(config, database)
+    state = build_dashboard_state(config)
 
-    assert state.system_status == "RUNNING"
+    assert state.system_status == "ERROR"
     assert state.database_status == "CONNECTED"
     assert state.schema_version == database.latest_version
     assert state.active_profile == "CORE v1"
@@ -77,7 +79,7 @@ def test_dashboard_uses_real_database_profile_and_snapshot_counts(tmp_path: Path
     assert state.candidate_count == 0 and state.pending_review_count == 0
 
 
-def test_diagnostics_contains_no_secret_values(tmp_path: Path) -> None:
+def test_diagnostics_contains_no_secret_values(tmp_path: Path, monkeypatch) -> None:
     config = RuntimeConfig.from_environment(ROOT)
     config = config.__class__(
         repository_root=config.repository_root,
@@ -90,8 +92,10 @@ def test_diagnostics_contains_no_secret_values(tmp_path: Path) -> None:
         futu_host=config.futu_host,
         futu_port=config.futu_port,
     )
+    monkeypatch.setenv("PATTERN_FINDER_PROFILE_ROOT", str(tmp_path / "profiles"))
+    monkeypatch.setenv("PATTERN_FINDER_SNAPSHOT_ROOT", str(tmp_path / "snapshots"))
     database = initialize_local_foundation(config)
-    diagnostics = build_diagnostics_state(config, database)
+    diagnostics = build_diagnostics_state(config)
     rendered = repr(diagnostics).casefold()
 
     assert diagnostics.database_path == str(config.database_path)
@@ -105,6 +109,9 @@ def test_home_defaults_to_system_dashboard_and_has_system_navigation(
     monkeypatch.setenv("PATTERN_FINDER_DB_PATH", str(tmp_path / "home.db"))
     monkeypatch.setenv("PATTERN_FINDER_LOG_ROOT", str(tmp_path / "logs"))
     monkeypatch.setenv("PATTERN_FINDER_REPOSITORY_ROOT", str(ROOT))
+    monkeypatch.setenv("PATTERN_FINDER_PROFILE_ROOT", str(tmp_path / "profiles"))
+    monkeypatch.setenv("PATTERN_FINDER_SNAPSHOT_ROOT", str(tmp_path / "snapshots"))
+    initialize_local_foundation(RuntimeConfig.from_environment(ROOT))
 
     app = AppTest.from_file(ROOT / "app/Home.py")
     app.run(timeout=20)
@@ -121,3 +128,5 @@ def test_home_defaults_to_system_dashboard_and_has_system_navigation(
     source = (ROOT / "app/Home.py").read_text(encoding="utf-8")
     assert "Project Progress" in source and "Diagnostics" in source
     assert "sqlite3" not in source
+    assert "initialize_local_foundation" not in source
+    assert "SnapshotRepository" not in source

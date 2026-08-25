@@ -6,7 +6,7 @@ from tv_quant.pattern_finder.application.system_dashboard import build_diagnosti
 
 
 st.title("Diagnostics")
-state = build_diagnostics_state(st.session_state["runtime_config"], st.session_state["pattern_finder_database"])
+state = build_diagnostics_state(st.session_state["runtime_config"])
 st.dataframe(
     [
         {"Diagnostic": label, "Value": value}

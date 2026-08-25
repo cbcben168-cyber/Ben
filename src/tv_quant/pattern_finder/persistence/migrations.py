@@ -33,7 +33,8 @@ MIGRATION_1_STATEMENTS = (
         version INTEGER NOT NULL, status TEXT NOT NULL,
         parent_profile_version_id TEXT REFERENCES profile_versions(profile_version_id),
         created_at_utc TEXT NOT NULL, published_at_utc TEXT,
-        change_note TEXT NOT NULL, content_sha256 TEXT NOT NULL,
+        change_note TEXT NOT NULL, schema_version TEXT NOT NULL,
+        profile_payload_json TEXT NOT NULL, content_sha256 TEXT NOT NULL,
         filter_content_sha256 TEXT NOT NULL,
         UNIQUE(profile_id, version)
     )""",
@@ -109,6 +110,12 @@ MIGRATION_1_STATEMENTS = (
         WHEN OLD.status='PUBLISHED' BEGIN SELECT RAISE(ABORT, 'published profile version is immutable'); END""",
     """CREATE TRIGGER profile_versions_immutable_delete BEFORE DELETE ON profile_versions
         WHEN OLD.status='PUBLISHED' BEGIN SELECT RAISE(ABORT, 'published profile version is immutable'); END""",
+    """CREATE TRIGGER profile_rules_immutable_update BEFORE UPDATE ON profile_rules
+        WHEN EXISTS (SELECT 1 FROM profile_versions pv WHERE pv.profile_version_id=OLD.profile_version_id AND pv.status='PUBLISHED')
+        BEGIN SELECT RAISE(ABORT, 'published profile rules are immutable'); END""",
+    """CREATE TRIGGER profile_rules_immutable_delete BEFORE DELETE ON profile_rules
+        WHEN EXISTS (SELECT 1 FROM profile_versions pv WHERE pv.profile_version_id=OLD.profile_version_id AND pv.status='PUBLISHED')
+        BEGIN SELECT RAISE(ABORT, 'published profile rules are immutable'); END""",
     """CREATE TRIGGER universe_snapshots_immutable_update BEFORE UPDATE ON universe_snapshots
         BEGIN SELECT RAISE(ABORT, 'universe snapshot is immutable'); END""",
     """CREATE TRIGGER universe_snapshots_immutable_delete BEFORE DELETE ON universe_snapshots

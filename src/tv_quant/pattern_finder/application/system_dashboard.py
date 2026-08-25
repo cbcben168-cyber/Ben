@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
 import platform
-import os
 import socket
 import subprocess
 from uuid import UUID
@@ -22,11 +21,9 @@ from tv_quant.pattern_finder.persistence.repositories import (
     SnapshotRepository,
     SystemRepository,
 )
-from tv_quant.pattern_finder.runtime.config import RuntimeConfig
+from tv_quant.pattern_finder.runtime.config import RuntimeConfig, profile_root, snapshot_root
 from tv_quant.pattern_finder.runtime.service import service_health
-from tv_quant.pattern_finder.universe_foundation import core_v1
 from tv_quant.pattern_finder.universe_foundation import ProfileRegistry, UniverseSnapshotStore
-from tv_quant.pattern_finder.persistence.legacy_import import migrate_snapshot_store
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,36 +115,24 @@ def load_project_progress(path: str | Path) -> ProjectProgress:
     return ProjectProgress(payload["version"], round(100 * sum(item.done for item in all_tasks) / len(all_tasks)), tuple(milestones))
 
 
-def initialize_local_foundation(config: RuntimeConfig) -> SqliteDatabase:
+def _read_database(config: RuntimeConfig) -> SqliteDatabase:
     database = SqliteDatabase(config.database_path)
-    database.migrate()
-    profiles = ProfileRepository(database)
-    profile_root = Path(
-        os.getenv(
-            "PATTERN_FINDER_PROFILE_ROOT",
-            str(config.repository_root / "data/pattern_finder/universe_profiles"),
-        )
-    )
-    registry = ProfileRegistry(profile_root)
-    registry.bootstrap(core_v1())
-    for profile in registry.list_published():
-        profiles.put_published(profile)
-    snapshot_root = Path(
-        os.getenv(
-            "PATTERN_FINDER_SNAPSHOT_ROOT",
-            str(config.repository_root / "data/pattern_finder/universe_snapshots"),
-        )
-    )
-    if snapshot_root.exists():
-        report = migrate_snapshot_store(
-            UniverseSnapshotStore(snapshot_root), SnapshotRepository(database), dry_run=False
-        )
-        if report.conflicts or report.errors:
-            raise RuntimeError(
-                "legacy Snapshot migration failed: "
-                f"conflicts={report.conflicts}, errors={'; '.join(report.errors)}"
-            )
+    database.validate_schema()
     return database
+
+
+def latest_snapshot_binding(config: RuntimeConfig) -> tuple[UniverseSnapshotStore, str | None]:
+    store = UniverseSnapshotStore(snapshot_root(config))
+    try:
+        database = _read_database(config)
+        latest = SnapshotRepository(database).latest_summary()
+    except Exception:
+        return store, None
+    return store, None if latest is None else str(latest["snapshot_id"])
+
+
+def profile_registry_binding(config: RuntimeConfig) -> ProfileRegistry:
+    return ProfileRegistry(profile_root(config))
 
 
 def _futu_available(config: RuntimeConfig) -> bool:
@@ -158,8 +143,9 @@ def _futu_available(config: RuntimeConfig) -> bool:
         return False
 
 
-def build_dashboard_state(config: RuntimeConfig, database: SqliteDatabase) -> DashboardState:
+def build_dashboard_state(config: RuntimeConfig) -> DashboardState:
     try:
+        database = _read_database(config)
         schema = database.current_version()
         database_ok = schema == database.latest_version
         active = ProfileRepository(database).active()
@@ -183,8 +169,9 @@ def build_dashboard_state(config: RuntimeConfig, database: SqliteDatabase) -> Da
         freshness = "CURRENT" if age_days <= 3 else "STALE"
     last_scan = "-" if scan is None else f"{scan['pattern_type']} {scan.get('completed_at_utc') or scan['started_at_utc']}"
     last_backtest = "-" if backtest is None else str(backtest["created_at_utc"])
+    health = service_health(config)
     return DashboardState(
-        "RUNNING" if database_ok else "ERROR", "CONNECTED" if database_ok else "ERROR", schema,
+        "RUNNING" if health.healthy else "ERROR", "CONNECTED" if database_ok else "ERROR", schema,
         "AVAILABLE" if _futu_available(config) else "UNAVAILABLE", profile,
         snapshot_id, snapshot_time, members, fails, quarantines, last_scan,
         candidate_count, pending, last_backtest, freshness,
@@ -201,7 +188,8 @@ def _git_commit(root: Path) -> str:
         return "UNKNOWN"
 
 
-def build_diagnostics_state(config: RuntimeConfig, database: SqliteDatabase) -> DiagnosticsState:
+def build_diagnostics_state(config: RuntimeConfig) -> DiagnosticsState:
+    database = _read_database(config)
     system = SystemRepository(database)
     run = system.latest_run()
     migration = system.latest_migration()
@@ -214,9 +202,11 @@ def build_diagnostics_state(config: RuntimeConfig, database: SqliteDatabase) -> 
             integrity = f"VALID {snapshot.header.snapshot_record_sha256}"
         except Exception as error:
             integrity = f"ERROR {type(error).__name__}"
-    if run and run.get("started_at_utc"):
+    if health.healthy and run and run.get("started_at_utc") and run.get("status") == "RUNNING":
         started = datetime.fromisoformat(str(run["started_at_utc"]))
-        uptime = str(datetime.now(UTC) - started).split(".")[0] if run.get("status") == "RUNNING" else "STOPPED"
+        uptime = str(datetime.now(UTC) - started).split(".")[0]
+    elif run:
+        uptime = "STOPPED"
     else:
         uptime = "UNKNOWN"
     return DiagnosticsState(

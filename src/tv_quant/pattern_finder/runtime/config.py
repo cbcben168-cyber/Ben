@@ -12,6 +12,22 @@ def _resolved_path(root: Path, value: str | None, default: str) -> Path:
     return (path if path.is_absolute() else root / path).resolve()
 
 
+def profile_root(config: "RuntimeConfig") -> Path:
+    return _resolved_path(
+        config.repository_root,
+        os.getenv("PATTERN_FINDER_PROFILE_ROOT"),
+        "data/pattern_finder/universe_profiles",
+    )
+
+
+def snapshot_root(config: "RuntimeConfig") -> Path:
+    return _resolved_path(
+        config.repository_root,
+        os.getenv("PATTERN_FINDER_SNAPSHOT_ROOT"),
+        "data/pattern_finder/universe_snapshots",
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class RuntimeConfig:
     repository_root: Path
@@ -31,7 +47,7 @@ class RuntimeConfig:
         if not (root / "app/Home.py").is_file() or not (root / "src/tv_quant").is_dir():
             raise ValueError(f"repository root is invalid: {root}")
         host = os.getenv("PATTERN_FINDER_HOST", "127.0.0.1").strip()
-        if host not in {"127.0.0.1", "localhost", "::1"}:
+        if host not in {"127.0.0.1", "localhost"}:
             raise ValueError("PATTERN_FINDER_HOST must be a loopback address")
         try:
             port = int(os.getenv("PATTERN_FINDER_PORT", "8501"))

@@ -1,36 +1,17 @@
-from pathlib import Path
-import os
-
 import streamlit as st
 
 from tv_quant.pattern_finder.application.system_dashboard import (
     build_dashboard_state,
-    initialize_local_foundation,
+    latest_snapshot_binding,
+    profile_registry_binding,
 )
 from tv_quant.pattern_finder.runtime.config import RuntimeConfig
-from tv_quant.pattern_finder.universe_foundation import (
-    ProfileRegistry,
-    UniverseSnapshotStore,
-    core_v1,
-)
-from tv_quant.pattern_finder.persistence.repositories import SnapshotRepository
-
-
-def _initialized_profile_registry() -> ProfileRegistry:
-    registry = ProfileRegistry(
-        Path(__file__).resolve().parents[1] / "data" / "pattern_finder" / "universe_profiles"
-    )
-    registry.bootstrap(core_v1())
-    return registry
 
 
 def _home_page() -> None:
     st.title("形态发现器")
     st.caption("Pattern Research System｜本地运行、持久化与研究状态总览")
-    state = build_dashboard_state(
-        st.session_state["runtime_config"],
-        st.session_state["pattern_finder_database"],
-    )
+    state = build_dashboard_state(st.session_state["runtime_config"])
     columns = st.columns(4)
     columns[0].metric("System", state.system_status)
     columns[1].metric("Database", state.database_status)
@@ -62,25 +43,17 @@ st.set_page_config(page_title="Pattern Research System", page_icon="📊", layou
 
 if "runtime_config" not in st.session_state:
     st.session_state["runtime_config"] = RuntimeConfig.from_environment()
-if "pattern_finder_database" not in st.session_state:
-    st.session_state["pattern_finder_database"] = initialize_local_foundation(
+if "universe_snapshot_store" not in st.session_state:
+    store, snapshot_id = latest_snapshot_binding(
         st.session_state["runtime_config"]
     )
-if "universe_snapshot_store" not in st.session_state:
-    snapshot_root = Path(
-        os.getenv(
-            "PATTERN_FINDER_SNAPSHOT_ROOT",
-            str(st.session_state["runtime_config"].repository_root / "data/pattern_finder/universe_snapshots"),
-        )
-    )
-    st.session_state["universe_snapshot_store"] = UniverseSnapshotStore(snapshot_root)
-    latest_snapshot = SnapshotRepository(
-        st.session_state["pattern_finder_database"]
-    ).latest_summary()
-    if latest_snapshot is not None:
-        st.session_state["universe_snapshot_id"] = latest_snapshot["snapshot_id"]
+    st.session_state["universe_snapshot_store"] = store
+    if snapshot_id is not None:
+        st.session_state["universe_snapshot_id"] = snapshot_id
 if "universe_profile_registry" not in st.session_state:
-    st.session_state["universe_profile_registry"] = _initialized_profile_registry()
+    st.session_state["universe_profile_registry"] = profile_registry_binding(
+        st.session_state["runtime_config"]
+    )
 
 
 navigation = st.navigation(

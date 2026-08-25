@@ -97,6 +97,19 @@ def _runtime_log(config: RuntimeConfig, event: str, detail: str) -> None:
         )
 
 
+def _git_commit(repository_root: Path) -> str:
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=repository_root,
+            text=True,
+            timeout=3,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+    except (OSError, subprocess.SubprocessError):
+        return "UNKNOWN"
+
+
 def _windows_pid_alive(pid: int, *, kernel32: object | None = None) -> bool:
     """Query process state through a read-only Windows handle."""
     if pid <= 0:
@@ -251,6 +264,8 @@ def start_service(
         raise RuntimeError(existing.detail)
     config.log_root.mkdir(parents=True, exist_ok=True)
     run_id = str(uuid4())
+    app_version = "pattern-finder-local/v1"
+    git_commit = _git_commit(config.repository_root)
     log_path = config.log_root / f"runtime-{datetime.now(UTC):%Y%m%d}.log"
     command = [
         sys.executable, "-m", "streamlit", "run", str(config.app_path),
@@ -273,9 +288,16 @@ def start_service(
         _runtime_log(
             config,
             "start",
-            f"run_id={run_id} pid={process.pid} port={config.port} db={config.database_path} schema={database.latest_version}",
+            f"run_id={run_id} pid={process.pid} port={config.port} app_version={app_version} "
+            f"git_commit={git_commit} db={config.database_path} schema={database.latest_version}",
         )
-        SystemRepository(database).start_app_run(run_id, process.pid, config.port)
+        SystemRepository(database).start_app_run(
+            run_id,
+            process.pid,
+            config.port,
+            app_version=app_version,
+            git_commit=git_commit,
+        )
         run_started = True
         deadline = time.monotonic() + timeout_seconds
         while time.monotonic() < deadline:

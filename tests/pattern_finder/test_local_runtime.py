@@ -155,6 +155,7 @@ def test_startup_timeout_terminates_known_child_and_removes_pid(
     process = Process()
     monkeypatch.setenv("PATTERN_FINDER_PROFILE_ROOT", str(tmp_path / "profiles"))
     monkeypatch.setenv("PATTERN_FINDER_SNAPSHOT_ROOT", str(tmp_path / "snapshots"))
+    monkeypatch.setattr("tv_quant.pattern_finder.runtime.service._git_commit", lambda _root: "test")
     monkeypatch.setattr("tv_quant.pattern_finder.runtime.service.subprocess.Popen", lambda *a, **k: process)
     monkeypatch.setattr(
         "tv_quant.pattern_finder.runtime.service.service_health",

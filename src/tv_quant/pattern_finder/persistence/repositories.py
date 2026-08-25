@@ -234,11 +234,24 @@ class SystemRepository:
     def __init__(self, database: SqliteDatabase) -> None:
         self.database = database
 
-    def start_app_run(self, run_id: str, pid: int, port: int) -> None:
+    def start_app_run(
+        self,
+        run_id: str,
+        pid: int,
+        port: int,
+        *,
+        app_version: str | None = None,
+        git_commit: str | None = None,
+    ) -> None:
         with self.database.connect() as connection:
             connection.execute(
-                "INSERT INTO app_runs(run_id,started_at_utc,status,pid,port) VALUES(?,?,?,?,?)",
-                (run_id, datetime.now(UTC).isoformat(), "RUNNING", pid, port),
+                """INSERT INTO app_runs(
+                    run_id,started_at_utc,status,pid,port,app_version,git_commit
+                ) VALUES(?,?,?,?,?,?,?)""",
+                (
+                    run_id, datetime.now(UTC).isoformat(), "RUNNING", pid, port,
+                    app_version, git_commit,
+                ),
             )
 
     def finish_app_run(self, run_id: str, status: str, error: str | None) -> None:

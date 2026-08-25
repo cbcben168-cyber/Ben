@@ -32,9 +32,16 @@ DEFAULT_MIGRATIONS = (Migration(1, "0001_pattern_finder_foundation", MIGRATION_1
 
 
 class SqliteDatabase:
-    def __init__(self, path: str | Path, *, migrations: Sequence[Migration] = DEFAULT_MIGRATIONS) -> None:
+    def __init__(
+        self,
+        path: str | Path,
+        *,
+        migrations: Sequence[Migration] = DEFAULT_MIGRATIONS,
+        read_only: bool = False,
+    ) -> None:
         self.path = Path(path).resolve()
         self.migrations = tuple(migrations)
+        self.read_only = read_only
         versions = tuple(item.version for item in self.migrations)
         if versions != tuple(range(1, len(versions) + 1)):
             raise ValueError("migrations must be contiguous from version 1")
@@ -45,11 +52,21 @@ class SqliteDatabase:
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        connection = sqlite3.connect(self.path, timeout=10, isolation_level=None)
+        if self.read_only:
+            connection = sqlite3.connect(
+                f"{self.path.as_uri()}?mode=ro",
+                timeout=10,
+                isolation_level=None,
+                uri=True,
+            )
+        else:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            connection = sqlite3.connect(self.path, timeout=10, isolation_level=None)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
         connection.execute("PRAGMA busy_timeout = 5000")
+        if self.read_only:
+            connection.execute("PRAGMA query_only = ON")
         try:
             yield connection
         finally:
@@ -91,6 +108,8 @@ class SqliteDatabase:
         return len(rows)
 
     def migrate(self) -> int:
+        if self.read_only:
+            raise MigrationError("read-only database cannot run migrations")
         with self.connect() as connection:
             rows: list[sqlite3.Row] = []
             try:

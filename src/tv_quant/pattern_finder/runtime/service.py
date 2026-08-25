@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 import ctypes
@@ -13,7 +14,7 @@ import socket
 import subprocess
 import sys
 import time
-from typing import Callable
+from typing import Callable, Iterator
 from urllib.request import urlopen
 from uuid import uuid4
 import webbrowser
@@ -156,11 +157,17 @@ def _remove_pid_record(config: RuntimeConfig, expected_pid: int) -> None:
         pass
 
 
-def _terminate_known_child(process: subprocess.Popen[object], *, timeout_seconds: float = 5.0) -> None:
+def _terminate_known_child(
+    process: subprocess.Popen[object],
+    *,
+    timeout_seconds: float = 5.0,
+    windows: bool | None = None,
+) -> None:
     """Terminate only the exact child handle returned by this start attempt."""
     if process.poll() is not None:
         return
-    if os.name == "nt":
+    is_windows = os.name == "nt" if windows is None else windows
+    if is_windows:
         subprocess.run(
             ["taskkill", "/PID", str(process.pid), "/T", "/F"],
             check=False,
@@ -171,9 +178,65 @@ def _terminate_known_child(process: subprocess.Popen[object], *, timeout_seconds
     try:
         process.wait(timeout=timeout_seconds)
     except subprocess.TimeoutExpired:
-        if os.name != "nt":
+        if is_windows:
+            process.terminate()
+            try:
+                process.wait(timeout=timeout_seconds)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=timeout_seconds)
+        else:
             process.kill()
             process.wait(timeout=timeout_seconds)
+    if process.poll() is None:
+        raise RuntimeError("spawned Streamlit child is still alive after cleanup")
+
+
+@contextmanager
+def _exclusive_start_lock(config: RuntimeConfig, *, timeout_seconds: float) -> Iterator[None]:
+    """Serialize launch attempts across Windows processes and local threads."""
+    config.log_root.mkdir(parents=True, exist_ok=True)
+    path = config.log_root / "pattern_finder.start.lock"
+    token = str(uuid4())
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        try:
+            descriptor = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            owner_pid = -1
+            try:
+                owner = json.loads(path.read_text(encoding="utf-8"))
+                owner_pid = int(owner["pid"])
+            except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
+                pass
+            try:
+                malformed_lock_is_old = owner_pid <= 0 and time.time() - path.stat().st_mtime > 120
+            except FileNotFoundError:
+                continue
+            if (owner_pid > 0 and not _pid_alive(owner_pid)) or malformed_lock_is_old:
+                try:
+                    path.unlink()
+                except FileNotFoundError:
+                    pass
+                continue
+            if time.monotonic() >= deadline:
+                raise RuntimeError("timed out waiting for another Pattern Finder start attempt")
+            time.sleep(0.1)
+            continue
+        try:
+            os.write(descriptor, json.dumps({"pid": os.getpid(), "token": token}).encode("utf-8"))
+        finally:
+            os.close(descriptor)
+        break
+    try:
+        yield
+    finally:
+        try:
+            owner = json.loads(path.read_text(encoding="utf-8"))
+            if owner.get("token") == token:
+                path.unlink()
+        except (FileNotFoundError, OSError, ValueError, TypeError, json.JSONDecodeError):
+            pass
 
 
 def _command_line(pid: int) -> str:
@@ -251,6 +314,20 @@ def start_service(
     open_browser: Callable[[str], object] = webbrowser.open,
     timeout_seconds: float = 30.0,
 ) -> ServiceHealth:
+    with _exclusive_start_lock(config, timeout_seconds=timeout_seconds + 5.0):
+        return _start_service_locked(
+            config,
+            open_browser=open_browser,
+            timeout_seconds=timeout_seconds,
+        )
+
+
+def _start_service_locked(
+    config: RuntimeConfig,
+    *,
+    open_browser: Callable[[str], object],
+    timeout_seconds: float,
+) -> ServiceHealth:
     from tv_quant.pattern_finder.persistence.bootstrap import initialize_local_foundation
     from tv_quant.pattern_finder.persistence.repositories import SystemRepository
 
@@ -310,23 +387,30 @@ def start_service(
             time.sleep(0.2)
         raise RuntimeError(f"Streamlit health timeout; inspect {log_path}")
     except BaseException as error:
+        cleanup_error: Exception | None = None
         try:
             _terminate_known_child(process)
-        except Exception:
-            pass
-        try:
-            _remove_pid_record(config, process.pid)
-        except Exception:
-            pass
+        except Exception as termination_error:
+            cleanup_error = termination_error
+        if cleanup_error is None:
+            try:
+                _remove_pid_record(config, process.pid)
+            except Exception as removal_error:
+                cleanup_error = removal_error
         if run_started:
             try:
-                SystemRepository(database).finish_app_run(run_id, "ERROR", str(error))
+                detail = str(error) if cleanup_error is None else f"{error}; cleanup failed: {cleanup_error}"
+                SystemRepository(database).finish_app_run(run_id, "ERROR", detail)
             except Exception:
                 pass
         try:
             _runtime_log(config, "start_error", f"run_id={run_id} pid={process.pid} error={type(error).__name__}")
         except Exception:
             pass
+        if cleanup_error is not None:
+            raise RuntimeError(
+                "Streamlit startup failed and child cleanup failed; PID record preserved"
+            ) from cleanup_error
         raise
 
 

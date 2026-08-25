@@ -116,7 +116,7 @@ def load_project_progress(path: str | Path) -> ProjectProgress:
 
 
 def _read_database(config: RuntimeConfig) -> SqliteDatabase:
-    database = SqliteDatabase(config.database_path)
+    database = SqliteDatabase(config.database_path, read_only=True)
     database.validate_schema()
     return database
 
@@ -189,7 +189,17 @@ def _git_commit(root: Path) -> str:
 
 
 def build_diagnostics_state(config: RuntimeConfig) -> DiagnosticsState:
-    database = _read_database(config)
+    try:
+        database = _read_database(config)
+    except Exception as error:
+        health = service_health(config)
+        return DiagnosticsState(
+            "pattern-finder-local/v1", _git_commit(config.repository_root), platform.python_version(),
+            str(config.database_path), 0, health.pid, config.port, "UNKNOWN",
+            "AVAILABLE" if _futu_available(config) else "UNAVAILABLE",
+            str(config.repository_root / "data"), str(config.log_root),
+            f"{type(error).__name__}: {error}", None, "UNAVAILABLE",
+        )
     system = SystemRepository(database)
     run = system.latest_run()
     migration = system.latest_migration()

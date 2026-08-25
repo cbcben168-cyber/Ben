@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
+import subprocess
+import threading
+import time
 
 import pytest
 
@@ -9,6 +13,7 @@ from tv_quant.pattern_finder.runtime.service import (
     PidRecord,
     ServiceHealth,
     _windows_pid_alive,
+    _terminate_known_child,
     pid_record_matches,
     start_service,
 )
@@ -141,15 +146,17 @@ def test_startup_timeout_terminates_known_child_and_removes_pid(
         pid = 43210
         terminated = False
         waited = False
+        exited = False
 
         def poll(self):
-            return None
+            return 0 if self.exited else None
 
         def terminate(self) -> None:
             self.terminated = True
 
         def wait(self, timeout: float) -> int:
             self.waited = True
+            self.exited = True
             return 0
 
     process = Process()
@@ -167,3 +174,132 @@ def test_startup_timeout_terminates_known_child_and_removes_pid(
 
     assert process.terminated and process.waited
     assert not config.pid_path.exists()
+
+
+def test_windows_cleanup_falls_back_to_retained_process_handle(monkeypatch: pytest.MonkeyPatch) -> None:
+    class Process:
+        pid = 54321
+        exited = False
+        terminate_called = False
+        waits = 0
+
+        def poll(self):
+            return 0 if self.exited else None
+
+        def wait(self, timeout: float) -> int:
+            self.waits += 1
+            if self.waits == 1:
+                raise subprocess.TimeoutExpired("streamlit", timeout)
+            self.exited = True
+            return 0
+
+        def terminate(self) -> None:
+            self.terminate_called = True
+
+    process = Process()
+    monkeypatch.setattr(
+        "tv_quant.pattern_finder.runtime.service.subprocess.run",
+        lambda *a, **k: subprocess.CompletedProcess(a, 1),
+    )
+
+    _terminate_known_child(process, windows=True, timeout_seconds=0.01)
+
+    assert process.terminate_called
+    assert process.exited
+
+
+def test_concurrent_starts_spawn_only_one_service(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    base = RuntimeConfig.from_environment(ROOT)
+    config = base.__class__(
+        repository_root=base.repository_root,
+        database_path=tmp_path / "runtime.db",
+        log_root=tmp_path / "logs",
+        host=base.host,
+        port=18652,
+        app_path=base.app_path,
+        pid_path=tmp_path / "logs/pid.json",
+        futu_host=base.futu_host,
+        futu_port=base.futu_port,
+    )
+    calls = 0
+    serving = False
+    guard = threading.Lock()
+
+    class Process:
+        pid = 65432
+
+        def poll(self):
+            return None
+
+    process = Process()
+
+    def popen(*args, **kwargs):
+        nonlocal calls, serving
+        with guard:
+            calls += 1
+            first = calls == 1
+        if first:
+            time.sleep(0.05)
+            with guard:
+                serving = True
+        return process
+
+    def health(_config):
+        with guard:
+            running = serving
+        return ServiceHealth(running, running, running, running, running, True, True, process.pid if running else None, "running" if running else "stopped")
+
+    monkeypatch.setenv("PATTERN_FINDER_PROFILE_ROOT", str(tmp_path / "profiles"))
+    monkeypatch.setenv("PATTERN_FINDER_SNAPSHOT_ROOT", str(tmp_path / "snapshots"))
+    monkeypatch.setattr("tv_quant.pattern_finder.runtime.service._git_commit", lambda _root: "test")
+    monkeypatch.setattr("tv_quant.pattern_finder.runtime.service.subprocess.Popen", popen)
+    monkeypatch.setattr("tv_quant.pattern_finder.runtime.service.service_health", health)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        states = tuple(pool.map(lambda _: start_service(config, open_browser=lambda _url: None), range(2)))
+
+    assert calls == 1
+    assert all(state.healthy for state in states)
+
+
+def test_failed_child_cleanup_preserves_pid_ownership_record(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    base = RuntimeConfig.from_environment(ROOT)
+    config = base.__class__(
+        repository_root=base.repository_root,
+        database_path=tmp_path / "runtime.db",
+        log_root=tmp_path / "logs",
+        host=base.host,
+        port=18653,
+        app_path=base.app_path,
+        pid_path=tmp_path / "logs/pid.json",
+        futu_host=base.futu_host,
+        futu_port=base.futu_port,
+    )
+
+    class Process:
+        pid = 76543
+
+        def poll(self):
+            return None
+
+    monkeypatch.setenv("PATTERN_FINDER_PROFILE_ROOT", str(tmp_path / "profiles"))
+    monkeypatch.setenv("PATTERN_FINDER_SNAPSHOT_ROOT", str(tmp_path / "snapshots"))
+    monkeypatch.setattr("tv_quant.pattern_finder.runtime.service._git_commit", lambda _root: "test")
+    monkeypatch.setattr("tv_quant.pattern_finder.runtime.service.subprocess.Popen", lambda *a, **k: Process())
+    monkeypatch.setattr(
+        "tv_quant.pattern_finder.runtime.service.service_health",
+        lambda _config: ServiceHealth(False, False, False, False, False, True, True, None, "stopped"),
+    )
+    monkeypatch.setattr(
+        "tv_quant.pattern_finder.runtime.service._terminate_known_child",
+        lambda _process: (_ for _ in ()).throw(RuntimeError("still alive")),
+    )
+
+    with pytest.raises(RuntimeError, match="PID record preserved"):
+        start_service(config, timeout_seconds=0)
+
+    assert config.pid_path.exists()

@@ -130,3 +130,27 @@ def test_home_defaults_to_system_dashboard_and_has_system_navigation(
     assert "sqlite3" not in source
     assert "initialize_local_foundation" not in source
     assert "SnapshotRepository" not in source
+
+
+def test_read_only_dashboard_does_not_create_missing_database(tmp_path: Path) -> None:
+    base = RuntimeConfig.from_environment(ROOT)
+    config = base.__class__(
+        repository_root=base.repository_root,
+        database_path=tmp_path / "missing" / "dashboard.db",
+        log_root=tmp_path / "logs",
+        host=base.host,
+        port=base.port,
+        app_path=base.app_path,
+        pid_path=tmp_path / "logs/pid.json",
+        futu_host=base.futu_host,
+        futu_port=base.futu_port,
+    )
+
+    dashboard = build_dashboard_state(config)
+    diagnostics = build_diagnostics_state(config)
+
+    assert dashboard.database_status == "ERROR"
+    assert diagnostics.schema_version == 0
+    assert diagnostics.latest_error is not None
+    assert not config.database_path.exists()
+    assert not config.database_path.parent.exists()

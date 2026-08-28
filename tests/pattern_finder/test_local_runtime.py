@@ -96,9 +96,15 @@ def test_windows_launchers_delegate_to_owned_runtime_cli() -> None:
 
     assert "tv_quant.pattern_finder.runtime start" in start
     assert "tv_quant.pattern_finder.runtime stop" in stop
-    assert "K线形态研究系统.cmd" in install
+    assert "@(0x004B,0x7EBF,0x5F62,0x6001,0x7814,0x7A76,0x7CFB,0x7EDF)" in install
     assert "Desktop" in install
     assert "streamlit run" not in install
+
+
+def test_windows_launcher_installer_is_cmd_codepage_safe() -> None:
+    installer = (ROOT / "scripts/install_desktop_launcher.cmd").read_bytes()
+
+    installer.decode("ascii")
 
 
 def test_windows_pid_probe_uses_query_handle_without_signalling() -> None:

@@ -192,6 +192,50 @@ def _terminate_known_child(
         raise RuntimeError("spawned Streamlit child is still alive after cleanup")
 
 
+def _wait_for_pid_exit(pid: int, timeout_seconds: float) -> bool:
+    deadline = time.monotonic() + timeout_seconds
+    while _pid_alive(pid):
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.1)
+    return True
+
+
+def _terminate_owned_process_tree(
+    pid: int,
+    *,
+    timeout_seconds: float = 10.0,
+    windows: bool | None = None,
+) -> None:
+    """Stop a process tree only after the caller has verified repository ownership."""
+    is_windows = os.name == "nt" if windows is None else windows
+    if not is_windows:
+        os.kill(pid, 15)
+        if not _wait_for_pid_exit(pid, timeout_seconds):
+            raise RuntimeError("owned process did not stop before timeout")
+        return
+
+    graceful = subprocess.run(
+        ["taskkill", "/PID", str(pid), "/T"],
+        check=False,
+        capture_output=True,
+    )
+    if graceful.returncode == 0 and _wait_for_pid_exit(pid, timeout_seconds):
+        return
+
+    forced = subprocess.run(
+        ["taskkill", "/PID", str(pid), "/T", "/F"],
+        check=False,
+        capture_output=True,
+    )
+    if _wait_for_pid_exit(pid, timeout_seconds):
+        return
+    raise RuntimeError(
+        "owned process did not stop before timeout "
+        f"(taskkill={graceful.returncode}, forced={forced.returncode})"
+    )
+
+
 @contextmanager
 def _exclusive_start_lock(config: RuntimeConfig, *, timeout_seconds: float) -> Iterator[None]:
     """Serialize launch attempts across Windows processes and local threads."""
@@ -420,15 +464,7 @@ def stop_service(config: RuntimeConfig, *, timeout_seconds: float = 10.0) -> boo
         return False
     if not pid_record_matches(record, config, _command_line(record.pid)):
         raise RuntimeError("refusing to stop a process not owned by this repository")
-    if os.name == "nt":
-        subprocess.run(["taskkill", "/PID", str(record.pid), "/T"], check=False, capture_output=True)
-    else:
-        os.kill(record.pid, 15)
-    deadline = time.monotonic() + timeout_seconds
-    while _pid_alive(record.pid) and time.monotonic() < deadline:
-        time.sleep(0.1)
-    if _pid_alive(record.pid):
-        raise RuntimeError("owned process did not stop before timeout")
+    _terminate_owned_process_tree(record.pid, timeout_seconds=timeout_seconds)
     try:
         config.pid_path.unlink()
     except FileNotFoundError:

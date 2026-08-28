@@ -218,6 +218,34 @@ def test_windows_cleanup_falls_back_to_retained_process_handle(monkeypatch: pyte
     assert process.exited
 
 
+def test_windows_stop_forces_verified_tree_when_taskkill_requires_force(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tv_quant.pattern_finder.runtime import service
+
+    calls: list[list[str]] = []
+    results = iter(
+        (
+            subprocess.CompletedProcess([], 128, stdout=b"", stderr=b"force required"),
+            subprocess.CompletedProcess([], 0, stdout=b"", stderr=b""),
+        )
+    )
+
+    def run(command, **_kwargs):
+        calls.append(command)
+        return next(results)
+
+    monkeypatch.setattr(service.subprocess, "run", run)
+    monkeypatch.setattr(service, "_pid_alive", lambda _pid: False)
+
+    service._terminate_owned_process_tree(40472, windows=True, timeout_seconds=0)
+
+    assert calls == [
+        ["taskkill", "/PID", "40472", "/T"],
+        ["taskkill", "/PID", "40472", "/T", "/F"],
+    ]
+
+
 def test_concurrent_starts_spawn_only_one_service(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

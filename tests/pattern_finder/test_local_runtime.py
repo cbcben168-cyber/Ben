@@ -165,6 +165,10 @@ def test_startup_timeout_terminates_known_child_and_removes_pid(
     monkeypatch.setattr("tv_quant.pattern_finder.runtime.service._git_commit", lambda _root: "test")
     monkeypatch.setattr("tv_quant.pattern_finder.runtime.service.subprocess.Popen", lambda *a, **k: process)
     monkeypatch.setattr(
+        "tv_quant.pattern_finder.runtime.service.subprocess.run",
+        lambda *a, **k: subprocess.CompletedProcess(a, 0),
+    )
+    monkeypatch.setattr(
         "tv_quant.pattern_finder.runtime.service.service_health",
         lambda _config: ServiceHealth(False, False, False, False, False, True, True, None, "stopped"),
     )
@@ -172,7 +176,7 @@ def test_startup_timeout_terminates_known_child_and_removes_pid(
     with pytest.raises(RuntimeError, match="health timeout"):
         start_service(config, timeout_seconds=0)
 
-    assert process.terminated and process.waited
+    assert process.waited and process.poll() is not None
     assert not config.pid_path.exists()
 
 

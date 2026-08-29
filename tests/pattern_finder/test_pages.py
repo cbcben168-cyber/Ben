@@ -10,8 +10,12 @@ from tv_quant.pattern_finder.review import (
     HUMAN_FILTERS,
     VALIDATION_FILTERS,
 )
+from tv_quant.pattern_finder import flat_base as flat_base_module
 from tv_quant.pattern_finder import futu_service
 from tv_quant.pattern_finder.pattern_registry import FLAT_BASE_REASON_TAGS
+from tv_quant.pattern_finder.persistence.review_queue_repository import (
+    ReviewQueueRepository,
+)
 from tv_quant.pattern_finder.validation import (
     FlatBaseValidation,
     HUMAN_LABELS,
@@ -189,8 +193,27 @@ def _load_cache_review(
     *,
     too_deep: bool,
 ) -> AppTest:
+    return _load_cache_review_with_symbols(
+        tmp_path,
+        monkeypatch,
+        (("AAPL", too_deep),),
+    )
+
+
+def _load_cache_review_with_symbols(
+    tmp_path: Path,
+    monkeypatch,
+    symbols: tuple[tuple[str, bool], ...],
+    *,
+    blocked_symbols: tuple[str, ...] = (),
+) -> AppTest:
     cache_root = tmp_path / "qfq"
-    _write_cached_symbol(cache_root, "AAPL", too_deep=too_deep)
+    for symbol, too_deep in symbols:
+        _write_cached_symbol(cache_root, symbol, too_deep=too_deep)
+        if symbol in blocked_symbols:
+            path = cache_root / f"{symbol}_daily.csv"
+            frame = pd.read_csv(path)
+            frame.drop(index=10).to_csv(path, index=False)
     monkeypatch.setenv("PATTERN_FINDER_CACHE_ROOT", str(cache_root))
     monkeypatch.setenv("PATTERN_FINDER_AS_OF_UTC", "2026-08-10T04:00:00+00:00")
     monkeypatch.setenv(
@@ -204,10 +227,280 @@ def _load_cache_review(
         "PATTERN_FINDER_MIGRATION_LEDGER_PATH",
         str(tmp_path / "pattern_validation_migration_ledger.jsonl"),
     )
-    monkeypatch.setenv("PATTERN_FINDER_REPOSITORY_ROOT", str(tmp_path))
+    monkeypatch.setenv("PATTERN_FINDER_REPOSITORY_ROOT", str(ROOT))
+    monkeypatch.setenv("PATTERN_FINDER_DB_PATH", str(tmp_path / "pattern_finder.db"))
     app = _load("app/pages/2_Chart_Review.py")
     app.segmented_control[0].set_value("缓存 / Futu").run()
     return app
+
+
+def _button(app: AppTest, label: str):
+    return next(button for button in app.button if button.label == label)
+
+
+def _state_filter(app: AppTest):
+    return next(box for box in app.selectbox if box.label == "状态筛选")
+
+
+def _symbol_search(app: AppTest):
+    return next(item for item in app.text_input if item.label == "精确股票代码")
+
+
+def _human_label_control(app: AppTest):
+    return next(
+        control
+        for control in app.segmented_control
+        if "人工判断" in control.label
+    )
+
+
+def _fill_like_review(app: AppTest) -> None:
+    _human_label_control(app).set_value("像").run()
+
+
+def test_cache_review_shows_provisional_position_and_next_without_dropdown(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = _load_cache_review_with_symbols(
+        tmp_path,
+        monkeypatch,
+        (("AAPL", False), ("MSFT", False)),
+    )
+
+    assert "LOCAL CACHE · NOT A FORMAL SCAN BATCH" in _visible_text(app)
+    assert "AAPL · 1 / 2" in _visible_text(app)
+    assert not any(box.label == "缓存股票" for box in app.selectbox)
+
+    _button(app, "下一只").click().run()
+
+    assert "MSFT · 2 / 2" in _visible_text(app)
+
+
+def test_save_and_next_appends_once_and_advances_once(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    validation_path = tmp_path / "pattern_validation.jsonl"
+    app = _load_cache_review_with_symbols(
+        tmp_path,
+        monkeypatch,
+        (("AAPL", False), ("MSFT", False)),
+    )
+    _fill_like_review(app)
+
+    _button(app, "保存并下一只").click().run()
+
+    history = read_validation_history(validation_path)
+    assert len(history) == 1
+    assert history[0].symbol == "AAPL"
+    assert "MSFT · 1 / 2" in _visible_text(app)
+
+
+def test_next_position_is_restored_after_page_restart(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = _load_cache_review_with_symbols(
+        tmp_path,
+        monkeypatch,
+        (("AAPL", False), ("MSFT", False)),
+    )
+    _button(app, "下一只").click().run()
+
+    restarted = _load("app/pages/2_Chart_Review.py")
+    restarted.segmented_control[0].set_value("缓存 / Futu").run()
+
+    assert "MSFT · 2 / 2" in _visible_text(restarted)
+
+
+def test_save_only_keeps_selected_review_visible(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    validation_path = tmp_path / "pattern_validation.jsonl"
+    app = _load_cache_review_with_symbols(
+        tmp_path,
+        monkeypatch,
+        (("AAPL", False), ("MSFT", False)),
+    )
+    _fill_like_review(app)
+
+    _button(app, "仅保存").click().run()
+
+    assert len(read_validation_history(validation_path)) == 1
+    assert "AAPL · 2 / 2" in _visible_text(app)
+
+
+def test_skip_snooze_restore_and_state_filter_are_persisted(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = _load_cache_review_with_symbols(
+        tmp_path,
+        monkeypatch,
+        (("AAPL", False),),
+    )
+
+    _button(app, "跳过").click().run()
+    assert "已跳过 1" in _visible_text(app)
+
+    _state_filter(app).select("已跳过").run()
+    _button(app, "恢复").click().run()
+    assert "未复核 1" in _visible_text(app)
+
+    _state_filter(app).select("全部").run()
+    _button(app, "稍后处理").click().run()
+    assert "稍后处理 1" in _visible_text(app)
+
+    restarted = _load("app/pages/2_Chart_Review.py")
+    restarted.segmented_control[0].set_value("缓存 / Futu").run()
+    assert "稍后处理 1" in _visible_text(restarted)
+
+
+def test_exact_symbol_search_is_case_insensitive_and_not_partial(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = _load_cache_review_with_symbols(
+        tmp_path,
+        monkeypatch,
+        (("AAPL", False), ("MSFT", False)),
+    )
+
+    _symbol_search(app).input("msft").run()
+    assert "MSFT · 1 / 1" in _visible_text(app)
+
+    _symbol_search(app).input("ms").run()
+    assert "当前筛选条件下没有可复核股票" in _visible_text(app)
+
+
+def test_invalid_validation_store_disables_review_writes(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    validation_path = tmp_path / "pattern_validation.jsonl"
+    validation_path.write_text("not-json\n", encoding="utf-8")
+
+    app = _load_cache_review_with_symbols(
+        tmp_path,
+        monkeypatch,
+        (("AAPL", False),),
+    )
+
+    assert "验证历史无效" in _visible_text(app)
+    assert _button(app, "仅保存").disabled is True
+    assert _button(app, "保存并下一只").disabled is True
+
+
+def test_cursor_failure_after_append_preserves_validation_and_position(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    validation_path = tmp_path / "pattern_validation.jsonl"
+    original = ReviewQueueRepository.save_cursor
+    calls = 0
+
+    def fail_second_save(self, cursor):
+        nonlocal calls
+        calls += 1
+        if calls >= 2:
+            raise RuntimeError("cursor unavailable")
+        return original(self, cursor)
+
+    monkeypatch.setattr(ReviewQueueRepository, "save_cursor", fail_second_save)
+    app = _load_cache_review_with_symbols(
+        tmp_path,
+        monkeypatch,
+        (("AAPL", False), ("MSFT", False)),
+    )
+    _fill_like_review(app)
+
+    _button(app, "保存并下一只").click().run()
+
+    assert len(read_validation_history(validation_path)) == 1
+    assert "人工复核已保存，但队列位置未更新" in _visible_text(app)
+    assert "AAPL · 1 / 2" in _visible_text(app)
+
+
+def test_data_blocked_item_has_no_review_submit_buttons(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = _load_cache_review_with_symbols(
+        tmp_path,
+        monkeypatch,
+        (("AAPL", False),),
+        blocked_symbols=("AAPL",),
+    )
+
+    assert "数据阻塞 1" in _visible_text(app)
+    assert not any(
+        button.label in {"仅保存", "保存并下一只"}
+        for button in app.button
+    )
+
+
+def test_failed_workflow_action_is_reported_without_moving(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = _load_cache_review_with_symbols(
+        tmp_path,
+        monkeypatch,
+        (("AAPL", False), ("MSFT", False)),
+    )
+    monkeypatch.setattr(
+        ReviewQueueRepository,
+        "append_action",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("action unavailable")
+        ),
+    )
+
+    _button(app, "跳过").click().run()
+
+    assert "队列操作未保存" in _visible_text(app)
+    assert "AAPL · 1 / 2" in _visible_text(app)
+
+
+def test_navigation_never_calls_futu_or_refreshes_cache(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    detected_symbols: list[str] = []
+    original_detector = flat_base_module.detect_flat_base
+
+    def track_selected_detector(frame):
+        detected_symbols.append(str(frame["ticker"].iloc[0]))
+        return original_detector(frame)
+
+    monkeypatch.setattr(flat_base_module, "detect_flat_base", track_selected_detector)
+    monkeypatch.setattr(
+        futu_service,
+        "_load_futu_sdk",
+        lambda: (_ for _ in ()).throw(AssertionError("OpenD called")),
+    )
+    monkeypatch.setattr(
+        futu_service,
+        "refresh_cache_entry",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("cache refreshed")
+        ),
+    )
+    app = _load_cache_review_with_symbols(
+        tmp_path,
+        monkeypatch,
+        (("AAPL", False), ("MSFT", False)),
+    )
+
+    _button(app, "下一只").click().run()
+
+    assert not app.exception
+    assert "MSFT · 2 / 2" in _visible_text(app)
+    assert detected_symbols[-2:] == ["AAPL", "MSFT"]
+    assert detected_symbols.count("AAPL") == 1
+    assert detected_symbols.count("MSFT") == 1
 
 
 def test_chart_review_states_current_pattern_and_yes_question(
@@ -368,8 +661,8 @@ def test_chart_review_cache_mode_renders_real_qfq_bars(
     app.segmented_control[0].set_value("缓存 / Futu").run()
 
     assert not app.exception
-    assert tuple(app.selectbox[1].options) == ("AAPL",)
-    assert app.selectbox[1].value == "AAPL"
+    assert "AAPL · 1 / 1" in _visible_text(app)
+    assert not any(box.label == "缓存股票" for box in app.selectbox)
     assert len(app.get("plotly_chart")) == 1
     assert "Futu 前复权" in _visible_text(app)
     assert "检测器版本：phase1-v1" in _visible_text(app)
@@ -390,7 +683,7 @@ def test_chart_review_appends_validation_only_when_form_is_submitted(
     app.segmented_control[1].set_value("不像").run()
     app.pills[0].set_value(["整体仍明显向下", "阻力区域不清晰"])
     app.text_area[0].input("  下降趋势仍明显  ")
-    save = next(button for button in app.button if button.label == "保存人工复核")
+    save = next(button for button in app.button if button.label == "仅保存")
     save.click().run()
 
     assert not app.exception
@@ -423,7 +716,7 @@ def _review_app(tmp_path: Path, monkeypatch) -> tuple[AppTest, Path]:
 
 
 def _save_button(app: AppTest):
-    return next(button for button in app.button if button.label == "保存人工复核")
+    return next(button for button in app.button if button.label == "仅保存")
 
 
 def test_reason_options_come_only_from_current_profile(

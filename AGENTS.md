@@ -44,6 +44,12 @@
 3. 测试是否通过。
 4. 生成了哪些输出文件。
 5. 尚存哪些风险和限制。
+
+## 自动模型路由
+
+每个需要阅读项目、调用工具、修改文件、调试、测试、设计、审查或多步骤回答的任务，必须先使用
+`auto-model-routing` Skill。该 Skill 自动选择最低足够的模型和推理强度；不得要求用户手动选择，且不以速度
+作为路由依据。
 ## Quant Research Pipeline Entry
 
 - Phase 1 defaults: `optimization_allowed=false`, `fill_timing=next_bar`, and Buy and Hold comparison are mandatory; capability failures remain `STRATEGY_CAPABILITY_BLOCKER` or `DATA_CAPABILITY_BLOCKER`.

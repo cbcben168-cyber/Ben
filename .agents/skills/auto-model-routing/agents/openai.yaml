@@ -1,0 +1,4 @@
+interface:
+  display_name: "自动模型路由"
+  short_description: "按复杂度自动选择模型与推理强度"
+  default_prompt: "Automatically route this task to the lowest sufficient model and reasoning effort, then execute it."

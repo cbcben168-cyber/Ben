@@ -133,3 +133,57 @@ MIGRATION_1_STATEMENTS = (
     "CREATE INDEX idx_candidates_scan ON pattern_candidates(scan_batch_id)",
     "CREATE INDEX idx_reviews_candidate ON manual_reviews(candidate_id)",
 )
+
+
+MIGRATION_2_STATEMENTS = (
+    """CREATE TABLE scan_batch_manifests (
+        scan_batch_id TEXT PRIMARY KEY REFERENCES scan_batches(scan_batch_id),
+        scan_as_of_date TEXT NOT NULL,
+        ordered_input_count INTEGER NOT NULL CHECK(ordered_input_count >= 0),
+        quality_pass_count INTEGER NOT NULL CHECK(quality_pass_count >= 0),
+        quality_fail_count INTEGER NOT NULL CHECK(quality_fail_count >= 0),
+        yes_count INTEGER NOT NULL CHECK(yes_count >= 0),
+        no_count INTEGER NOT NULL CHECK(no_count >= 0),
+        code_commit TEXT NOT NULL,
+        ordered_input_hash TEXT NOT NULL,
+        provenance_json TEXT NOT NULL,
+        CHECK(ordered_input_count = quality_pass_count + quality_fail_count),
+        CHECK(quality_pass_count = yes_count + no_count)
+    )""",
+    """CREATE TABLE review_queue_actions (
+        action_id TEXT PRIMARY KEY,
+        source_kind TEXT NOT NULL CHECK(source_kind IN ('PROVISIONAL_CACHE','SCAN_BATCH')),
+        source_id TEXT NOT NULL,
+        item_id TEXT NOT NULL,
+        pattern_type TEXT NOT NULL,
+        action_type TEXT NOT NULL CHECK(action_type IN ('SKIP','SNOOZE','RESTORE')),
+        created_at_utc TEXT NOT NULL
+    )""",
+    """CREATE TABLE review_cursors (
+        source_kind TEXT NOT NULL CHECK(source_kind IN ('PROVISIONAL_CACHE','SCAN_BATCH')),
+        source_id TEXT NOT NULL,
+        pattern_type TEXT NOT NULL,
+        item_id TEXT NOT NULL,
+        filters_json TEXT NOT NULL,
+        updated_at_utc TEXT NOT NULL,
+        PRIMARY KEY(source_kind, source_id, pattern_type)
+    )""",
+    """CREATE TRIGGER scan_batches_immutable_update BEFORE UPDATE ON scan_batches
+        WHEN OLD.status='COMPLETED'
+        BEGIN SELECT RAISE(ABORT, 'completed scan batch is immutable'); END""",
+    """CREATE TRIGGER scan_batches_immutable_delete BEFORE DELETE ON scan_batches
+        WHEN OLD.status='COMPLETED'
+        BEGIN SELECT RAISE(ABORT, 'completed scan batch is immutable'); END""",
+    """CREATE TRIGGER scan_batch_manifests_immutable_update BEFORE UPDATE ON scan_batch_manifests
+        BEGIN SELECT RAISE(ABORT, 'scan batch manifest is immutable'); END""",
+    """CREATE TRIGGER scan_batch_manifests_immutable_delete BEFORE DELETE ON scan_batch_manifests
+        BEGIN SELECT RAISE(ABORT, 'scan batch manifest is immutable'); END""",
+    """CREATE TRIGGER pattern_candidates_immutable_update BEFORE UPDATE ON pattern_candidates
+        WHEN EXISTS (SELECT 1 FROM scan_batches sb WHERE sb.scan_batch_id=OLD.scan_batch_id AND sb.status='COMPLETED')
+        BEGIN SELECT RAISE(ABORT, 'completed pattern candidate is immutable'); END""",
+    """CREATE TRIGGER pattern_candidates_immutable_delete BEFORE DELETE ON pattern_candidates
+        WHEN EXISTS (SELECT 1 FROM scan_batches sb WHERE sb.scan_batch_id=OLD.scan_batch_id AND sb.status='COMPLETED')
+        BEGIN SELECT RAISE(ABORT, 'completed pattern candidate is immutable'); END""",
+    "CREATE INDEX idx_review_actions_scope_time ON review_queue_actions(source_kind, source_id, pattern_type, created_at_utc)",
+    "CREATE INDEX idx_review_cursors_scope ON review_cursors(source_kind, source_id, pattern_type)",
+)

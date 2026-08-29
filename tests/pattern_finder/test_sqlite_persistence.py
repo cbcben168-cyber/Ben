@@ -46,8 +46,20 @@ def test_empty_database_migrates_once_and_enables_foreign_keys(tmp_path: Path) -
         "app_runs", "audit_events", "profiles", "profile_versions", "profile_rules",
         "universe_snapshots", "snapshot_securities", "snapshot_security_decisions",
         "scan_batches", "pattern_candidates", "manual_reviews", "backtest_runs",
-        "backtest_horizons",
+        "backtest_horizons", "scan_batch_manifests", "review_queue_actions",
+        "review_cursors",
     } <= tables
+    with database.connect() as connection:
+        triggers = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='trigger'"
+            )
+        }
+    assert {
+        "scan_batches_immutable_update",
+        "pattern_candidates_immutable_delete",
+    } <= triggers
 
 
 def test_failed_migration_rolls_back_schema_and_version(tmp_path: Path) -> None:
@@ -111,9 +123,9 @@ def test_concurrent_migration_attempts_serialize_cleanly(tmp_path: Path) -> None
     path = tmp_path / "concurrent.db"
     with ThreadPoolExecutor(max_workers=2) as pool:
         versions = tuple(pool.map(lambda _: SqliteDatabase(path).migrate(), range(2)))
-    assert versions == (1, 1)
+    assert versions == (2, 2)
     with SqliteDatabase(path).connect() as connection:
-        assert connection.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == 1
+        assert connection.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == 2
 
 
 def test_foreign_keys_reject_orphan_profile_version(tmp_path: Path) -> None:

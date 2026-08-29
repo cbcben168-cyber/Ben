@@ -1,6 +1,10 @@
 """SQLite persistence boundary for Pattern Finder."""
 
 from .database import Migration, MigrationError, SqliteDatabase
+from .review_queue_repository import (
+    ReviewQueueRepository,
+    ReviewQueueRepositoryError,
+)
 from .repositories import (
     BacktestRepository,
     ProfileRepository,
@@ -16,6 +20,8 @@ __all__ = (
     "MigrationError",
     "ProfileRepository",
     "ReviewRepository",
+    "ReviewQueueRepository",
+    "ReviewQueueRepositoryError",
     "ScanRepository",
     "SnapshotRepository",
     "SqliteDatabase",

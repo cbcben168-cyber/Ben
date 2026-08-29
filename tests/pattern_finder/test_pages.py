@@ -10,6 +10,7 @@ from tv_quant.pattern_finder.review import (
     HUMAN_FILTERS,
     VALIDATION_FILTERS,
 )
+from tv_quant.pattern_finder import futu_service
 from tv_quant.pattern_finder.pattern_registry import FLAT_BASE_REASON_TAGS
 from tv_quant.pattern_finder.validation import (
     FlatBaseValidation,
@@ -52,6 +53,14 @@ def test_home_page_loads_as_fixture_only_shell() -> None:
     assert app.title[0].value == "形态发现器"
     assert "本地" in _visible_text(app)
     assert tuple(page.title for page in app.get("page_link")) == ()
+
+
+def test_codex_model_router_page_is_read_only_by_default() -> None:
+    app = _load("app/pages/6_Codex_Model_Router.py")
+
+    assert not app.exception
+    assert app.title[0].value == "Codex 模型路由"
+    assert "不会自动切换当前 Codex 会话" in _visible_text(app)
 
 
 def test_today_scan_page_loads_all_three_fixture_rows() -> None:
@@ -311,6 +320,40 @@ def test_today_scan_cache_mode_filters_computer_and_human_states(
     next(box for box in app.selectbox if box.label == "人工复核").select("勉强像").run()
     next(box for box in app.selectbox if box.label == "验证结论").select("边界案例").run()
     assert tuple(app.dataframe[0].value["股票代码"]) == ("JPM",)
+
+
+def test_today_scan_refreshes_only_stale_cached_symbols_after_explicit_click(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    cache_root = tmp_path / "qfq"
+    _write_cached_symbol(cache_root, "AAPL")
+    calls: list[tuple[tuple[str, ...], Path]] = []
+
+    monkeypatch.setenv("PATTERN_FINDER_CACHE_ROOT", str(cache_root))
+    monkeypatch.setenv("PATTERN_FINDER_AS_OF_UTC", "2026-08-10T04:00:00+00:00")
+    monkeypatch.setattr(
+        futu_service,
+        "stale_cached_symbols",
+        lambda **_kwargs: ("BAC", "WFC"),
+    )
+
+    def refresh(symbols, *, cache_root, **_kwargs):
+        calls.append((tuple(symbols), Path(cache_root)))
+        return (object(), object())
+
+    monkeypatch.setattr(futu_service, "refresh_symbols", refresh)
+    app = _load("app/pages/1_Today_Scan.py")
+    app.segmented_control[0].set_value("缓存 / Futu").run()
+
+    assert calls == []
+    button = next(
+        item for item in app.button if item.label == "刷新 2 只过期缓存"
+    )
+    button.click().run()
+
+    assert calls == [(('BAC', 'WFC'), cache_root)]
+    assert "已更新 2 只过期缓存" in _visible_text(app)
 
 
 def test_chart_review_cache_mode_renders_real_qfq_bars(

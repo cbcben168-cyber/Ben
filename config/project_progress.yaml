@@ -25,7 +25,7 @@ milestones:
       - {id: m3cb-launcher, name: Windows launcher, status: done}
       - {id: m3cb-health, name: Owned service health, status: done}
       - {id: m3cb-logs, name: Runtime logs, status: done}
-      - {id: m3cb-windows-acceptance, name: Windows desktop manual acceptance, status: not_started}
+      - {id: m3cb-windows-acceptance, name: Windows desktop manual acceptance, status: done}
   - id: M3C-C
     name: SQLite data foundation
     tasks:

@@ -8,7 +8,9 @@ import pytest
 from tv_quant.futu_quota import QuotaPolicyError
 from tv_quant.pattern_finder.futu_service import (
     refresh_pilot_universe,
+    refresh_symbols,
     refresh_universe_to_target,
+    stale_cached_symbols,
 )
 from tv_quant.pattern_finder.universe import PILOT_SYMBOLS
 
@@ -17,6 +19,7 @@ class Context:
     def __init__(self, *, ready: bool = True, remain_quota: int = 120):
         self.ready = ready
         self.remain_quota = remain_quota
+        self.known_codes: list[str] = []
         self.requests: list[dict[str, object]] = []
         self.closed = False
 
@@ -28,10 +31,18 @@ class Context:
 
     def get_history_kl_quota(self, *, get_detail: bool):
         assert get_detail is True
-        return 0, (0, self.remain_quota, [])
+        return 0, (
+            len(self.known_codes),
+            self.remain_quota,
+            [{"code": code} for code in self.known_codes],
+        )
 
     def request_history_kline(self, **kwargs):
         self.requests.append(kwargs)
+        code = str(kwargs["code"])
+        if code not in self.known_codes:
+            self.known_codes.append(code)
+            self.remain_quota -= 1
         days = [
             session.date().isoformat()
             for session in xcals.get_calendar("XNYS").sessions_in_range(
@@ -117,9 +128,9 @@ def test_unavailable_opend_is_explicit_and_context_is_closed(tmp_path: Path) -> 
 
 
 def test_quota_policy_failure_stops_before_download_and_closes_context(tmp_path: Path) -> None:
-    context = Context(remain_quota=99)
+    context = Context(remain_quota=0)
 
-    with pytest.raises(QuotaPolicyError, match="below 100"):
+    with pytest.raises(QuotaPolicyError, match="no remaining"):
         refresh_pilot_universe(
             cache_root=tmp_path / "cache",
             as_of_utc=datetime(2026, 7, 6, 20, 1, tzinfo=UTC),
@@ -130,6 +141,67 @@ def test_quota_policy_failure_stops_before_download_and_closes_context(tmp_path:
 
     assert context.requests == []
     assert context.closed is True
+
+
+def test_refresh_symbols_preserves_exact_order_and_uses_provider_quota(tmp_path: Path) -> None:
+    context = Context(remain_quota=2)
+
+    entries = refresh_symbols(
+        ("BAC", "WFC"),
+        cache_root=tmp_path / "cache",
+        as_of_utc=datetime(2026, 7, 6, 20, 1, tzinfo=UTC),
+        log_path=tmp_path / "quota.jsonl",
+        sdk=Sdk(context),
+        sleep=lambda _: None,
+    )
+
+    assert tuple(entry.symbol for entry in entries) == ("BAC", "WFC")
+    assert tuple(request["code"] for request in context.requests) == (
+        "US.BAC",
+        "US.WFC",
+    )
+    assert context.remain_quota == 0
+    assert context.closed is True
+
+
+def test_refresh_symbols_blocks_new_code_at_zero_and_closes_context(tmp_path: Path) -> None:
+    context = Context(remain_quota=0)
+
+    with pytest.raises(QuotaPolicyError, match="no remaining"):
+        refresh_symbols(
+            ("BAC",),
+            cache_root=tmp_path / "cache",
+            as_of_utc=datetime(2026, 7, 6, 20, 1, tzinfo=UTC),
+            log_path=tmp_path / "quota.jsonl",
+            sdk=Sdk(context),
+            sleep=lambda _: None,
+        )
+
+    assert context.requests == []
+    assert context.closed is True
+
+
+def test_stale_cached_symbols_returns_only_failed_quality_in_cache_order(
+    tmp_path: Path,
+) -> None:
+    for symbol, end in (("BAC", "2026-07-01"), ("WFC", "2026-07-06")):
+        sessions = xcals.get_calendar("XNYS").sessions_window(end, -379)
+        pd.DataFrame(
+            {
+                "timestamp_utc": sessions,
+                "ticker": symbol,
+                "open": 100.0,
+                "high": 102.0,
+                "low": 99.0,
+                "close": 101.0,
+                "volume": 1_000_000,
+            }
+        ).to_csv(tmp_path / f"{symbol}_daily.csv", index=False)
+
+    assert stale_cached_symbols(
+        cache_root=tmp_path,
+        as_of_utc=datetime(2026, 7, 6, 20, 1, tzinfo=UTC),
+    ) == ("BAC",)
 
 
 def test_expansion_rejects_non_milestone_target_before_connecting(tmp_path: Path) -> None:

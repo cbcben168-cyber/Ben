@@ -37,8 +37,8 @@ def test_project_progress_computes_percent_from_tasks() -> None:
     progress = load_project_progress(ROOT / "config/project_progress.yaml")
     by_id = {item.milestone_id: item for item in progress.milestones}
 
-    assert by_id["M3C-B"].status == "IN PROGRESS"
-    assert by_id["M3C-B"].percent_complete == 80
+    assert by_id["M3C-B"].status == "DONE"
+    assert by_id["M3C-B"].percent_complete == 100
     assert by_id["M3D"].status == "NOT STARTED"
     assert by_id["M3D"].percent_complete == 0
     assert progress.percent_complete == round(

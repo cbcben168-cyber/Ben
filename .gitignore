@@ -15,5 +15,6 @@ reports/
 logs/
 .vscode/
 .idea/
+.worktrees/
 .DS_Store
 Thumbs.db

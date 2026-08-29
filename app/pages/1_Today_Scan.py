@@ -8,7 +8,11 @@ import streamlit as st
 from tv_quant.pattern_finder.cache import DEFAULT_CACHE_ROOT, cached_symbols, flat_base_scan_rows
 from tv_quant.pattern_finder.flat_base import detect_flat_base
 from tv_quant.pattern_finder.fixtures import load_fixtures
-from tv_quant.pattern_finder.futu_service import refresh_pilot_universe
+from tv_quant.pattern_finder.futu_service import (
+    refresh_pilot_universe,
+    refresh_symbols,
+    stale_cached_symbols,
+)
 from tv_quant.pattern_finder.models import ohlcv_frame_from_series
 from tv_quant.pattern_finder.pattern_registry import enabled_pattern_profiles
 from tv_quant.pattern_finder import review
@@ -70,6 +74,36 @@ else:
         os.getenv("PATTERN_FINDER_AS_OF_UTC")
     ).replace(second=0, microsecond=0)
     st.caption(f"试点缓存：{cache_root}｜日线｜前复权｜XNYS")
+    try:
+        stale_symbols = stale_cached_symbols(
+            cache_root=cache_root,
+            as_of_utc=as_of,
+        )
+    except Exception as error:
+        stale_symbols = ()
+        st.warning(f"无法检查过期缓存：{error}")
+
+    if stale_symbols:
+        st.caption(f"检测到 {len(stale_symbols)} 只过期缓存：{', '.join(stale_symbols)}")
+        if st.button(
+            f"刷新 {len(stale_symbols)} 只过期缓存",
+            icon=":material/update:",
+        ):
+            try:
+                with st.spinner("正在从 Futu OpenD 更新过期缓存……"):
+                    entries = refresh_symbols(
+                        stale_symbols,
+                        cache_root=cache_root,
+                        as_of_utc=datetime.now(UTC),
+                    )
+            except Exception as error:
+                st.error(f"过期缓存刷新失败：{error}")
+            else:
+                st.cache_data.clear()
+                st.success(f"已更新 {len(entries)} 只过期缓存。")
+    else:
+        st.caption("当前缓存没有检测到过期数据。")
+
     if st.button("从 Futu OpenD 刷新试点数据", icon=":material/refresh:", type="primary"):
         try:
             with st.spinner("正在从 Futu OpenD 更新试点股票……"):

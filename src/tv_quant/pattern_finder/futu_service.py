@@ -6,13 +6,12 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
 from tv_quant.futu_quota import (
     QuotaPolicyError,
     QuotaSnapshot,
     check_quota,
-    read_quota_history,
     write_quota_log,
 )
 from tv_quant.futu_downloader import FutuDownloadError
@@ -22,6 +21,7 @@ from .cache import (
     DEFAULT_CACHE_ROOT,
     PatternCacheError,
     cached_symbols,
+    load_cache_entry,
     refresh_cache_entry,
 )
 from .universe import M3B_SYMBOLS, PILOT_SYMBOLS, futu_code
@@ -95,20 +95,44 @@ def refresh_pilot_universe(
     sdk: Any | None = None,
     sleep: Callable[[float], None] = time.sleep,
 ) -> tuple[CacheEntry, ...]:
+    """Refresh the fixed pilot symbols through the generic refresh service."""
+    return refresh_symbols(
+        PILOT_SYMBOLS,
+        cache_root=cache_root,
+        as_of_utc=as_of_utc,
+        host=host,
+        port=port,
+        log_path=log_path,
+        sdk=sdk,
+        sleep=sleep,
+    )
+
+
+def refresh_symbols(
+    symbols: Iterable[str],
+    *,
+    cache_root: str | Path = DEFAULT_CACHE_ROOT,
+    as_of_utc: datetime,
+    host: str = "127.0.0.1",
+    port: int = 11111,
+    log_path: str | Path = Path("logs/futu_quota.jsonl"),
+    sdk: Any | None = None,
+    sleep: Callable[[float], None] = time.sleep,
+) -> tuple[CacheEntry, ...]:
+    """Refresh exactly the supplied symbols in order using OpenD quota authority."""
+    ordered_symbols = tuple(dict.fromkeys(str(symbol).strip().upper() for symbol in symbols))
+    if not ordered_symbols or any(not symbol for symbol in ordered_symbols):
+        raise ValueError("symbols must contain normalized non-empty tickers")
+
     runtime = _load_futu_sdk() if sdk is None else sdk
     context = runtime.OpenQuoteContext(host=host, port=port)
     entries: list[CacheEntry] = []
     try:
         _validate_opend(context, runtime.RET_OK, runtime.ProgramStatusType.READY)
-        for symbol in PILOT_SYMBOLS:
+        for symbol in ordered_symbols:
             code = futu_code(symbol)
             pre_snapshot = _quota_snapshot(context, runtime.RET_OK, sleep)
-            decision = check_quota(
-                pre_snapshot,
-                code,
-                as_of_utc,
-                read_quota_history(log_path),
-            )
+            decision = check_quota(pre_snapshot, code)
             write_quota_log(log_path, "pre", pre_snapshot, code, decision, "allowed")
             try:
                 entry = refresh_cache_entry(
@@ -130,6 +154,20 @@ def refresh_pilot_universe(
         return tuple(entries)
     finally:
         context.close()
+
+
+def stale_cached_symbols(
+    *,
+    cache_root: str | Path = DEFAULT_CACHE_ROOT,
+    as_of_utc: datetime,
+) -> tuple[str, ...]:
+    """Return cached M3B symbols whose current quality report does not pass."""
+    stale: list[str] = []
+    for symbol in cached_symbols(cache_root):
+        entry = load_cache_entry(symbol, cache_root=cache_root, as_of_utc=as_of_utc)
+        if entry is not None and not entry.quality.passed:
+            stale.append(symbol)
+    return tuple(stale)
 
 
 def _download_blocker(error: Exception) -> str:
@@ -198,12 +236,7 @@ def refresh_universe_to_target(
             code = futu_code(symbol)
             try:
                 pre_snapshot = _quota_snapshot(context, runtime.RET_OK, sleep)
-                decision = check_quota(
-                    pre_snapshot,
-                    code,
-                    as_of_utc,
-                    read_quota_history(log_path),
-                )
+                decision = check_quota(pre_snapshot, code)
             except (QuotaPolicyError, RuntimeError) as error:
                 blocker = f"FUTU_QUOTA_BLOCKER: {error}"
                 break

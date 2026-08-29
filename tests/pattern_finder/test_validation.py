@@ -1,6 +1,11 @@
 import json
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
+from math import isnan, nan
 from pathlib import Path
+from threading import Barrier
+from uuid import uuid4
 
 import pytest
 
@@ -167,6 +172,132 @@ def test_pattern_validation_round_trips_generic_schema() -> None:
 
     assert record.key == ("AAPL", "flat_base", "phase1-v1", "2026-08-07")
     assert PatternValidation.from_dict(record.to_dict()) == record
+
+
+def test_submission_id_is_optional_and_round_trips() -> None:
+    old_payload = _build_new_pattern_validation().to_dict()
+    old_payload.pop("submission_id", None)
+
+    assert PatternValidation.from_dict(old_payload).submission_id is None
+
+    record = replace(
+        _build_new_pattern_validation(),
+        submission_id=str(uuid4()),
+    )
+    assert PatternValidation.from_dict(record.to_dict()) == record
+
+
+def test_submission_id_must_be_a_uuid_and_is_canonicalized() -> None:
+    uppercase_submission_id = str(uuid4()).upper()
+
+    record = replace(
+        _build_new_pattern_validation(),
+        submission_id=uppercase_submission_id,
+    )
+
+    assert record.submission_id == uppercase_submission_id.lower()
+    with pytest.raises(ValueError, match="submission_id must be a UUID"):
+        replace(_build_new_pattern_validation(), submission_id="not-a-uuid")
+
+
+def test_same_submission_is_appended_once_but_new_submission_is_a_revision(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "pattern_validation.jsonl"
+    first = replace(
+        _build_new_pattern_validation(),
+        submission_id=str(uuid4()),
+    )
+    second = replace(
+        first,
+        submission_id=str(uuid4()),
+        recorded_at_utc=RECORDED_2,
+    )
+
+    assert append_validation(path, first) is True
+    assert append_validation(path, first) is False
+    assert append_validation(path, second) is True
+    assert read_validation_history(path) == (first, second)
+
+
+def test_conflicting_submission_id_is_rejected(tmp_path: Path) -> None:
+    path = tmp_path / "pattern_validation.jsonl"
+    first = replace(
+        _build_new_pattern_validation(),
+        submission_id=str(uuid4()),
+    )
+    conflicting_retry = replace(first, recorded_at_utc=RECORDED_2)
+
+    append_validation(path, first)
+
+    with pytest.raises(ValidationStoreError, match="submission conflict"):
+        append_validation(path, conflicting_retry)
+
+
+def test_concurrent_exact_retries_append_only_once(tmp_path: Path) -> None:
+    path = tmp_path / "pattern_validation.jsonl"
+    record = replace(
+        _build_new_pattern_validation(),
+        submission_id=str(uuid4()),
+    )
+    barrier = Barrier(2)
+
+    def submit() -> bool:
+        barrier.wait()
+        return append_validation(path, record)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = tuple(executor.map(lambda _: submit(), range(2)))
+
+    assert sorted(results) == [False, True]
+    assert read_validation_history(path) == (record,)
+
+
+def test_same_submission_rejects_json_distinct_payloads_that_compare_equal(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "pattern_validation.jsonl"
+    first = replace(
+        _build_new_pattern_validation(),
+        submission_id=str(uuid4()),
+    )
+    json_distinct_retry = replace(
+        first,
+        diagnostics={**first.diagnostics, "normalized_slope": -0.0},
+    )
+
+    append_validation(path, first)
+
+    with pytest.raises(ValidationStoreError, match="submission conflict"):
+        append_validation(path, json_distinct_retry)
+
+
+def test_pattern_validation_rejects_non_finite_diagnostics() -> None:
+    with pytest.raises(ValueError, match="diagnostic floats must be finite"):
+        replace(
+            _build_new_pattern_validation(),
+            diagnostics={**_build_new_pattern_validation().diagnostics, "support": nan},
+        )
+
+
+def test_legacy_flat_base_validation_preserves_existing_non_finite_append_behavior(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "flat_base_validation.jsonl"
+    record = replace(
+        build_validation(
+            SCAN_ROW,
+            date(2026, 8, 7),
+            "像",
+            (),
+            "",
+            RECORDED_1,
+        ),
+        base_depth=nan,
+    )
+
+    assert append_validation(path, record) is True
+    assert isnan(read_validation_history(path)[0].base_depth)
 
 
 def test_new_pattern_validation_requires_complete_review_window() -> None:

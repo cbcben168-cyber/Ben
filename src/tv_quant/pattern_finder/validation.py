@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 import hashlib
 import json
+from math import isfinite
+import os
 from pathlib import Path
+from threading import Lock
 from types import MappingProxyType
-from typing import Any, Iterable, Mapping
+from typing import Any, BinaryIO, Iterable, Iterator, Mapping
+from uuid import UUID
 
 from .pattern_registry import get_pattern_profile
 
@@ -53,6 +58,7 @@ VALIDATION_RESULT_LABELS: Mapping[str, str] = MappingProxyType(
         "borderline": "边界案例",
     }
 )
+_VALIDATION_WRITE_LOCK = Lock()
 
 
 def derive_validation_result(computer_result: str, human_label: str) -> str:
@@ -139,10 +145,17 @@ class PatternValidation:
     review_window_end: str | None
     diagnostics: dict[str, JSONScalar]
     migration_provenance: MigrationProvenance | None
+    submission_id: str | None = None
 
     def __post_init__(self) -> None:
         if self.recorded_at_utc.utcoffset() != timedelta(0):
             raise ValueError("recorded_at_utc must be UTC")
+        if self.submission_id is not None:
+            try:
+                canonical_submission_id = str(UUID(self.submission_id))
+            except (AttributeError, TypeError, ValueError) as error:
+                raise ValueError("submission_id must be a UUID") from error
+            object.__setattr__(self, "submission_id", canonical_submission_id)
         if not self.symbol or self.symbol != self.symbol.strip().upper():
             raise ValueError("symbol must be a normalized ticker")
         profile = get_pattern_profile(self.pattern_type)
@@ -185,6 +198,8 @@ class PatternValidation:
                 raise ValueError("diagnostic keys must be non-empty strings")
             if value is not None and not isinstance(value, str | int | float | bool):
                 raise ValueError("diagnostic values must be JSON scalars")
+            if isinstance(value, float) and not isfinite(value):
+                raise ValueError("diagnostic floats must be finite")
             normalized_diagnostics[key] = value
         object.__setattr__(self, "diagnostics", normalized_diagnostics)
 
@@ -235,6 +250,7 @@ class PatternValidation:
                 if self.migration_provenance is not None
                 else None
             ),
+            "submission_id": self.submission_id,
         }
 
     @classmethod
@@ -294,6 +310,11 @@ class PatternValidation:
             migration_provenance=(
                 MigrationProvenance.from_dict(provenance)
                 if isinstance(provenance, Mapping)
+                else None
+            ),
+            submission_id=(
+                str(value["submission_id"])
+                if value.get("submission_id") is not None
                 else None
             ),
         )
@@ -412,6 +433,7 @@ def build_pattern_validation(
     review_window_start: date,
     review_window_end: date,
     diagnostics: Mapping[str, JSONScalar],
+    submission_id: str | None = None,
 ) -> PatternValidation:
     profile = get_pattern_profile(pattern_type)
     normalized_tags = tuple(
@@ -441,6 +463,7 @@ def build_pattern_validation(
         review_window_end=review_window_end.isoformat(),
         diagnostics=dict(diagnostics),
         migration_provenance=None,
+        submission_id=submission_id,
     )
 
 
@@ -487,11 +510,86 @@ def build_validation(
 def append_validation(
     path: str | Path,
     record: PatternValidation | FlatBaseValidation,
-) -> None:
+) -> bool:
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    with target.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(record.to_dict(), ensure_ascii=False) + "\n")
+    serialized_record = (
+        _canonical_validation_json(record)
+        if isinstance(record, PatternValidation)
+        else json.dumps(record.to_dict(), ensure_ascii=False)
+    )
+    with _exclusive_validation_lock(target):
+        if isinstance(record, PatternValidation) and record.submission_id is not None:
+            matching_records = tuple(
+                existing
+                for existing in read_validation_history(target)
+                if isinstance(existing, PatternValidation)
+                and existing.submission_id == record.submission_id
+            )
+            if matching_records:
+                if any(
+                    _canonical_validation_json(existing) != serialized_record
+                    for existing in matching_records
+                ):
+                    raise ValidationStoreError(
+                        f"submission conflict: {record.submission_id}"
+                    )
+                return False
+        with target.open("a", encoding="utf-8") as handle:
+            handle.write(serialized_record + "\n")
+    return True
+
+
+def _canonical_validation_json(
+    record: PatternValidation | FlatBaseValidation,
+) -> str:
+    return json.dumps(
+        record.to_dict(),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    )
+
+
+@contextmanager
+def _exclusive_validation_lock(target: Path) -> Iterator[None]:
+    lock_path = target.with_name(f"{target.name}.lock")
+    with _VALIDATION_WRITE_LOCK:
+        with lock_path.open("a+b") as handle:
+            handle.seek(0, 2)
+            if handle.tell() == 0:
+                handle.write(b"\0")
+                handle.flush()
+            handle.seek(0)
+            _lock_file(handle)
+            try:
+                yield
+            finally:
+                _unlock_file(handle)
+
+
+def _lock_file(handle: BinaryIO) -> None:
+    if os.name == "nt":
+        import msvcrt
+
+        msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+        return
+    import fcntl
+
+    fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+
+
+def _unlock_file(handle: BinaryIO) -> None:
+    if os.name == "nt":
+        import msvcrt
+
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+        return
+    import fcntl
+
+    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 def _normalized_source_path(path: Path, repository_root: Path) -> str:

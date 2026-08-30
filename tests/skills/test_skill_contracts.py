@@ -6,6 +6,9 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 SKILL_ROOT = ROOT / ".agents" / "skills"
 EXPECTED = {
+    "m3c-futu-quota-refresh",
+    "m3c-model-routing",
+    "m3c-runtime-recovery",
     "quant-strategy-spec",
     "quant-research-pipeline",
     "quant-backtest-audit",

@@ -169,3 +169,153 @@ def test_cache_source_rejects_duplicate_symbols(
 
     with pytest.raises(ValueError, match="duplicate cached symbol"):
         build_cache_queue_source(tmp_path, AS_OF, PATTERN_TYPE, ())
+
+
+def _formal_batch():
+    from tv_quant.pattern_finder.application.scan_persistence import (
+        CompletedScanBatch,
+        MachineDecision,
+        ScanManifest,
+        ScanResult,
+    )
+
+    batch_id = "scan-" + "1" * 64
+    decisions = (
+        ("AAPL", MachineDecision.YES, ()),
+        ("MSFT", MachineDecision.NO, ()),
+        ("BAC", MachineDecision.NOT_EVALUATED, ("MISSING_CACHE",)),
+    )
+    results = tuple(
+        ScanResult(
+            candidate_id=f"candidate-{rank}",
+            scan_batch_id=batch_id,
+            source_rank=rank,
+            stock_id=f"stock-{rank}",
+            symbol=symbol,
+            pattern_type=PATTERN_TYPE,
+            pattern_version="phase1-v1",
+            signal_date="2026-08-27",
+            computer_decision=decision,
+            features={"adjustment": "QFQ"},
+            reason_codes=reasons,
+            created_at_utc=AS_OF,
+        )
+        for rank, (symbol, decision, reasons) in enumerate(decisions)
+    )
+    return CompletedScanBatch(
+        scan_batch_id=batch_id,
+        snapshot_id="11111111-1111-1111-1111-111111111111",
+        profile_version_id="CORE:v1",
+        pattern_type=PATTERN_TYPE,
+        pattern_version="phase1-v1",
+        started_at_utc=AS_OF,
+        completed_at_utc=AS_OF,
+        status="COMPLETED",
+        input_hash="a" * 64,
+        config_hash="b" * 64,
+        result_hash="c" * 64,
+        manifest=ScanManifest(
+            scan_as_of_date="2026-08-27",
+            ordered_input_count=3,
+            quality_pass_count=2,
+            quality_fail_count=1,
+            yes_count=1,
+            no_count=1,
+            code_commit="b8f0784",
+            ordered_input_hash="a" * 64,
+            provenance={"adjustment": "QFQ"},
+        ),
+        results=results,
+    )
+
+
+def _formal_validation(*, scan_as_of_date: date = date(2026, 8, 27)):
+    return build_pattern_validation(
+        recorded_at_utc=AS_OF,
+        symbol="AAPL",
+        pattern_type=PATTERN_TYPE,
+        detector_version="phase1-v1",
+        scan_as_of_date=scan_as_of_date,
+        computer_result="YES",
+        human_label="像",
+        reason_tags=(),
+        note="",
+        review_window_start=date(2026, 8, 1),
+        review_window_end=scan_as_of_date,
+        diagnostics=DIAGNOSTICS,
+    )
+
+
+def test_formal_scan_source_preserves_batch_order_results_and_exact_history() -> None:
+    from tv_quant.pattern_finder.application.review_queue import QueueSourceKind
+    from tv_quant.pattern_finder.application.review_sources import (
+        build_scan_batch_queue_source,
+    )
+
+    source = build_scan_batch_queue_source(
+        _formal_batch(),
+        (_formal_validation(scan_as_of_date=date(2026, 8, 26)), _formal_validation()),
+    )
+
+    assert source.source_kind is QueueSourceKind.SCAN_BATCH
+    assert source.source_id == "scan-" + "1" * 64
+    assert source.label == "FORMAL SCAN BATCH · IMMUTABLE"
+    assert tuple(item.symbol for item in source.items) == ("AAPL", "MSFT", "BAC")
+    assert tuple(item.source_rank for item in source.items) == (0, 1, 2)
+    assert tuple(item.computer_decision for item in source.items) == (
+        "YES",
+        "NO",
+        "NOT_EVALUATED",
+    )
+    assert source.items[0].human_label == "像"
+    assert source.items[0].validation_result == "true_positive_like"
+    assert source.items[0].history_count == 1
+    assert source.items[1].history_count == 0
+
+
+def test_not_evaluated_formal_result_is_data_blocked_never_machine_no() -> None:
+    from tv_quant.pattern_finder.application.review_queue import (
+        QueueFilters,
+        QueueState,
+        project_queue,
+    )
+    from tv_quant.pattern_finder.application.review_sources import (
+        build_scan_batch_queue_source,
+    )
+
+    source = build_scan_batch_queue_source(_formal_batch(), ())
+    blocked = source.items[2]
+    view = project_queue(source.items, {}, QueueFilters(), None)
+
+    assert blocked.computer_decision == "NOT_EVALUATED"
+    assert blocked.computer_decision != "NO"
+    assert not blocked.data_quality_passed
+    assert blocked.quality_reason == "MISSING_CACHE"
+    assert view.states[blocked.item_id] is QueueState.DATA_BLOCKED
+
+
+def test_formal_scan_source_never_reads_cache_or_runs_detector(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tv_quant.pattern_finder import flat_base
+    from tv_quant.pattern_finder.application import review_sources
+
+    monkeypatch.setattr(
+        review_sources,
+        "cached_symbols",
+        lambda *_args, **_kwargs: pytest.fail("formal source must not list cache"),
+    )
+    monkeypatch.setattr(
+        review_sources,
+        "load_cache_entry",
+        lambda *_args, **_kwargs: pytest.fail("formal source must not read cache"),
+    )
+    monkeypatch.setattr(
+        flat_base,
+        "detect_flat_base",
+        lambda *_args, **_kwargs: pytest.fail("formal source must not run detector"),
+    )
+
+    source = review_sources.build_scan_batch_queue_source(_formal_batch(), ())
+
+    assert len(source.items) == 3

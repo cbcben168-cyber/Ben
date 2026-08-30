@@ -19,9 +19,11 @@ from tv_quant.pattern_finder.flat_base import PATTERN_DETECTOR_VERSION
 from tv_quant.pattern_finder.validation import PatternValidation, latest_validations
 
 from .review_queue import QueueItem, QueueSourceKind
+from .scan_persistence import CompletedScanBatch, MachineDecision
 
 
 PROVISIONAL_CACHE_LABEL = "LOCAL CACHE · NOT A FORMAL SCAN BATCH"
+FORMAL_SCAN_LABEL = "FORMAL SCAN BATCH · IMMUTABLE"
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,6 +34,62 @@ class QueueSource:
     source_id: str
     label: str
     items: tuple[QueueItem, ...]
+
+
+def build_scan_batch_queue_source(
+    batch: CompletedScanBatch,
+    history: Iterable[PatternValidation],
+) -> QueueSource:
+    """Project an immutable formal batch without reloading or recomputing it."""
+
+    if type(batch) is not CompletedScanBatch:
+        raise TypeError("batch must be a CompletedScanBatch")
+
+    records = tuple(
+        record for record in history if record.pattern_type == batch.pattern_type
+    )
+    latest = latest_validations(records)
+    counts = Counter(record.key for record in records)
+    items: list[QueueItem] = []
+
+    for result in batch.results:
+        validation_key = (
+            result.symbol,
+            result.pattern_type,
+            result.pattern_version,
+            result.signal_date,
+        )
+        validation = latest.get(validation_key)
+        evaluated = result.computer_decision is not MachineDecision.NOT_EVALUATED
+        items.append(
+            QueueItem(
+                source_kind=QueueSourceKind.SCAN_BATCH,
+                source_id=batch.scan_batch_id,
+                item_id=result.candidate_id,
+                source_rank=result.source_rank,
+                symbol=result.symbol,
+                pattern_type=result.pattern_type,
+                detector_version=result.pattern_version,
+                scan_as_of_date=result.signal_date,
+                computer_decision=result.computer_decision.value,
+                data_quality_passed=evaluated,
+                quality_reason=(
+                    None if evaluated else "; ".join(result.reason_codes)
+                ),
+                human_label=validation.human_label if validation else None,
+                validation_result=(
+                    validation.validation_result if validation else None
+                ),
+                history_count=counts[validation_key],
+            )
+        )
+
+    return QueueSource(
+        source_kind=QueueSourceKind.SCAN_BATCH,
+        source_id=batch.scan_batch_id,
+        label=FORMAL_SCAN_LABEL,
+        items=tuple(items),
+    )
 
 
 def build_cache_queue_source(

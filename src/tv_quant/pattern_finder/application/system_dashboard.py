@@ -13,11 +13,11 @@ from uuid import UUID
 import yaml
 
 from tv_quant.pattern_finder.persistence.database import SqliteDatabase
+from tv_quant.pattern_finder.persistence import ScanRepository
 from tv_quant.pattern_finder.persistence.repositories import (
     BacktestRepository,
     ProfileRepository,
     ReviewRepository,
-    ScanRepository,
     SnapshotRepository,
     SystemRepository,
 )
@@ -167,7 +167,11 @@ def build_dashboard_state(config: RuntimeConfig) -> DashboardState:
         members, fails, quarantines = int(snapshot["member_count"]), int(snapshot["fail_count"]), int(snapshot["quarantine_count"])
         age_days = (datetime.now(UTC).date() - date.fromisoformat(str(snapshot["as_of_date"]))).days
         freshness = "CURRENT" if age_days <= 3 else "STALE"
-    last_scan = "-" if scan is None else f"{scan['pattern_type']} {scan.get('completed_at_utc') or scan['started_at_utc']}"
+    last_scan = (
+        "-"
+        if scan is None
+        else f"{scan.pattern_type} {scan.completed_at_utc.isoformat()}"
+    )
     last_backtest = "-" if backtest is None else str(backtest["created_at_utc"])
     health = service_health(config)
     return DashboardState(

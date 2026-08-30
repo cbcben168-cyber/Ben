@@ -5,11 +5,17 @@ from .review_queue_repository import (
     ReviewQueueRepository,
     ReviewQueueRepositoryError,
 )
+from .scan_repository import (
+    ScanConflictError,
+    ScanCorruptError,
+    ScanNotFoundError,
+    ScanPersistenceError,
+    ScanRepository,
+)
 from .repositories import (
     BacktestRepository,
     ProfileRepository,
     ReviewRepository,
-    ScanRepository,
     SnapshotRepository,
     SystemRepository,
 )
@@ -22,6 +28,10 @@ __all__ = (
     "ReviewRepository",
     "ReviewQueueRepository",
     "ReviewQueueRepositoryError",
+    "ScanConflictError",
+    "ScanCorruptError",
+    "ScanNotFoundError",
+    "ScanPersistenceError",
     "ScanRepository",
     "SnapshotRepository",
     "SqliteDatabase",

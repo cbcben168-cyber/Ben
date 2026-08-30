@@ -272,20 +272,6 @@ class SystemRepository:
         return None if row is None else dict(row)
 
 
-class ScanRepository:
-    def __init__(self, database: SqliteDatabase) -> None:
-        self.database = database
-
-    def latest(self) -> dict[str, object] | None:
-        with self.database.connect() as connection:
-            row = connection.execute("SELECT * FROM scan_batches ORDER BY coalesce(completed_at_utc,started_at_utc) DESC LIMIT 1").fetchone()
-        return None if row is None else dict(row)
-
-    def candidate_count(self) -> int:
-        with self.database.connect() as connection:
-            return int(connection.execute("SELECT count(*) FROM pattern_candidates").fetchone()[0])
-
-
 class ReviewRepository:
     def __init__(self, database: SqliteDatabase) -> None:
         self.database = database

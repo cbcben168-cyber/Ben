@@ -5,6 +5,7 @@ import sys
 
 import exchange_calendars as xcals
 import pandas as pd
+import pytest
 from streamlit.testing.v1 import AppTest
 
 from tv_quant.pattern_finder.review import (
@@ -145,12 +146,13 @@ def _write_cached_symbol(
     symbol: str,
     *,
     too_deep: bool = False,
+    final_session: str = "2026-08-07",
 ) -> None:
     cache_root.mkdir(parents=True, exist_ok=True)
     days = [
         session.date().isoformat()
         for session in xcals.get_calendar("XNYS").sessions_in_range(
-            "2026-01-02", "2026-08-07"
+            "2026-01-02", final_session
         )
     ]
     base_start = len(days) - 30
@@ -232,7 +234,7 @@ def _load_cache_review_with_symbols(
     monkeypatch.setenv("PATTERN_FINDER_REPOSITORY_ROOT", str(ROOT))
     monkeypatch.setenv("PATTERN_FINDER_DB_PATH", str(tmp_path / "pattern_finder.db"))
     app = _load("app/pages/2_Chart_Review.py")
-    app.segmented_control[0].set_value("缓存 / Futu").run()
+    app.segmented_control[0].set_value("缓存兼容").run()
     return app
 
 
@@ -311,7 +313,7 @@ def test_next_position_is_restored_after_page_restart(
     _button(app, "下一只").click().run()
 
     restarted = _load("app/pages/2_Chart_Review.py")
-    restarted.segmented_control[0].set_value("缓存 / Futu").run()
+    restarted.segmented_control[0].set_value("缓存兼容").run()
 
     assert "MSFT · 2 / 2" in _visible_text(restarted)
 
@@ -356,7 +358,7 @@ def test_skip_snooze_restore_and_state_filter_are_persisted(
     assert "稍后处理 1" in _visible_text(app)
 
     restarted = _load("app/pages/2_Chart_Review.py")
-    restarted.segmented_control[0].set_value("缓存 / Futu").run()
+    restarted.segmented_control[0].set_value("缓存兼容").run()
     assert "稍后处理 1" in _visible_text(restarted)
 
 
@@ -761,6 +763,157 @@ def test_formal_scan_is_built_and_persisted_only_after_explicit_click(
     assert "数据阻塞" in _visible_text(app)
 
 
+def _load_formal_review(
+    tmp_path: Path,
+    monkeypatch,
+    *,
+    cache_available: bool,
+    two_batches: bool = False,
+):
+    from datetime import timedelta
+
+    from tv_quant.pattern_finder.application.scan_persistence import (
+        build_flat_base_scan,
+    )
+    from tv_quant.pattern_finder.persistence import (
+        ProfileRepository,
+        ScanRepository,
+        SnapshotRepository,
+        SqliteDatabase,
+    )
+    from tv_quant.pattern_finder.universe_foundation import core_v1
+
+    snapshot = _formal_snapshot(tmp_path)
+    database = SqliteDatabase(tmp_path / "formal-review.db")
+    database.migrate()
+    ProfileRepository(database).put_published(core_v1())
+    SnapshotRepository(database).append(snapshot)
+    cache_root = tmp_path / "qfq"
+    if cache_available:
+        _write_cached_symbol(
+            cache_root,
+            "BOUND",
+            final_session="2026-08-14",
+        )
+        _write_cached_symbol(
+            cache_root,
+            "AAPL",
+            final_session="2026-08-14",
+        )
+    completed = datetime(2026, 8, 29, 20, 0, tzinfo=UTC)
+    older = build_flat_base_scan(
+        snapshot,
+        cache_root=cache_root,
+        completed_at_utc=completed,
+        code_commit="4c6e598",
+    )
+    ScanRepository(database).append_completed(older)
+    latest = older
+    if two_batches:
+        latest = build_flat_base_scan(
+            snapshot,
+            cache_root=cache_root,
+            completed_at_utc=completed + timedelta(minutes=1),
+            code_commit="4c6e598",
+        )
+        ScanRepository(database).append_completed(latest)
+
+    monkeypatch.setenv("PATTERN_FINDER_REPOSITORY_ROOT", str(ROOT))
+    monkeypatch.setenv("PATTERN_FINDER_DB_PATH", str(database.path))
+    monkeypatch.setenv("PATTERN_FINDER_CACHE_ROOT", str(cache_root))
+    monkeypatch.setenv("PATTERN_FINDER_AS_OF_UTC", "2026-08-15T20:00:00+00:00")
+    monkeypatch.setenv(
+        "PATTERN_FINDER_VALIDATION_PATH", str(tmp_path / "validation.jsonl")
+    )
+    monkeypatch.setenv(
+        "PATTERN_FINDER_LEGACY_VALIDATION_PATH", str(tmp_path / "legacy.jsonl")
+    )
+    monkeypatch.setenv(
+        "PATTERN_FINDER_MIGRATION_LEDGER_PATH", str(tmp_path / "ledger.jsonl")
+    )
+    return _load("app/pages/2_Chart_Review.py"), database, older, latest
+
+
+def test_chart_review_defaults_to_latest_formal_batch_and_does_not_recompute(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from tv_quant.pattern_finder.application import scan_persistence
+
+    app, _, older, latest = _load_formal_review(
+        tmp_path,
+        monkeypatch,
+        cache_available=True,
+        two_batches=True,
+    )
+    monkeypatch.setattr(
+        flat_base_module,
+        "detect_flat_base",
+        lambda *_args, **_kwargs: pytest.fail("formal batch must not be recomputed"),
+    )
+    monkeypatch.setattr(
+        scan_persistence,
+        "build_flat_base_scan",
+        lambda *_args, **_kwargs: pytest.fail("review must not build a batch"),
+    )
+    app.run()
+
+    assert not app.exception
+    assert app.segmented_control[0].value == "正式扫描批次"
+    assert latest.scan_batch_id in _visible_text(app)
+    assert older.scan_batch_id in tuple(
+        next(box for box in app.selectbox if box.label == "正式扫描批次").options
+    )
+    assert "LOCAL CACHE · NOT A FORMAL SCAN BATCH" not in _visible_text(app)
+    assert "BOUND · 1 / 1" in _visible_text(app)
+    assert {"电脑判断", "数据质量"} <= {box.label for box in app.selectbox}
+
+    batch_selector = next(
+        box for box in app.selectbox if box.label == "正式扫描批次"
+    )
+    batch_selector.select(older.scan_batch_id).run()
+    app.run()
+
+    assert not app.exception
+    assert next(
+        box for box in app.selectbox if box.label == "正式扫描批次"
+    ).value == older.scan_batch_id
+    assert f"Batch {older.scan_batch_id}" in _visible_text(app)
+
+
+def test_formal_data_blocked_row_explains_reason_and_disables_submission(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app, _, _, latest = _load_formal_review(
+        tmp_path,
+        monkeypatch,
+        cache_available=False,
+    )
+
+    assert not app.exception
+    assert latest.scan_batch_id in _visible_text(app)
+    assert "MISSING_CACHE" in _visible_text(app)
+    assert "DATA_BLOCKED" in _visible_text(app)
+    assert not any("人工判断" in item.label for item in app.segmented_control)
+
+
+def test_formal_review_can_explicitly_switch_to_cache_compatibility(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app, _, _, _ = _load_formal_review(
+        tmp_path,
+        monkeypatch,
+        cache_available=True,
+    )
+
+    app.segmented_control[0].set_value("缓存兼容").run()
+
+    assert not app.exception
+    assert "LOCAL CACHE · NOT A FORMAL SCAN BATCH" in _visible_text(app)
+
+
 def test_chart_review_cache_mode_renders_real_qfq_bars(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -770,7 +923,7 @@ def test_chart_review_cache_mode_renders_real_qfq_bars(
     monkeypatch.setenv("PATTERN_FINDER_AS_OF_UTC", "2026-08-10T04:00:00+00:00")
     app = _load("app/pages/2_Chart_Review.py")
 
-    app.segmented_control[0].set_value("缓存 / Futu").run()
+    app.segmented_control[0].set_value("缓存兼容").run()
 
     assert not app.exception
     assert "AAPL · 1 / 1" in _visible_text(app)

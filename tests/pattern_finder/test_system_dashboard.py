@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 import sys
 
@@ -77,6 +78,60 @@ def test_dashboard_uses_real_database_profile_and_snapshot_counts(tmp_path: Path
     assert state.fail_count == snapshot.header.candidate_count - snapshot.header.member_count - snapshot.header.quarantine_count
     assert state.quarantine_count == snapshot.header.quarantine_count
     assert state.candidate_count == 0 and state.pending_review_count == 0
+
+
+def test_dashboard_scopes_counts_to_latest_persisted_formal_batch(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from tv_quant.pattern_finder.application.scan_persistence import (
+        build_flat_base_scan,
+    )
+    from tv_quant.pattern_finder.persistence import ScanRepository
+
+    config = RuntimeConfig.from_environment(ROOT)
+    config = config.__class__(
+        repository_root=config.repository_root,
+        database_path=tmp_path / "dashboard-formal.db",
+        log_root=tmp_path / "logs",
+        host=config.host,
+        port=config.port,
+        app_path=config.app_path,
+        pid_path=tmp_path / "logs/pid.json",
+        futu_host=config.futu_host,
+        futu_port=config.futu_port,
+    )
+    monkeypatch.setenv("PATTERN_FINDER_PROFILE_ROOT", str(tmp_path / "profiles"))
+    monkeypatch.setenv("PATTERN_FINDER_SNAPSHOT_ROOT", str(tmp_path / "snapshots"))
+    monkeypatch.setenv(
+        "PATTERN_FINDER_VALIDATION_PATH", str(tmp_path / "validation.jsonl")
+    )
+    database = initialize_local_foundation(config)
+    snapshot = _snapshot(tmp_path)
+    SnapshotRepository(database).append(snapshot)
+    completed = datetime(2026, 8, 30, 1, 0, tzinfo=UTC)
+    older = build_flat_base_scan(
+        snapshot,
+        cache_root=tmp_path / "empty-cache",
+        completed_at_utc=completed,
+        code_commit="4c6e598",
+    )
+    latest = build_flat_base_scan(
+        snapshot,
+        cache_root=tmp_path / "empty-cache",
+        completed_at_utc=completed + timedelta(minutes=1),
+        code_commit="4c6e598",
+    )
+    scans = ScanRepository(database)
+    scans.append_completed(older)
+    scans.append_completed(latest)
+
+    state = build_dashboard_state(config)
+
+    assert latest.scan_batch_id in state.last_scan
+    assert state.candidate_count == latest.manifest.ordered_input_count
+    assert state.candidate_count != scans.candidate_count()
+    assert state.pending_review_count == 0
 
 
 def test_diagnostics_contains_no_secret_values(tmp_path: Path, monkeypatch) -> None:

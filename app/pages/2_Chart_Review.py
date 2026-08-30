@@ -1,13 +1,17 @@
 import os
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from uuid import uuid4
 
 import streamlit as st
 
 from tv_quant.data_quality import load_standardized_csv
-from tv_quant.pattern_finder.cache import DEFAULT_CACHE_ROOT, cached_symbols, load_cache_entry
+from tv_quant.pattern_finder.cache import (
+    DEFAULT_CACHE_ROOT,
+    cached_symbols,
+    load_cache_entry,
+)
 from tv_quant.pattern_finder.charts import build_candlestick_figure
 from tv_quant.pattern_finder.flat_base import FlatBaseResult, detect_flat_base
 from tv_quant.pattern_finder.fixtures import load_fixture, load_fixtures
@@ -27,9 +31,11 @@ from tv_quant.pattern_finder.application.review_queue import (
 )
 from tv_quant.pattern_finder.application.review_sources import (
     build_cache_queue_source,
+    build_scan_batch_queue_source,
 )
 from tv_quant.pattern_finder.persistence import (
     ReviewQueueRepository,
+    ScanRepository,
     SqliteDatabase,
 )
 from tv_quant.pattern_finder.runtime import RuntimeConfig
@@ -42,8 +48,22 @@ profile_names = tuple(profile.display_name_zh for profile in profiles)
 selected_profile_name = st.selectbox("当前查看形态", profile_names)
 profile = next(item for item in profiles if item.display_name_zh == selected_profile_name)
 st.caption(f"当前评价形态：{profile.display_name_zh}")
+repository_root = Path(os.getenv("PATTERN_FINDER_REPOSITORY_ROOT", Path.cwd()))
+try:
+    runtime_config = RuntimeConfig.from_environment(repository_root)
+    discovery_database = SqliteDatabase(runtime_config.database_path, read_only=True)
+    discovery_database.validate_schema()
+    completed_batches = ScanRepository(discovery_database).list_completed()
+except Exception:
+    runtime_config = None
+    completed_batches = ()
+source_options = (
+    ("正式扫描批次", "缓存兼容", "本地样例")
+    if completed_batches
+    else ("本地样例", "缓存兼容")
+)
 source = st.segmented_control(
-    "数据来源", ("本地样例", "缓存 / Futu"), default="本地样例", required=True,
+    "数据来源", source_options, default=source_options[0], required=True,
     key="chart_review_source",
 )
 
@@ -107,16 +127,20 @@ if source == "本地样例":
         config={"displayModeBar": True, "scrollZoom": True},
     )
 else:
-    st.caption("来自本地逐股票缓存的 Futu 前复权日K与成交量")
+    formal_mode = source == "正式扫描批次"
+    st.caption(
+        "来自不可变正式扫描批次的 Futu 前复权日K"
+        if formal_mode
+        else "来自本地逐股票缓存的 Futu 前复权日K与成交量"
+    )
     cache_root = Path(os.getenv("PATTERN_FINDER_CACHE_ROOT", str(DEFAULT_CACHE_ROOT)))
     validation_path = Path(os.getenv("PATTERN_FINDER_VALIDATION_PATH", str(validation.DEFAULT_VALIDATION_PATH)))
     legacy_path = Path(os.getenv("PATTERN_FINDER_LEGACY_VALIDATION_PATH", str(validation.LEGACY_VALIDATION_PATH)))
     ledger_path = Path(os.getenv("PATTERN_FINDER_MIGRATION_LEDGER_PATH", str(validation.DEFAULT_MIGRATION_LEDGER_PATH)))
-    repository_root = Path(os.getenv("PATTERN_FINDER_REPOSITORY_ROOT", Path.cwd()))
     validation.migrate_legacy_validations(
         legacy_path, validation_path, ledger_path, repository_root=repository_root
     )
-    if not cached_symbols(cache_root):
+    if not formal_mode and not cached_symbols(cache_root):
         st.info("没有可用的本地 M3B 缓存，请先在今日扫描中明确执行刷新。")
         st.stop()
 
@@ -136,15 +160,28 @@ else:
         os.getenv("PATTERN_FINDER_AS_OF_UTC")
     )
     try:
-        queue_source = build_cache_queue_source(
-            cache_root,
-            as_of_utc,
-            profile.pattern_type,
-            history,
-        )
-        runtime_config = RuntimeConfig.from_environment(repository_root)
+        runtime_config = runtime_config or RuntimeConfig.from_environment(repository_root)
         database = SqliteDatabase(runtime_config.database_path)
         database.migrate()
+        scans = ScanRepository(database)
+        selected_batch = None
+        if formal_mode:
+            batches = scans.list_completed()
+            if not batches:
+                raise ValueError("没有已完成的正式扫描批次")
+            batch_ids = tuple(batch.scan_batch_id for batch in batches)
+            selected_batch_id = st.selectbox("正式扫描批次", batch_ids)
+            selected_batch = next(
+                batch for batch in batches if batch.scan_batch_id == selected_batch_id
+            )
+            queue_source = build_scan_batch_queue_source(selected_batch, history)
+        else:
+            queue_source = build_cache_queue_source(
+                cache_root,
+                as_of_utc,
+                profile.pattern_type,
+                history,
+            )
         queue_repository = ReviewQueueRepository(database)
         latest_actions = queue_repository.latest_actions(
             queue_source.source_kind,
@@ -160,7 +197,22 @@ else:
         st.error(f"复核队列无法载入：{error}")
         st.stop()
 
-    st.warning(queue_source.label)
+    if selected_batch is None:
+        st.warning(queue_source.label)
+    else:
+        manifest = selected_batch.manifest
+        st.success(queue_source.label)
+        st.caption(
+            f"Batch {selected_batch.scan_batch_id}｜Snapshot {selected_batch.snapshot_id}｜"
+            f"Profile {selected_batch.profile_version_id}｜"
+            f"Detector {selected_batch.pattern_version}｜"
+            f"Scan date {manifest.scan_as_of_date}"
+        )
+        st.caption(
+            f"输入 {manifest.ordered_input_count}｜数据通过 {manifest.quality_pass_count}｜"
+            f"数据阻塞 {manifest.quality_fail_count}｜YES {manifest.yes_count}｜"
+            f"NO {manifest.no_count}"
+        )
     state_labels = {
         "全部": None,
         "未复核": QueueState.UNREVIEWED,
@@ -190,8 +242,26 @@ else:
         state=state_labels[selected_state_label],
         symbol_query=symbol_query,
     )
+    queue_items = queue_source.items
+    if formal_mode:
+        computer_filter = st.selectbox(
+            "电脑判断", ("全部", "YES", "NO", "NOT_EVALUATED")
+        )
+        quality_filter = st.selectbox("数据质量", ("全部", "通过", "阻塞"))
+        queue_items = tuple(
+            item
+            for item in queue_items
+            if (
+                computer_filter == "全部"
+                or item.computer_decision == computer_filter
+            )
+            and (
+                quality_filter == "全部"
+                or item.data_quality_passed == (quality_filter == "通过")
+            )
+        )
     queue_view = project_queue(
-        queue_source.items,
+        queue_items,
         latest_actions,
         filters,
         cursor.item_id if cursor is not None else None,
@@ -292,40 +362,117 @@ else:
         save_cursor(selected_item.item_id)
 
     selected_symbol = selected_item.symbol
-    try:
-        entry = load_cache_entry(
-            selected_symbol,
-            cache_root=cache_root,
-            as_of_utc=as_of_utc,
+    review_input = None
+    if formal_mode:
+        assert selected_batch is not None
+        selected_result = next(
+            result
+            for result in selected_batch.results
+            if result.candidate_id == selected_item.item_id
         )
-    except Exception as error:
-        st.error(f"缓存读取失败：{error}")
-        st.stop()
-    if entry is None:
-        st.info("该股票没有本地缓存，请在今日扫描中明确执行 Futu 刷新。")
-        st.stop()
-
-    report = entry.quality
-    if report.passed:
-        st.success(f"数据质量：通过｜{entry.rows} 行｜最新交易日 {report.last_session.isoformat()}")
+        if not selected_item.data_quality_passed:
+            st.warning(
+                "DATA_BLOCKED｜正式扫描未评估｜原因："
+                + (selected_item.quality_reason or "UNKNOWN")
+            )
+        else:
+            features = selected_result.features
+            diagnostics = {
+                "base_length": int(features["base_length"]),
+                "base_depth": float(features["base_depth_pct"]),
+                "bottom_tests": int(features["bottom_test_count"]),
+                "normalized_slope": float(features["normalized_slope"]),
+                "support": float(features["support_level"]),
+                "resistance": float(features["resistance_level"]),
+            }
+            review_input = review.PatternReviewInput(
+                computer_result=selected_result.computer_decision.value,
+                detector_version=selected_result.pattern_version,
+                scan_as_of_date=date.fromisoformat(selected_result.signal_date),
+                review_window_start=date.fromisoformat(str(features["base_start"])),
+                review_window_end=date.fromisoformat(str(features["base_end"])),
+                diagnostics=diagnostics,
+            )
+            st.success("数据质量：正式扫描时已通过")
+            st.caption(
+                f"电脑判断：{'是' if review_input.computer_result == 'YES' else '否'}｜"
+                f"检测器版本：{review_input.detector_version}"
+            )
+            st.caption(
+                "｜".join(
+                    f"{field.display_name_zh}："
+                    f"{_format_diagnostic(diagnostics[field.key], field.format_spec)}"
+                    for field in profile.diagnostic_fields
+                )
+            )
+            st.caption(
+                f"复核区间：{review_input.review_window_start.isoformat()} 至 "
+                f"{review_input.review_window_end.isoformat()}"
+            )
+            question = (
+                profile.review_question_yes
+                if review_input.computer_result == "YES"
+                else profile.review_question_no
+            )
+            st.subheader(question)
+            st.caption(profile.review_help)
+            path = cache_root / f"{selected_symbol}_daily.csv"
+            try:
+                frame = _cached_frame(path.as_posix(), path.stat().st_mtime_ns)
+            except (OSError, ValueError) as error:
+                review_input = None
+                st.warning(f"正式结果仍保留，但图表缓存当前不可用：{error}")
+            else:
+                series = chart_series_from_frame(frame, selected_symbol, max_bars=150)
+                st.plotly_chart(
+                    build_candlestick_figure(series),
+                    width="stretch",
+                    config={"displayModeBar": True, "scrollZoom": True},
+                )
     else:
-        issues = list(report.errors)
-        if report.missing_sessions:
-            issues.append(f"缺少 {len(report.missing_sessions)} 个 XNYS 交易日")
-        st.warning("数据质量：失败｜" + "；".join(issues))
-    frame = _cached_frame(entry.path.as_posix(), entry.path.stat().st_mtime_ns)
-    series = chart_series_from_frame(frame, selected_symbol, max_bars=150)
-    flat_base = detect_flat_base(frame) if report.passed and len(frame) >= 120 else None
-    _render_diagnostics(flat_base)
-    st.plotly_chart(
-        build_candlestick_figure(series, flat_base=flat_base), width="stretch",
-        config={"displayModeBar": True, "scrollZoom": True},
-    )
+        try:
+            entry = load_cache_entry(
+                selected_symbol,
+                cache_root=cache_root,
+                as_of_utc=as_of_utc,
+            )
+        except Exception as error:
+            st.error(f"缓存读取失败：{error}")
+            st.stop()
+        if entry is None:
+            st.info("该股票没有本地缓存，请在今日扫描中明确执行 Futu 刷新。")
+            st.stop()
 
-    if flat_base is not None:
-        review_input = review.flat_base_review_input(flat_base)
+        report = entry.quality
+        if report.passed:
+            st.success(
+                f"数据质量：通过｜{entry.rows} 行｜"
+                f"最新交易日 {report.last_session.isoformat()}"
+            )
+        else:
+            issues = list(report.errors)
+            if report.missing_sessions:
+                issues.append(f"缺少 {len(report.missing_sessions)} 个 XNYS 交易日")
+            st.warning("数据质量：失败｜" + "；".join(issues))
+        frame = _cached_frame(entry.path.as_posix(), entry.path.stat().st_mtime_ns)
+        series = chart_series_from_frame(frame, selected_symbol, max_bars=150)
+        flat_base = detect_flat_base(frame) if report.passed and len(frame) >= 120 else None
+        _render_diagnostics(flat_base)
+        st.plotly_chart(
+            build_candlestick_figure(series, flat_base=flat_base), width="stretch",
+            config={"displayModeBar": True, "scrollZoom": True},
+        )
+        if flat_base is not None:
+            review_input = review.flat_base_review_input(flat_base)
+
+    if review_input is not None:
         scan_date = review_input.scan_as_of_date.isoformat()
-        key = (selected_symbol, profile.pattern_type, flat_base.detector_version, scan_date)
+        key = (
+            selected_symbol,
+            profile.pattern_type,
+            review_input.detector_version,
+            scan_date,
+        )
         current = validation.latest_validations(history).get(key)
         history_count = sum(record.key == key for record in history)
         if current is None:

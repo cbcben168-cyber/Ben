@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
+import os
 import platform
 import socket
 import subprocess
@@ -13,11 +14,18 @@ from uuid import UUID
 import yaml
 
 from tv_quant.pattern_finder.persistence.database import SqliteDatabase
-from tv_quant.pattern_finder.persistence import ScanRepository
+from tv_quant.pattern_finder.persistence import ReviewQueueRepository, ScanRepository
+from tv_quant.pattern_finder.validation import (
+    DEFAULT_VALIDATION_PATH,
+    read_validation_history,
+)
+from tv_quant.pattern_finder.application.review_queue import QueueFilters, project_queue
+from tv_quant.pattern_finder.application.review_sources import (
+    build_scan_batch_queue_source,
+)
 from tv_quant.pattern_finder.persistence.repositories import (
     BacktestRepository,
     ProfileRepository,
-    ReviewRepository,
     SnapshotRepository,
     SystemRepository,
 )
@@ -150,10 +158,34 @@ def build_dashboard_state(config: RuntimeConfig) -> DashboardState:
         database_ok = schema == database.latest_version
         active = ProfileRepository(database).active()
         snapshot = SnapshotRepository(database).latest_summary()
-        scan = ScanRepository(database).latest()
+        scans = ScanRepository(database)
+        scan = scans.latest()
         backtest = BacktestRepository(database).latest()
-        candidate_count = ScanRepository(database).candidate_count()
-        pending = ReviewRepository(database).pending_count()
+        if scan is None:
+            candidate_count = pending = 0
+        else:
+            candidate_count = scans.candidate_count(scan.scan_batch_id)
+            configured_validation = Path(
+                os.getenv("PATTERN_FINDER_VALIDATION_PATH", str(DEFAULT_VALIDATION_PATH))
+            )
+            validation_path = (
+                configured_validation
+                if configured_validation.is_absolute()
+                else config.repository_root / configured_validation
+            )
+            history = read_validation_history(validation_path)
+            source = build_scan_batch_queue_source(scan, history)
+            actions = ReviewQueueRepository(database).latest_actions(
+                source.source_kind,
+                source.source_id,
+                scan.pattern_type,
+            )
+            pending = project_queue(
+                source.items,
+                actions,
+                QueueFilters(),
+                None,
+            ).counts.unreviewed
     except Exception:
         return DashboardState("ERROR", "ERROR", 0, "UNAVAILABLE", "-", None, None, 0, 0, 0, "-", 0, 0, "-", "UNKNOWN")
     profile = "-" if active is None else f"{active['profile_id']} v{active['version']}"
@@ -170,7 +202,7 @@ def build_dashboard_state(config: RuntimeConfig) -> DashboardState:
     last_scan = (
         "-"
         if scan is None
-        else f"{scan.pattern_type} {scan.completed_at_utc.isoformat()}"
+        else f"{scan.scan_batch_id} {scan.pattern_type} {scan.completed_at_utc.isoformat()}"
     )
     last_backtest = "-" if backtest is None else str(backtest["created_at_utc"])
     health = service_health(config)

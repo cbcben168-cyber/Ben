@@ -204,6 +204,31 @@ def test_token_is_random_and_state_has_only_token_hash(
     assert "token" not in inspect.signature(issue_confirmation_grant).parameters
 
 
+def test_grant_retries_a_token_that_argparse_would_parse_as_an_option(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    request = _request()
+    tokens = iter(("-unsafe-leading-dash", "safe-confirmation-token"))
+    sizes: list[int] = []
+
+    def _token_urlsafe(size: int) -> str:
+        sizes.append(size)
+        return next(tokens)
+
+    monkeypatch.setattr("tv_quant.contracts.confirmation.secrets.token_urlsafe", _token_urlsafe)
+
+    grant = issue_confirmation_grant(
+        request,
+        _approval(request),
+        _store(tmp_path),
+        ISSUED_AT,
+    )
+
+    assert sizes == [32, 32]
+    assert grant.confirmation_token == "safe-confirmation-token"
+
+
 def test_expiry_and_single_use_fields_are_frozen(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

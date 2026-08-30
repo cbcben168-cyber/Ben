@@ -911,6 +911,8 @@ def issue_confirmation_grant(
         raise ValueError("issued_at must be before request expiry")
 
     token = secrets.token_urlsafe(32)
+    while token.startswith("-"):
+        token = secrets.token_urlsafe(32)
     stored = _StoredConfirmationGrant(
         confirmation_request_id=request.confirmation_request_id,
         confirmation_token_hash=sha256_bytes(token.encode("utf-8")),

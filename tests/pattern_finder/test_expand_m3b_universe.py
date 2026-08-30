@@ -43,22 +43,6 @@ def _seed_valid_cache(root: Path, symbols: tuple[str, ...], as_of: datetime) -> 
         ).to_csv(root / f"{symbol}_daily.csv", index=False)
 
 
-def _write_quota_history(path: Path, count: int, as_of: datetime) -> None:
-    records = [
-        {
-            "timestamp_utc": as_of.isoformat(),
-            "phase": "pre",
-            "code": f"US.HISTORY{index}",
-            "is_new_code": True,
-        }
-        for index in range(count)
-    ]
-    path.write_text(
-        "".join(json.dumps(record) + "\n" for record in records),
-        encoding="utf-8",
-    )
-
-
 class ExpansionContext:
     def __init__(
         self,
@@ -166,14 +150,13 @@ def test_expansion_downloads_only_missing_symbols_until_total_target(
     assert context.closed is True
 
 
-def test_expansion_stops_at_daily_limit_and_reports_partial_success(
+def test_expansion_stops_when_provider_exhausts_new_code_quota(
     tmp_path: Path,
 ) -> None:
     cache_root = tmp_path / "cache"
     log_path = tmp_path / "quota.jsonl"
     _seed_valid_cache(cache_root, PILOT_SYMBOLS, AS_OF)
-    _write_quota_history(log_path, 24, AS_OF)
-    context = ExpansionContext(PILOT_SYMBOLS)
+    context = ExpansionContext(PILOT_SYMBOLS, remain_quota=1)
 
     result = refresh_universe_to_target(
         25,
@@ -187,14 +170,14 @@ def test_expansion_stops_at_daily_limit_and_reports_partial_success(
     assert len(result.completed_symbols) == 1
     assert result.final_count == 9
     assert result.blocker is not None
-    assert result.blocker.startswith("FUTU_QUOTA_BLOCKER")
+    assert "no remaining historical-K-line quota" in result.blocker
     assert context.closed is True
 
 
-def test_expansion_reports_low_quota_without_downloading(tmp_path: Path) -> None:
+def test_expansion_reports_zero_provider_quota_without_downloading(tmp_path: Path) -> None:
     cache_root = tmp_path / "cache"
     _seed_valid_cache(cache_root, PILOT_SYMBOLS, AS_OF)
-    context = ExpansionContext(PILOT_SYMBOLS, remain_quota=99)
+    context = ExpansionContext(PILOT_SYMBOLS, remain_quota=0)
 
     result = refresh_universe_to_target(
         25,
@@ -208,7 +191,7 @@ def test_expansion_reports_low_quota_without_downloading(tmp_path: Path) -> None
     assert result.completed_symbols == ()
     assert result.final_count == 8
     assert result.blocker is not None
-    assert "remain_quota 99" in result.blocker
+    assert "no remaining historical-K-line quota" in result.blocker
     assert context.requests == []
     assert context.closed is True
 

@@ -1,5 +1,7 @@
 from datetime import UTC, datetime
+import importlib.util
 from pathlib import Path
+import sys
 
 import exchange_calendars as xcals
 import pandas as pd
@@ -647,6 +649,116 @@ def test_today_scan_refreshes_only_stale_cached_symbols_after_explicit_click(
 
     assert calls == [(('BAC', 'WFC'), cache_root)]
     assert "已更新 2 只过期缓存" in _visible_text(app)
+
+
+def _formal_snapshot(tmp_path: Path):
+    module_name = "m3d_today_scan_snapshot_fixture"
+    module = sys.modules.get(module_name)
+    if module is None:
+        path = ROOT / "tests/pattern_finder/universe_foundation/test_ui_read_model.py"
+        spec = importlib.util.spec_from_file_location(module_name, path)
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
+        spec.loader.exec_module(module)
+    _, snapshot = module._persist_complete_snapshot(tmp_path / "legacy")
+    return snapshot
+
+
+def _load_today_scan_with_database(
+    tmp_path: Path,
+    monkeypatch,
+    *,
+    snapshot,
+):
+    from tv_quant.pattern_finder.persistence import (
+        ProfileRepository,
+        SnapshotRepository,
+        SqliteDatabase,
+    )
+    from tv_quant.pattern_finder.universe_foundation import core_v1
+
+    database = SqliteDatabase(tmp_path / "pattern-finder.db")
+    database.migrate()
+    ProfileRepository(database).put_published(core_v1())
+    if snapshot is not None:
+        SnapshotRepository(database).append(snapshot)
+
+    monkeypatch.setenv("PATTERN_FINDER_REPOSITORY_ROOT", str(ROOT))
+    monkeypatch.setenv("PATTERN_FINDER_DB_PATH", str(database.path))
+    monkeypatch.setenv("PATTERN_FINDER_CACHE_ROOT", str(tmp_path / "qfq"))
+    monkeypatch.setenv("PATTERN_FINDER_AS_OF_UTC", "2026-08-29T20:00:00+00:00")
+    monkeypatch.setenv(
+        "PATTERN_FINDER_VALIDATION_PATH", str(tmp_path / "validation.jsonl")
+    )
+    monkeypatch.setenv(
+        "PATTERN_FINDER_LEGACY_VALIDATION_PATH", str(tmp_path / "legacy.jsonl")
+    )
+    monkeypatch.setenv(
+        "PATTERN_FINDER_MIGRATION_LEDGER_PATH", str(tmp_path / "ledger.jsonl")
+    )
+    app = _load("app/pages/1_Today_Scan.py")
+    app.segmented_control[0].set_value("缓存 / Futu").run()
+    return app, database
+
+
+def test_today_scan_blocks_formal_persistence_without_snapshot(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app, _ = _load_today_scan_with_database(
+        tmp_path,
+        monkeypatch,
+        snapshot=None,
+    )
+
+    assert not app.exception
+    assert "需要正式且完整的 Universe Snapshot" in _visible_text(app)
+    assert not any(
+        button.label == "保存正式扫描批次" and not button.disabled
+        for button in app.button
+    )
+
+
+def test_formal_scan_is_built_and_persisted_only_after_explicit_click(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from tv_quant.pattern_finder.application import scan_persistence
+    from tv_quant.pattern_finder.persistence import ScanRepository
+
+    snapshot = _formal_snapshot(tmp_path)
+    batch = scan_persistence.build_flat_base_scan(
+        snapshot,
+        cache_root=tmp_path / "empty-cache",
+        completed_at_utc=datetime(2026, 8, 29, 20, 0, tzinfo=UTC),
+        code_commit="2377a41",
+    )
+    calls = []
+
+    def build(*args, **kwargs):
+        calls.append((args, kwargs))
+        return batch
+
+    monkeypatch.setattr(scan_persistence, "build_flat_base_scan", build)
+    app, database = _load_today_scan_with_database(
+        tmp_path,
+        monkeypatch,
+        snapshot=snapshot,
+    )
+
+    assert not app.exception
+    assert calls == []
+    assert ScanRepository(database).latest() is None
+    _button(app, "保存正式扫描批次").click().run()
+
+    assert not app.exception
+    assert len(calls) == 1
+    assert calls[0][0] == (snapshot,)
+    assert calls[0][1]["cache_root"] == tmp_path / "qfq"
+    assert ScanRepository(database).latest().scan_batch_id == batch.scan_batch_id
+    assert batch.scan_batch_id in _visible_text(app)
+    assert "数据阻塞" in _visible_text(app)
 
 
 def test_chart_review_cache_mode_renders_real_qfq_bars(

@@ -1,6 +1,8 @@
 import os
 from datetime import UTC, datetime
 from pathlib import Path
+import subprocess
+from uuid import UUID
 
 import pandas as pd
 import streamlit as st
@@ -17,6 +19,14 @@ from tv_quant.pattern_finder.models import ohlcv_frame_from_series
 from tv_quant.pattern_finder.pattern_registry import enabled_pattern_profiles
 from tv_quant.pattern_finder import review
 from tv_quant.pattern_finder import validation
+from tv_quant.pattern_finder.application import scan_persistence
+from tv_quant.pattern_finder.persistence import (
+    ScanRepository,
+    SnapshotRepository,
+    SqliteDatabase,
+)
+from tv_quant.pattern_finder.runtime.config import RuntimeConfig
+from tv_quant.pattern_finder.universe_foundation import Completeness, SnapshotKind
 
 
 st.set_page_config(page_title="今日扫描", page_icon="📋", layout="wide")
@@ -40,6 +50,84 @@ def _cached_scan(cache_root: str, as_of_iso: str, symbols: tuple[str, ...]):
 def _cached_validation_history(path: str, modified_ns: int):
     del modified_ns
     return validation.read_validation_history(path)
+
+
+def _git_commit(repository_root: Path) -> str:
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=repository_root,
+            text=True,
+            timeout=3,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+    except (OSError, subprocess.SubprocessError):
+        return "UNKNOWN"
+
+
+def _render_formal_scan_creation(cache_root: Path, repository_root: Path) -> None:
+    try:
+        config = RuntimeConfig.from_environment(repository_root)
+    except (OSError, ValueError) as error:
+        st.info(
+            "需要正式且完整的 Universe Snapshot 才能保存正式扫描批次。"
+            f"当前运行配置不可用：{error}"
+        )
+        return
+    database = SqliteDatabase(config.database_path)
+    snapshots = SnapshotRepository(database)
+    try:
+        summary = snapshots.latest_summary()
+    except Exception as error:
+        st.info(
+            "需要正式且完整的 Universe Snapshot 才能保存正式扫描批次。"
+            f"当前无法读取 Snapshot：{error}"
+        )
+        return
+
+    if (
+        summary is None
+        or summary["snapshot_kind"] != SnapshotKind.FORMAL.value
+        or summary["completeness"] != Completeness.COMPLETE.value
+    ):
+        st.info("需要正式且完整的 Universe Snapshot 才能保存正式扫描批次。")
+        return
+
+    try:
+        snapshot = snapshots.get(UUID(str(summary["snapshot_id"])))
+    except Exception as error:
+        st.error(f"正式 Universe Snapshot 无法验证：{error}")
+        return
+
+    st.caption(
+        "正式扫描来源："
+        f"{snapshot.header.universe_snapshot_id}｜"
+        f"{snapshot.header.as_of_session.isoformat()}｜"
+        f"MEMBER {snapshot.header.member_count}"
+    )
+    if not st.button("保存正式扫描批次", type="primary"):
+        return
+
+    try:
+        batch = scan_persistence.build_flat_base_scan(
+            snapshot,
+            cache_root=cache_root,
+            completed_at_utc=datetime.now(UTC),
+            code_commit=_git_commit(config.repository_root),
+        )
+        persisted = ScanRepository(database).append_completed(batch)
+    except Exception as error:
+        st.error(f"正式扫描批次保存失败：{error}")
+        return
+
+    manifest = persisted.manifest
+    st.success(f"正式扫描批次已保存：{persisted.scan_batch_id}")
+    st.caption(
+        f"输入 {manifest.ordered_input_count}｜"
+        f"数据通过 {manifest.quality_pass_count}｜"
+        f"数据阻塞 {manifest.quality_fail_count}｜"
+        f"YES {manifest.yes_count}｜NO {manifest.no_count}"
+    )
 
 
 if source == "本地样例":
@@ -164,3 +252,4 @@ else:
         hide_index=True,
         width="stretch",
     )
+    _render_formal_scan_creation(cache_root, repository_root)

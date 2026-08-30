@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
@@ -13,7 +14,7 @@ from types import MappingProxyType
 from typing import TypeAlias
 
 from tv_quant.data_quality import DataQualityError, load_standardized_csv
-from tv_quant.pattern_finder.cache import cache_path, load_cache_entry
+from tv_quant.pattern_finder.data_quality import assess_symbol_data
 from tv_quant.pattern_finder.flat_base import (
     MIN_HISTORY,
     PATTERN_DETECTOR_VERSION,
@@ -105,6 +106,13 @@ def _canonical_json(value: object) -> bytes:
 
 def _hash_json(value: object) -> str:
     return hashlib.sha256(_canonical_json(value)).hexdigest()
+
+
+def _formal_cache_path(cache_root: str | Path, symbol: str) -> Path:
+    normalized = symbol.strip().upper()
+    if not re.fullmatch(r"[A-Z0-9.-]+", normalized):
+        raise ValueError(f"snapshot member has unsafe symbol: {symbol!r}")
+    return Path(cache_root) / f"{normalized}_daily.csv"
 
 
 @dataclass(frozen=True, slots=True)
@@ -340,7 +348,7 @@ def build_flat_base_scan(
     pending: list[dict[str, object]] = []
 
     for source_rank, member in enumerate(members):
-        path = cache_path(cache_root, member.symbol)
+        path = _formal_cache_path(cache_root, member.symbol)
         cache_exists = path.exists()
         cache_read_error = False
         try:
@@ -383,20 +391,16 @@ def build_flat_base_scan(
         }
         if cache_bytes is not None:
             try:
-                entry = load_cache_entry(
-                    member.symbol, cache_root=cache_root, as_of_utc=as_of_utc
-                )
-                if entry is None:  # pragma: no cover - file existence race guard
-                    reason_codes = ("MISSING_CACHE",)
-                elif not entry.quality.passed:
+                frame, _ = load_standardized_csv(path)
+                quality = assess_symbol_data(frame, member.symbol, as_of_utc)
+                if not quality.passed:
                     reason_codes = _quality_reason_codes(
-                        entry.quality.errors, len(entry.quality.missing_sessions)
+                        quality.errors, len(quality.missing_sessions)
                     )
                     features["quality_issues"] = "; ".join(
-                        (*entry.quality.errors, *map(str, entry.quality.missing_sessions))
+                        (*quality.errors, *map(str, quality.missing_sessions))
                     )
                 else:
-                    frame, _ = load_standardized_csv(entry.path)
                     if len(frame) < MIN_HISTORY:
                         reason_codes = ("INSUFFICIENT_HISTORY",)
                     else:

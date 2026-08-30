@@ -193,6 +193,22 @@ def test_builder_preserves_snapshot_member_order_and_blocks_corrupt_cache(tmp_pa
     assert batch.results[0].reason_codes == ("INVALID_CACHE",)
 
 
+def test_formal_member_outside_legacy_m3b_allowlist_is_still_accounted_for(
+    tmp_path: Path,
+) -> None:
+    from tv_quant.pattern_finder.application.scan_persistence import build_flat_base_scan
+
+    batch = build_flat_base_scan(
+        _snapshot(("BOUND",)),
+        cache_root=tmp_path,
+        completed_at_utc=COMPLETED,
+        code_commit="abc1234",
+    )
+
+    assert tuple(row.symbol for row in batch.results) == ("BOUND",)
+    assert batch.results[0].reason_codes == ("MISSING_CACHE",)
+
+
 def test_unreadable_cache_is_a_blocked_row_not_a_batch_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -472,7 +472,9 @@ No ACTIVE pagination or terminal factor request was executed during this recover
 
 This follow-up does not attempt to recover, relabel, or reconstruct the unavailable `2026-09-01` terminal evidence. It opens a separate `1010` diagnostic qualification attempt for XNYS session `2026-09-04` and preserves all historical `CORE:v1` thresholds and Funnel semantics. It does not accept a `1010` contract, and it does not reuse legacy `1009` mappings or hashes.
 
-Any future acceptance must independently bind: A business semantic; B metric identity; C evidence/source identity; D provider/version identity; E derivation version; F qualification-contract version; and G Profile Version. These observations identify possible future interfaces only; they are not the missing accepted A–G contract tuple.
+Any future acceptance must independently bind: A business semantic; B metric identity; C source identity; D provider/version identity; E derivation identity; F qualification-contract version; and G Profile Version. C and E are independently versioned: an E-only change leaves C unchanged, binds a newly requalified F contract, and does not itself require G; G changes only when accepted membership semantics/identity changes. These observations identify possible future interfaces only; they are not the missing accepted A–G contract tuple.
+
+Sections 9.2–9.5 are diagnostic observations only. They publish no `ProviderIdentityQualificationEnvelope`, no `QualificationRegistry` acceptance, no service-resolved bundle, and no `universe-snapshot/v2` binding. Any future accepted artifact must make those bindings independently.
 
 `QUALIFICATION_SESSION_LOCKED_XNYS_2026-09-04`
 
@@ -514,7 +516,7 @@ Authority verdict: `UNACCEPTED_PROPOSED_INTERFACE_FOR_1010`.
 
 ### 9.4 LISTED trading-session candidate authority
 
-`Stock Screen LISTED_DAYS=2307` remains `REJECTED`: its prior `KLAR=357` value followed calendar-day scale and contradicted XNYS-session arithmetic. The proposed source-neutral metric is `LISTED_TRADING_SESSIONS`, using `get_market_snapshot().listing_date` plus the exact named/versioned XNYS calendar. It preserves threshold `Listed >= 250 trading days`; its accepted evidence identity and deterministic calculation require a new Evidence Version and Profile Version.
+`Stock Screen LISTED_DAYS=2307` remains `REJECTED`: its prior `KLAR=357` value followed calendar-day scale and contradicted XNYS-session arithmetic. The proposed source-neutral metric is `LISTED_TRADING_SESSIONS`, using `get_market_snapshot().listing_date` plus the exact named/versioned XNYS calendar. It preserves threshold `Listed >= 250 trading days`. This diagnostic subsection does not publish an accepted contract: a future accepted artifact must independently bind its new C source identity, E derivation identity, F requalification, and a new G Profile Version because the accepted membership identity changes.
 
 The live snapshot again returned `US.KLAR listing_date=2025-09-10`. With `exchange_calendars 4.13.2` / `XNYS`, that date and `2026-09-04` are both sessions. The binding rule is both-inclusive: include the listing session when the listing date is an XNYS session, and include `as_of_date` only after that session has completed. Weekends and exchange holidays are excluded by the calendar. The result is `249` sessions through completed session `2026-09-04`; excluding the listing session would be `248`. The calendar artifact SHA-256 is `ba1a0fc72350bcc3bf2120515e861fa5b0eeb3316caf17e71fe1002c78aad150`.
 

@@ -136,7 +136,7 @@ def _insert_formal_candidate(
                 "phase1-v1",
                 CREATED_AT.isoformat(),
                 CREATED_AT.isoformat(),
-                "COMPLETED",
+                "BUILDING",
                 "input",
                 "config",
                 "result",
@@ -161,6 +161,10 @@ def _insert_formal_candidate(
                 "[]",
                 CREATED_AT.isoformat(),
             ),
+        )
+        connection.execute(
+            "UPDATE scan_batches SET status='COMPLETED' WHERE scan_batch_id=?",
+            (scan_batch_id,),
         )
 
 

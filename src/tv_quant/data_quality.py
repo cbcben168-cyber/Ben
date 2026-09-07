@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from io import BytesIO
 from pathlib import Path
 
 import numpy as np
@@ -63,11 +64,20 @@ def validate_ohlcv(data: pd.DataFrame) -> list[str]:
 
 def load_standardized_csv(path: str | Path) -> tuple[pd.DataFrame, list[str]]:
     """Load a standardized CSV, canonicalize timestamps, and validate it."""
-    data = pd.read_csv(path)
-    if "timestamp_utc" in data.columns:
-        data["timestamp_utc"] = pd.to_datetime(data["timestamp_utc"], utc=True, errors="coerce")
-    warnings = validate_ohlcv(data)
-    return data, warnings
+    return load_standardized_csv_bytes(Path(path).read_bytes())
+
+
+def load_standardized_csv_bytes(data: bytes) -> tuple[pd.DataFrame, list[str]]:
+    """Load and validate standardized CSV content from one immutable byte value."""
+    if type(data) is not bytes:
+        raise TypeError("data: bytes required")
+    frame = pd.read_csv(BytesIO(data))
+    if "timestamp_utc" in frame.columns:
+        frame["timestamp_utc"] = pd.to_datetime(
+            frame["timestamp_utc"], utc=True, errors="coerce"
+        )
+    warnings = validate_ohlcv(frame)
+    return frame, warnings
 
 
 def merge_standardized_daily(existing: pd.DataFrame | None, incoming: pd.DataFrame) -> pd.DataFrame:

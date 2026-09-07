@@ -1,3 +1,4 @@
+import hashlib
 import os
 from dataclasses import replace
 from datetime import UTC, date, datetime
@@ -6,7 +7,7 @@ from uuid import uuid4
 
 import streamlit as st
 
-from tv_quant.data_quality import load_standardized_csv
+from tv_quant.data_quality import load_standardized_csv, load_standardized_csv_bytes
 from tv_quant.pattern_finder.cache import (
     DEFAULT_CACHE_ROOT,
     cached_symbols,
@@ -418,7 +419,14 @@ else:
             st.caption(profile.review_help)
             path = cache_root / f"{selected_symbol}_daily.csv"
             try:
-                frame = _cached_frame(path.as_posix(), path.stat().st_mtime_ns)
+                cache_bytes = path.read_bytes()
+                expected_sha256 = features["cache_sha256"]
+                actual_sha256 = hashlib.sha256(cache_bytes).hexdigest()
+                if actual_sha256 != expected_sha256:
+                    raise ValueError(
+                        "缓存内容已变化，与该正式扫描批次记录的版本不一致"
+                    )
+                frame = load_standardized_csv_bytes(cache_bytes)[0]
             except (OSError, ValueError) as error:
                 review_input = None
                 st.warning(f"正式结果仍保留，但图表缓存当前不可用：{error}")

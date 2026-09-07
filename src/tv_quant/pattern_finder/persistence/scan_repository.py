@@ -160,7 +160,7 @@ class ScanRepository:
                         batch.pattern_version,
                         batch.started_at_utc.isoformat(),
                         batch.completed_at_utc.isoformat(),
-                        batch.status,
+                        "BUILDING",
                         batch.input_hash,
                         batch.config_hash,
                         batch.result_hash,
@@ -215,15 +215,19 @@ class ScanRepository:
                         ),
                     )
 
-                persisted = self._get(connection, batch.scan_batch_id)
-                if persisted != batch:
-                    raise ScanCorruptError("scan batch write-back mismatch")
                 count = connection.execute(
                     "SELECT count(*) FROM pattern_candidates WHERE scan_batch_id=?",
                     (batch.scan_batch_id,),
                 ).fetchone()[0]
                 if count != batch.manifest.ordered_input_count:
                     raise ScanCorruptError("scan batch candidate count mismatch")
+                connection.execute(
+                    "UPDATE scan_batches SET status='COMPLETED' WHERE scan_batch_id=?",
+                    (batch.scan_batch_id,),
+                )
+                persisted = self._get(connection, batch.scan_batch_id)
+                if persisted != batch:
+                    raise ScanCorruptError("scan batch write-back mismatch")
                 connection.execute("COMMIT")
                 return persisted
             except Exception:

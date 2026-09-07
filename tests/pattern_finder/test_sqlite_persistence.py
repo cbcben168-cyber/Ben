@@ -8,7 +8,12 @@ import sys
 
 import pytest
 
-from tv_quant.pattern_finder.persistence.database import Migration, MigrationError, SqliteDatabase
+from tv_quant.pattern_finder.persistence.database import (
+    DEFAULT_MIGRATIONS,
+    Migration,
+    MigrationError,
+    SqliteDatabase,
+)
 from tv_quant.pattern_finder.persistence.legacy_import import migrate_snapshot_store
 from tv_quant.pattern_finder.persistence.repositories import ProfileRepository, SnapshotRepository
 from tv_quant.pattern_finder.universe_foundation import UniverseSnapshotStore, core_v1
@@ -59,6 +64,7 @@ def test_empty_database_migrates_once_and_enables_foreign_keys(tmp_path: Path) -
     assert {
         "scan_batches_immutable_update",
         "pattern_candidates_immutable_delete",
+        "pattern_candidates_immutable_insert",
     } <= triggers
 
 
@@ -123,9 +129,27 @@ def test_concurrent_migration_attempts_serialize_cleanly(tmp_path: Path) -> None
     path = tmp_path / "concurrent.db"
     with ThreadPoolExecutor(max_workers=2) as pool:
         versions = tuple(pool.map(lambda _: SqliteDatabase(path).migrate(), range(2)))
-    assert versions == (2, 2)
+    assert versions == (3, 3)
     with SqliteDatabase(path).connect() as connection:
-        assert connection.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == 2
+        assert connection.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == 3
+
+
+def test_version_two_database_upgrades_with_completed_candidate_insert_guard(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "upgrade.db"
+    SqliteDatabase(path, migrations=DEFAULT_MIGRATIONS[:2]).migrate()
+
+    database = SqliteDatabase(path)
+    assert database.migrate() == 3
+    with database.connect() as connection:
+        trigger = connection.execute(
+            """SELECT sql FROM sqlite_master
+               WHERE type='trigger' AND name='pattern_candidates_immutable_insert'"""
+        ).fetchone()
+
+    assert trigger is not None
+    assert "NEW.scan_batch_id" in trigger[0]
 
 
 def test_foreign_keys_reject_orphan_profile_version(tmp_path: Path) -> None:

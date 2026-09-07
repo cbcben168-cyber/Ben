@@ -187,3 +187,10 @@ MIGRATION_2_STATEMENTS = (
     "CREATE INDEX idx_review_actions_scope_time ON review_queue_actions(source_kind, source_id, pattern_type, created_at_utc)",
     "CREATE INDEX idx_review_cursors_scope ON review_cursors(source_kind, source_id, pattern_type)",
 )
+
+
+MIGRATION_3_STATEMENTS = (
+    """CREATE TRIGGER pattern_candidates_immutable_insert BEFORE INSERT ON pattern_candidates
+        WHEN EXISTS (SELECT 1 FROM scan_batches sb WHERE sb.scan_batch_id=NEW.scan_batch_id AND sb.status='COMPLETED')
+        BEGIN SELECT RAISE(ABORT, 'completed pattern candidate is immutable'); END""",
+)

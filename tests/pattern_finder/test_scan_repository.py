@@ -211,6 +211,37 @@ def test_completed_header_manifest_and_candidates_are_immutable(database, batch)
                 connection.execute(sql, (batch.scan_batch_id,))
 
 
+def test_completed_batch_rejects_new_candidate_insert(database, batch) -> None:
+    from tv_quant.pattern_finder.persistence.scan_repository import ScanRepository
+
+    ScanRepository(database).append_completed(batch)
+    original = batch.results[0]
+    with database.connect() as connection:
+        with pytest.raises(sqlite3.IntegrityError, match="completed pattern candidate"):
+            connection.execute(
+                """INSERT INTO pattern_candidates(
+                    candidate_id,scan_batch_id,stock_id,pattern_type,
+                    pattern_version,signal_date,computer_decision,
+                    computer_score,features_json,reason_codes_json,created_at_utc
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    "candidate-injected",
+                    batch.scan_batch_id,
+                    "stock-injected",
+                    original.pattern_type,
+                    original.pattern_version,
+                    original.signal_date,
+                    original.computer_decision.value,
+                    None,
+                    '{}',
+                    '[]',
+                    original.created_at_utc.isoformat(),
+                ),
+            )
+
+    assert ScanRepository(database).get(batch.scan_batch_id) == batch
+
+
 def test_get_restores_source_rank_order_not_candidate_id_order(database, batch) -> None:
     from tv_quant.pattern_finder.persistence.scan_repository import ScanRepository
 

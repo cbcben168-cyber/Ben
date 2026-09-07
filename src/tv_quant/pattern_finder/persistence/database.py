@@ -10,7 +10,11 @@ from pathlib import Path
 import sqlite3
 from typing import Iterator, Sequence
 
-from .migrations import MIGRATION_1_STATEMENTS, MIGRATION_2_STATEMENTS
+from .migrations import (
+    MIGRATION_1_STATEMENTS,
+    MIGRATION_2_STATEMENTS,
+    MIGRATION_3_STATEMENTS,
+)
 
 
 class MigrationError(RuntimeError):
@@ -31,6 +35,7 @@ class Migration:
 DEFAULT_MIGRATIONS = (
     Migration(1, "0001_pattern_finder_foundation", MIGRATION_1_STATEMENTS),
     Migration(2, "0002_scan_review_workflow", MIGRATION_2_STATEMENTS),
+    Migration(3, "0003_completed_candidate_insert_guard", MIGRATION_3_STATEMENTS),
 )
 
 

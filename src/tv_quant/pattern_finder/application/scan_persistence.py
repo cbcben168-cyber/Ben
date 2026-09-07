@@ -13,7 +13,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import TypeAlias
 
-from tv_quant.data_quality import DataQualityError, load_standardized_csv
+from tv_quant.data_quality import DataQualityError, load_standardized_csv_bytes
 from tv_quant.pattern_finder.data_quality import assess_symbol_data
 from tv_quant.pattern_finder.flat_base import (
     MIN_HISTORY,
@@ -391,7 +391,7 @@ def build_flat_base_scan(
         }
         if cache_bytes is not None:
             try:
-                frame, _ = load_standardized_csv(path)
+                frame, _ = load_standardized_csv_bytes(cache_bytes)
                 quality = assess_symbol_data(frame, member.symbol, as_of_utc)
                 if not quality.passed:
                     reason_codes = _quality_reason_codes(

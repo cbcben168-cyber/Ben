@@ -234,6 +234,41 @@ def test_unreadable_cache_is_a_blocked_row_not_a_batch_failure(
     assert batch.results[0].reason_codes == ("INVALID_CACHE",)
 
 
+def test_builder_detects_from_the_exact_bytes_bound_to_cache_hash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import hashlib
+
+    from tv_quant.pattern_finder.application.scan_persistence import (
+        MachineDecision,
+        build_flat_base_scan,
+    )
+
+    target = _write_cache(tmp_path, "AAPL", detected=True)
+    expected_bytes = target.read_bytes()
+    original = Path.read_bytes
+
+    def replace_after_read(path: Path) -> bytes:
+        data = original(path)
+        if path == target:
+            path.write_text("not,a,valid,cache\n", encoding="utf-8")
+        return data
+
+    monkeypatch.setattr(Path, "read_bytes", replace_after_read)
+
+    batch = build_flat_base_scan(
+        _snapshot(("AAPL",)),
+        cache_root=tmp_path,
+        completed_at_utc=COMPLETED,
+        code_commit="abc1234",
+    )
+
+    assert batch.results[0].computer_decision is MachineDecision.YES
+    assert batch.results[0].features["cache_sha256"] == hashlib.sha256(
+        expected_bytes
+    ).hexdigest()
+
+
 def test_builder_persists_exact_stale_and_short_history_reasons(tmp_path: Path) -> None:
     from tv_quant.pattern_finder.application.scan_persistence import build_flat_base_scan
 

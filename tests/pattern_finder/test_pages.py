@@ -898,6 +898,26 @@ def test_formal_data_blocked_row_explains_reason_and_disables_submission(
     assert not any("人工判断" in item.label for item in app.segmented_control)
 
 
+def test_formal_review_blocks_changed_cache_from_being_shown_or_reviewed(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app, _, _, latest = _load_formal_review(
+        tmp_path,
+        monkeypatch,
+        cache_available=True,
+    )
+    selected = latest.results[0]
+    cache = tmp_path / "qfq" / f"{selected.symbol}_daily.csv"
+    cache.write_text("not,the,scanned,bytes\n", encoding="utf-8")
+
+    app.run()
+
+    assert not app.exception
+    assert "缓存内容已变化" in _visible_text(app)
+    assert not any("人工判断" in item.label for item in app.segmented_control)
+
+
 def test_formal_review_can_explicitly_switch_to_cache_compatibility(
     tmp_path: Path,
     monkeypatch,

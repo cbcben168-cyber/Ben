@@ -1368,18 +1368,19 @@ Failure to prove a contract is not permission to weaken it. `OPEN`, `FAILED_FOR_
 
 ### 18.1 Abstract model-routing policy
 
-Spec review and implementation work use the applicable automated model-routing policy to select the lowest sufficient model and reasoning effort from the task's scope and risk. This Design does not hardcode a model name, provider, tier, or reasoning level; an independent review records the route it actually used.
+Every Gate A review requires an independent high-capability review. The applicable automated model-routing policy selects the actual model and reasoning effort from task complexity, correctness risk, token/usage cost, and prior review history. This Design does not hardcode a model name, provider, tier, or reasoning level; the policy lineup may evolve without a Design edit, and the independent review records the route it actually used.
 
 ### 18.2 Gate A — Design Spec Review Ready
 
-Gate A is reached when this documentation reconciliation is ready to enter independent Design Spec review. It requires:
+Gate A is reached only when this documentation reconciliation has completed independent Design Spec review and is ready for user spec re-review. It requires:
 
 - this Design Spec and its linked qualification-evidence document reconcile the exact-identity, immutable qualification-set selection, factor-authority, versioning, bracket, and fail-closed boundaries above;
-- this docs-only node stages only those two documents and does not alter protected code, tests, profiles, data, SQLite, snapshots, or historical evidence bytes;
-- prior findings within this docs-only scope are repaired and the linked historical Evidence bytes remain unchanged;
+- this docs-only node's committed/PR scope cleanly contains only those two documents and does not alter protected code, tests, profiles, data, SQLite, snapshots, or historical evidence bytes;
+- prior findings within this docs-only scope are repaired and linked historical Evidence integrity is preserved;
+- the required independent high-capability review reports zero Critical and zero Important findings, with a review artifact that records the actual model, reasoning level, reviewed HEAD, Critical count, and Important count; and
 - `git diff --check` passes.
 
-Gate A is allowed while any Section 17 blocker remains open. It means only that the Design is ready for review; it does not claim that an independent review has completed, that implementation is authorized, or that production is ready.
+After every Gate A requirement is satisfied, `READY FOR USER SPEC RE-REVIEW` may be emitted while any Section 17 blocker remains open. That token does not mean `IMPLEMENTATION AUTHORIZED`, `FORMAL READY`, `formal_ready=true`, or production accepted. It also must not be emitted to imply that a pending independent review has completed.
 
 ### 18.3 Gate B — Explicit user implementation authorization
 

@@ -21,8 +21,8 @@ The qualification authority is **demonstrated capability for every required endp
 The minimal production path is:
 
 1. a user explicitly requests a formal snapshot for one published profile;
-2. the application service resolves the exact provider/OpenD identity and the exact accepted qualification contracts before it asks the gateway for formal evidence;
-3. the gateway validates those exact contract IDs, versions, and hashes, validates the qualified clock/window prerequisites, and collects complete per-code evidence without crossing the locked XNYS session or provider lifecycle;
+2. the application service uses its stored `formal_requested_at_utc` to resolve the exact provider/OpenD identity, exactly one immutable `PublishedQualificationSet`, and only the exact accepted factor contracts named by that set before it asks the gateway for formal evidence;
+3. the gateway validates that exact qualification-set identity/version/hash and those exact contract IDs, versions, and hashes, validates the qualified clock/window prerequisites, and collects complete per-code evidence without crossing the locked XNYS session or provider lifecycle;
 4. it rejects an `OPEN`, `FAILED_FOR_EXACT_VERSION`, missing, or hash-mismatched factor/provider/clock contract before evidence reaches the evaluator;
 5. the existing evaluator and funnel derive S1-S9 and S0-S10 results;
 6. the existing `build_snapshot()` enforces the formal snapshot invariant;
@@ -39,9 +39,9 @@ OpenD `1009` is a legacy **exact-qualified identity**. It is neither a minimum s
 The future implementation order is intentionally constrained:
 
 1. define and accept the exact provider/OpenD version identity and qualification envelope before accepting a concrete clock contract;
-2. define the independent factor/version model and `QualificationRegistry`, freeze the provider-neutral ADV20 interface as `OPEN`, then design the required new Profile Version;
+2. define the independent factor/version model, `QualificationRegistry`, and immutable effective-dated `PublishedQualificationSet` selection authority; freeze the provider-neutral ADV20 interface as `OPEN`, then design the required new Profile Version;
 3. add gateway acquisition-bracket capture and canonical evidence retention, then replace the clock contract;
-4. add the application-service fail-closed sequence and `universe-snapshot/v2` binding, reconcile acceptance/documentation, and obtain independent spec review.
+4. add the application-service fail-closed sequence and `universe-snapshot/v2` binding for the selected qualification set and its exact contracts, reconcile acceptance/documentation, and obtain independent spec review.
 
 Acquisition brackets are multi-layer **future** evidence: the future gateway will capture them, a qualification contract will judge them, the application service will enforce the result, `universe-snapshot/v2` will bind and persist the references/hashes, and SQLite will store the aggregate without deciding qualification.
 
@@ -81,9 +81,10 @@ Acquisition brackets are multi-layer **future** evidence: the future gateway wil
 
 | Boundary | Current component | Existing responsibility | M3C-A2 treatment |
 |---|---|---|---|
-| Profile authority | SQLite `ProfileRepository.get_published()` | Resolve the immutable published profile version and verify payload/filter/rules hashes from the same database that owns snapshots | Sole production command authority; `ProfileRegistry` remains bootstrap/UI input only and cannot authorize a formal build |
+| Profile authority | SQLite `ProfileRepository.get_published()` | Resolve the immutable published profile version and verify payload/filter/rules hashes from the same database that owns snapshots | Sole profile-payload/G authority for the public command; it does not select C/D/E/F or provider compatibility, and `ProfileRegistry` remains bootstrap/UI input only |
+| Qualification selection authority | Proposed application-policy `QualificationRegistry` records | No baseline production selector exists | Own immutable, versioned, hash-bound `PublishedQualificationSet` records that map an exact profile-content/provider-envelope tuple and service-stored request time to the exact ordered factor contracts; zero or multiple matches fail closed |
 | Provider transport | `FutuProviderAdapter` | Wrap Futu SDK calls as immutable `RawApiBatch` / `RawApiPage` with canonicalized SDK-level request/response hashes, rows, and one `acquired_at_utc` | Baseline has no full wall/monotonic send/receive brackets and no lossless wire bytes; a future gateway/adapter seam must add canonical bracket evidence |
-| Provider collection | `FutuUniverseGateway.collect()` | Discover candidates, page stock screen, fetch snapshot/state/plate evidence, validate per-code coverage, and return `GatewayAttempt` | Future gateway receives the application-service-resolved immutable provider/factor contract bundle, then verifies/enforces its exact IDs, versions, and hashes before evaluator input; legacy Stock Screen factor values are not FORMAL authorities |
+| Provider collection | `FutuUniverseGateway.collect()` | Discover candidates, page stock screen, fetch snapshot/state/plate evidence, validate per-code coverage, and return `GatewayAttempt` | Future gateway receives the application-service-resolved immutable qualification-set/provider/factor bundle, then verifies/enforces its exact IDs, versions, and hashes before evaluator input; it never selects compatibility, and legacy Stock Screen factor values are not FORMAL authorities |
 | Classification | `SecurityMasterProvider.classification_evidence()` and explicit classification evidence | Fail-closed security-type proof | Reuse without silent inference |
 | Rule evaluation | `evaluator.evaluate_security()` | Pure S1-S9 business-threshold evaluation; unknown evidence quarantines | Reuse unchanged in concept; it never chooses a provider, accepts a contract, or decides compatibility |
 | Funnel | `build_funnel()` | Deterministic S0-S10 aggregation and reconciliation | Reuse unchanged in concept |
@@ -252,7 +253,7 @@ The following independent versions must never be overloaded into one string: **A
 | Listed `>= 250 trading days` | `LISTED_TRADING_SESSIONS`; Market Snapshot `listing_date` + named/versioned `XNYS` calendar | both-inclusive completed-session count with selected-session sequence/hash | new C `factor_evidence_version` (canonical Evidence Version/source identity), exact D/E/F provider/derivation/contract, **and a new G Profile Version**; keep threshold `>=250` | candidate only; `1010` is unqualified until exact contract acceptance |
 | ADV20 `>= USD 20M` | frozen provider-neutral ADV20 interface; no provider implementation selected | exact arithmetic mean of actual USD dollar turnover over exactly the 20 completed XNYS sessions ending `as_of` | a later alternate scalable authority requires a new C `factor_evidence_version` (the canonical factor-specific Evidence Version/source identity), D provider identity, a new E only if its derivation changes, a newly qualified F contract, and **a mandatory new G Profile Version even if accepted membership identity is unchanged** | `OPEN — requires alternate scalable authority`; Stock Screen `3105` `period_average` None/True/False are **REJECTED** |
 
-**Proposed Interfaces — `FactorQualificationContract` and `QualificationRegistry`**
+**Proposed Interfaces — `FactorQualificationContract`, `PublishedQualificationSet`, and `QualificationRegistry`**
 
 ```text
 FactorQualificationContract
@@ -275,19 +276,54 @@ FactorQualificationContract
   qualification_references
   contract_sha256
 
+PublishedFactorSelection
+  factor_id
+  business_semantic_version                 # A
+  metric_identity_version                   # B
+  factor_evidence_version                   # C
+  derivation_version                        # E
+  qualification_contract_version            # F
+  factor_contract_id
+  factor_contract_sha256
+
+PublishedQualificationSet
+  qualification_set_id: immutable exact identity
+  qualification_set_version
+  profile_version_id                        # exact G
+  profile_content_sha256
+  provider_identity_contract_id             # exact accepted D envelope
+  provider_identity_contract_version
+  provider_identity_contract_sha256
+  ordered_factor_selections: tuple[PublishedFactorSelection, ...]
+  effective_from_utc: aware UTC datetime, inclusive
+  effective_until_utc: aware UTC datetime, exclusive
+  record_state: PUBLISHED
+  qualification_references
+  qualification_reference_sha256s
+  qualification_set_sha256
+
 QualificationRegistry
   accept_and_publish_provider_identity(immutable ProviderIdentityQualificationEnvelope)
   accept_and_publish(immutable FactorQualificationContract)
+  accept_and_publish_qualification_set(immutable PublishedQualificationSet)
   resolve_provider_identity_exact(
     runtime_identity_probe: RuntimeIdentityProbe
   ) -> ProviderIdentityResolution
        status: ACCEPTED | OPEN | FAILED_FOR_EXACT_VERSION | MISSING
        envelope: exact ProviderIdentityQualificationEnvelope only when ACCEPTED
        contract_id, qualification_contract_version, contract_sha256, reason_codes
-  resolve_factor_exact(
-    business_semantic_version, metric_identity_version, factor_evidence_version,
-    provider_identity_version, derivation_version,
-    qualification_contract_version, profile_version_id, factor_id
+  resolve_published_qualification_set_exact(
+    profile_version_id, profile_content_sha256,
+    provider_identity_contract_id, provider_identity_contract_version,
+    provider_identity_contract_sha256,
+    formal_requested_at_utc: service-owned stored value
+  ) -> PublishedQualificationSetResolution
+       status: EXACTLY_ONE | ZERO_MATCH | MULTIPLE_MATCH | HASH_MISMATCH
+       qualification_set: exact PublishedQualificationSet only when EXACTLY_ONE
+       reason_codes
+  resolve_factor_from_published_set_exact(
+    qualification_set_id, qualification_set_version, qualification_set_sha256,
+    selection: PublishedFactorSelection
   ) -> FactorQualificationResolution
        status: ACCEPTED | OPEN | FAILED_FOR_EXACT_VERSION | MISSING
        contract: exact FactorQualificationContract only when ACCEPTED
@@ -295,11 +331,19 @@ QualificationRegistry
 
 ResolvedFormalQualificationBundle
   provider_identity_envelope: exact ACCEPTED ProviderIdentityQualificationEnvelope
+  published_qualification_set: exact PUBLISHED PublishedQualificationSet
+  qualification_set_id
+  qualification_set_version
+  qualification_set_sha256
   factor_contracts: exact ACCEPTED tuple[FactorQualificationContract, ...]
   bundle_sha256
 ```
 
-`QualificationRegistry`, `ProviderIdentityQualificationEnvelope`, and `FactorQualificationContract` own acceptance. The application service resolves an exact `ResolvedFormalQualificationBundle` and passes it to the gateway. The gateway never resolves or accepts a contract: it verifies/enforces the service-resolved provider and factor contract IDs, versions, and hashes before passing evidence to the evaluator. The evaluator remains a pure business-threshold consumer and never selects a provider or decides compatibility. `OPEN`, `FAILED_FOR_EXACT_VERSION`, missing, or hash-mismatched provider/factor contracts stop before evaluator, `build_snapshot()`, or persistence. `universe-snapshot/v2` binds the exact provider-envelope and factor-contract IDs/versions/hashes; SQLite stores that binding but does not decide it.
+`PublishedQualificationSet` is the immutable application-policy selection authority that the public profile alone cannot be. Its canonical hash covers its ID/version, exact `profile_version_id + profile_content_sha256 + provider-envelope ID/version/hash` key, half-open effective interval, record state, ordered per-factor A/B/C/E/F selections, exact factor-contract IDs/hashes, and qualification references. The registry is append-only: it never edits or deletes a published set, rejects duplicate identities, and rejects overlapping effective intervals for the same exact profile-content/provider-envelope tuple. Boundary selection is executable and deterministic: `effective_from_utc <= stored formal_requested_at_utc < effective_until_utc`, and exactly one `PUBLISHED` record with a valid hash must match. Zero matches, multiple matches, interval overlap, a missing/tampered hash, or any attempt to use implicit "latest"/"current" or caller-supplied compatibility fails closed.
+
+A D or F change without a G change still creates a new qualification-set ID/version/hash and a non-overlapping successor effective interval; the previous set remains immutable historical authority for its own interval. A new provider envelope is never substituted into an old set. An alternate ADV20 authority replaces frozen `CORE:v1`'s source-coupled authority and therefore mandates a new C `factor_evidence_version` and a new G even when threshold or membership semantics are unchanged; E remains orthogonal and changes only if derivation changes, while F is always requalified.
+
+`QualificationRegistry`, `ProviderIdentityQualificationEnvelope`, `PublishedQualificationSet`, and `FactorQualificationContract` own acceptance and selection policy. The application service resolves an exact `ResolvedFormalQualificationBundle` and passes it to the gateway. The gateway never resolves or accepts a contract: it verifies/enforces the service-resolved qualification-set, provider, and factor contract IDs, versions, and hashes before passing evidence to the evaluator. The evaluator remains a pure business-threshold consumer and never selects a provider or decides compatibility. `ZERO_MATCH`, `MULTIPLE_MATCH`, `OPEN`, `FAILED_FOR_EXACT_VERSION`, missing, overlapping, or hash-mismatched set/provider/factor records stop before evaluator, `build_snapshot()`, or persistence. `universe-snapshot/v2` binds the exact qualification-set, provider-envelope, and factor-contract IDs/versions/hashes; SQLite stores that binding but does not decide it.
 
 ### 4.4 `QOT_RIGHT` and subscription evidence
 
@@ -324,7 +368,7 @@ The public production command requires:
 - `command_schema_version`; and
 - no caller-controlled clock, session, readiness, or snapshot-kind field.
 
-Configured Futu host/port, allowed adapter settings, the application clock, `QualificationRegistry`, and the existing SQLite database authority are service dependencies, not public command values. The service resolves the exact published Profile Version and all seven independent A–G bindings. Its only pre-bundle provider operation is to ask the gateway/adapter for the non-authorizing `RuntimeIdentityProbe` in Section 4.3. From that exact observed tuple it resolves the provider/OpenD envelope and every exact accepted `FactorQualificationContract`; it must do so before accepting a concrete clock contract, calendar derivation, or FORMAL collection. The caller cannot supply or override `requested_at_utc`, a contract, provider identity, profile payload/hashes, `snapshot_kind`, `as_of_date`, or `formal_ready` flag.
+Configured Futu host/port, allowed adapter settings, the application clock, `QualificationRegistry`, and the existing SQLite database authority are service dependencies, not public command values. `ProfileRepository` resolves only the exact published Profile Version G and its content/filter/rules hashes; it does not directly supply or select C/D/E/F. The service coordinates one retained provider context and its sole pre-bundle `RuntimeIdentityProbe`, resolves the exact provider/OpenD envelope from that observed tuple, selects exactly one `PublishedQualificationSet` from the exact profile-content/provider-envelope key using the originally stored service-owned `formal_requested_at_utc`, and then resolves/verifies only the ordered `FactorQualificationContract` records named by that set. It must complete those steps before accepting a concrete clock contract, calendar derivation, or FORMAL collection. The caller cannot supply or override `requested_at_utc`, a qualification set, a contract, compatibility, provider identity, profile payload/hashes, `snapshot_kind`, `as_of_date`, or `formal_ready` flag.
 
 ### 5.2 Qualification predicate
 
@@ -334,7 +378,10 @@ Let `Q` be the final provider qualification predicate:
 Q = runtime_state_valid
     AND exact_provider_identity_envelope_accepted
     AND observed_provider_identity_equals_service_resolved_envelope
+    AND exactly_one_published_qualification_set_matches_stored_request_time
+    AND qualification_set_profile_provider_interval_and_hash_are_exact
     AND every_required_factor_contract_is_exactly_accepted
+    AND every_required_factor_contract_equals_the_ordered_set_selection
     AND clock_authority_consistent
     AND every_required_capability_succeeded
     AND every_candidate_has_exact_required_evidence
@@ -347,7 +394,7 @@ Q = runtime_state_valid
     AND gateway_reason_codes_is_empty
 ```
 
-`GatewayAttempt.attempt_status` may be `SUCCEEDED` and `Completeness.COMPLETE` only when `Q` is true. `GatewayPreflight.formal_ready` may be true only when the exact runtime identity is equal to the service-resolved accepted provider envelope and the factor/provider/clock contracts, capability, consistency, and freshness evidence bound into that attempt makes `Q` true. An `OPEN`, `FAILED_FOR_EXACT_VERSION`, missing, or hash-mismatched provider/factor contract or envelope makes `Q` false and stops before evaluator, snapshot build, or persistence.
+`GatewayAttempt.attempt_status` may be `SUCCEEDED` and `Completeness.COMPLETE` only when `Q` is true. `GatewayPreflight.formal_ready` may be true only when the exact runtime identity is equal to the service-resolved accepted provider envelope and the qualification-set/factor/provider/clock contracts, capability, consistency, and freshness evidence bound into that attempt makes `Q` true. A zero/multiple/overlapping qualification-set match, implicit-latest selection, or an `OPEN`, `FAILED_FOR_EXACT_VERSION`, missing, or hash-mismatched set/provider/factor contract or envelope makes `Q` false and stops before evaluator, snapshot build, or persistence.
 
 This capability predicate supersedes the baseline’s unconditional `NOT_YET_QUALIFIED` account/right constants. It does not supersede the existing structural, profile, evaluation, or snapshot invariants.
 
@@ -413,7 +460,7 @@ The successful snapshot-bound attempt, and the sanitized diagnostic record for a
 - every required capability verdict and expected/observed coverage count;
 - locked XNYS session/date, regular close, start/end provider lifecycle states, and the exact temporal-window verdict;
 - raw and normalized provider evidence timestamps plus every per-code temporal verdict; no single oldest watermark substitutes for per-code proof;
-- exact provider identity envelope plus temporal coherence, collection-window reachability, per-factor, suspension freshness, clock authority, and market-state consistency contract identities/versions/hashes;
+- exact `PublishedQualificationSet` ID/version/hash/effective interval and exact provider identity envelope plus temporal coherence, collection-window reachability, per-factor, suspension freshness, clock authority, and market-state consistency contract identities/versions/hashes;
 - optional, explicitly out-of-band quota and `QOT_RIGHT` audit evidence;
 - final blockers and stable reason codes;
 - profile, mapping, prerequisite, member, content, record, and attempt hashes already required by the domain contract.
@@ -433,6 +480,10 @@ provider_identity_envelope: ProviderIdentityQualificationEnvelope
 provider_identity_contract_id
 provider_identity_contract_version
 provider_identity_contract_sha256
+published_qualification_set: PublishedQualificationSet
+qualification_set_id
+qualification_set_version
+qualification_set_sha256
 service_resolved_qualification_bundle_sha256
 formal_requested_at_utc: aware UTC datetime
 collection_started_at_utc: aware UTC datetime
@@ -507,7 +558,7 @@ SecurityFactorTemporalVerdict
   verdict_sha256
 ```
 
-The existing field name remains `attempt_status`, not `status`. A successful per-code verdict requires `locked_as_of_date == effective_session_date == UniverseSnapshotHeader.as_of_session`; a non-exempt snapshot row additionally requires `provider_update_local_date` to equal that date. A successful factor verdict requires its `locked_as_of_date` and `effective_session_date` to equal the same header session date. The service-resolved provider-envelope ID/version/hash must exactly equal `OpenDConnectionIdentity`, `GatewayAttempt`, every factor contract's provider reference, and the later header projection; every factor's C `factor_evidence_version` must exactly equal between its accepted registry contract, `GatewayAttempt`, per-code factor verdict, and Snapshot v2 header projection; missing or mismatched bindings are invariant failures. All proposed fields participate in `gateway_attempt_sha256`, `snapshot_content_sha256`, and `snapshot_record_sha256`; capability verdicts use canonical capability-ID order and canonical batch-hash order.
+The existing field name remains `attempt_status`, not `status`. A successful per-code verdict requires `locked_as_of_date == effective_session_date == UniverseSnapshotHeader.as_of_session`; a non-exempt snapshot row additionally requires `provider_update_local_date` to equal that date. A successful factor verdict requires its `locked_as_of_date` and `effective_session_date` to equal the same header session date. The service-resolved qualification-set ID/version/hash must exactly equal `GatewayAttempt`, `ResolvedFormalQualificationBundle`, and the later header projection; its profile/provider key, effective interval, stored request-time membership, and ordered factor selections must also verify exactly. The service-resolved provider-envelope ID/version/hash must exactly equal `OpenDConnectionIdentity`, the qualification set, `GatewayAttempt`, every factor contract's provider reference, and the later header projection; every factor's C `factor_evidence_version` must exactly equal between its set selection, accepted registry contract, `GatewayAttempt`, per-code factor verdict, and Snapshot v2 header projection. Missing or mismatched bindings are invariant failures. All proposed fields participate in `gateway_attempt_sha256`, `snapshot_content_sha256`, and `snapshot_record_sha256`; capability verdicts use canonical capability-ID order and canonical batch-hash order.
 
 **Proposed Interface — additions to `UniverseSnapshotHeader`**
 
@@ -522,6 +573,10 @@ gateway_provider_identity_envelope
 gateway_provider_identity_contract_id
 gateway_provider_identity_contract_version
 gateway_provider_identity_contract_sha256
+gateway_published_qualification_set
+gateway_qualification_set_id
+gateway_qualification_set_version
+gateway_qualification_set_sha256
 gateway_service_resolved_qualification_bundle_sha256
 gateway_collection_started_at_utc
 gateway_collection_completed_at_utc
@@ -550,9 +605,9 @@ gateway_required_capability_verdicts
 gateway_qualification_provenance_sha256
 ```
 
-The writer emits exact `snapshot_schema_version = universe-snapshot/v2`. These fields are part of `snapshot_content_sha256` and `snapshot_record_sha256`; `formal_request_id`, `formal_intent_sha256`, and `formal_command_sha256` are therefore immutable replay bindings. The header also binds the exact runtime-identity probe, accepted provider-envelope ID/version/hash, service-resolved qualification-bundle hash, exact A–G factor/version tuple including C `factor_evidence_version` as the canonical factor Evidence Version, and exact accepted contract ID/version/hash for every required factor. `build_snapshot()` must assert exact equality between this header projection, the service-resolved bundle, and the supplied `GatewayAttempt`, including each factor's C value; no separate factor Evidence Version field is introduced.
+The writer emits exact `snapshot_schema_version = universe-snapshot/v2`. These fields are part of `snapshot_content_sha256` and `snapshot_record_sha256`; `formal_request_id`, `formal_intent_sha256`, and `formal_command_sha256` are therefore immutable replay bindings. The header also binds the exact runtime-identity probe, accepted `PublishedQualificationSet` ID/version/hash and effective interval, accepted provider-envelope ID/version/hash, service-resolved qualification-bundle hash, exact A–G factor/version tuple including C `factor_evidence_version` as the canonical factor Evidence Version, and exact accepted contract ID/version/hash for every required factor. `build_snapshot()` must assert exact equality between this header projection, the service-resolved bundle, the stored request-time-selected set, and the supplied `GatewayAttempt`, including the set's profile/provider key, ordered factor selections, and each factor's C value; no separate factor Evidence Version field is introduced.
 
-The future audit codec allowlist, encoder, decoder, ownership freeze, and hash tests must be extended for the proposed value objects. Future `ApiAcquisitionBracket` values use canonical call order. `SecurityTemporalVerdict` values use canonical normalized-code order. `SecurityFactorTemporalVerdict` values use canonical `(normalized_code, factor_id)` order. Duplicate ordering keys, missing candidates/factors, or noncanonical ordering are invariant failures. Readers must retain explicit `universe-snapshot/v1` read compatibility, but only `universe-snapshot/v2` can satisfy this M3C-A2 production qualification contract. SQLite stores the canonical aggregate in `payload_json` and the schema tag in `schema_version`; it stores, but never decides, qualification. No parallel snapshot table or payload is introduced. The command claim in Section 7 uses the existing `audit_events.event_id` primary key and therefore requires no snapshot-table rewrite or second source of truth.
+The future audit codec allowlist, encoder, decoder, ownership freeze, and hash tests must be extended for the proposed value objects. Future `ApiAcquisitionBracket` values use canonical call order. `PublishedQualificationSet.ordered_factor_selections` uses canonical factor-ID order. `SecurityTemporalVerdict` values use canonical normalized-code order. `SecurityFactorTemporalVerdict` values use canonical `(normalized_code, factor_id)` order. Duplicate ordering keys, missing candidates/factors, or noncanonical ordering are invariant failures. Readers must retain explicit `universe-snapshot/v1` read compatibility, but only `universe-snapshot/v2` can satisfy this M3C-A2 production qualification contract. SQLite stores the canonical aggregate in `payload_json` and the schema tag in `schema_version`; repository append/get round-trip must reproduce and re-verify the exact qualification-set ID/version/hash, interval, record state, profile/provider key, and ordered factor selections. SQLite stores, but never decides, qualification. No parallel snapshot table or payload is introduced. The command claim in Section 7 uses the existing `audit_events.event_id` primary key and therefore requires no snapshot-table rewrite or second source of truth.
 
 ## 6. Formal Snapshot Temporal Coherence Contract
 
@@ -774,6 +829,7 @@ Formal blockers include:
 - pre-market, regular-open, or nonterminal after-hours state;
 - provider lifecycle or XNYS session change during collection;
 - snapshot `update_time` wrong date, before locked session open, or future relative to its response bracket;
+- zero/multiple/overlapping, missing, non-effective, or hash-mismatched exact `PublishedQualificationSet`, or any implicit latest/current selection;
 - `OPEN`, `FAILED_FOR_EXACT_VERSION`, missing, or hash-mismatched exact provider/factor contract;
 - an unqualified suspension timestamp exception;
 - disagreement among command, preflight, attempt, funnel, and snapshot `as_of_date` or any temporal contract hash.
@@ -825,24 +881,24 @@ The service canonicalizes the public command and computes `formal_intent_sha256`
 FormalSnapshotApplicationService.build(command) -> FormalSnapshotBuildResult
 ```
 
-The application service owns sequencing and resolution of the immutable exact qualification bundle. It delegates provider transport/context lifecycle, domain evaluation, snapshot construction, and persistence to their existing authorities. It coordinates the gateway/adapter's sole non-authorizing `RuntimeIdentityProbe`, then resolves and passes the bundle; it never opens, retains, or closes a quote context. The gateway receives that resolved bundle and only verifies/enforces it; it never resolves or accepts provider/factor compatibility.
+The application service owns sequencing and resolution of the immutable exact qualification bundle. It opens the attempt's single logical provider-context scope by coordinating the gateway/adapter to create and retain exactly one physical quote context; the gateway/adapter owns physical transport and the single close/finally path. Within that coordinated context the service performs only the minimal non-authorizing `RuntimeIdentityProbe`, resolves the provider envelope, selects exactly one stored-time-effective `PublishedQualificationSet`, resolves/verifies its named factor contracts, and passes the immutable bundle. The gateway receives that resolved bundle and only verifies/enforces it; it never resolves or accepts compatibility.
 
 ### 7.3 Required sequence
 
 1. Validate the public command, reject caller-supplied timestamp/session/readiness/provider/contract fields, canonicalize the intent, and compute `formal_intent_sha256`.
 2. Derive a deterministic UUIDv5 `snapshot_id` from a fixed application namespace plus `request_id`; capture the service-owned command anchor/envelope and atomically claim it before any provider operation. Existing duplicate/conflict/terminal-failure rules remain fail-closed and make zero provider calls.
-3. For a new claim, resolve the exact published Profile Version through `ProfileRepository.get_published()` on the same SQLite authority as `SnapshotRepository`, including all required A–G version bindings.
-4. Ask the gateway/adapter to create and retain one quote context and return its immutable, non-authorizing `RuntimeIdentityProbe`. It captures only the documented provider/SDK/OpenD tuple plus mapping/capability versions and canonical hashes/provenance; it is not clock, factor, or FORMAL evidence. Structural probe failure is terminal. This is the sole provider discovery operation allowed before the bundle.
-5. Resolve `ProviderIdentityResolution` through `QualificationRegistry.resolve_provider_identity_exact()` from the probe and every `FactorQualificationResolution` through `resolve_factor_exact()`. Construct one immutable `ResolvedFormalQualificationBundle` from the accepted provider envelope and accepted factor contracts, and pass it to the gateway. `1009` may match only its own legacy exact envelope. Observed `1010` may not reuse it. If any result is `OPEN`, `FAILED_FOR_EXACT_VERSION`, missing, or hash-mismatched — including ADV20 — record a terminal qualification failure before clock acceptance, FORMAL gateway collection, evaluator, build, or persistence; the gateway/adapter closes the retained context.
+3. For a new claim, resolve the exact published Profile Version through `ProfileRepository.get_published()` on the same SQLite authority as `SnapshotRepository`, verify its exact content/filter/rules hashes, and retain G plus `profile_content_sha256`. This repository does not choose C/D/E/F or compatibility.
+4. Open/coordinate one attempt context by asking the gateway/adapter to create and retain exactly one quote context, then perform the immutable, non-authorizing `RuntimeIdentityProbe`. It captures only the documented provider/SDK/OpenD tuple plus mapping/capability versions and canonical hashes/provenance; it is not clock, factor, or FORMAL evidence. Structural probe failure is terminal. This is the sole provider discovery operation allowed before the bundle.
+5. Resolve `ProviderIdentityResolution` through `QualificationRegistry.resolve_provider_identity_exact()` from the probe. Using the exact profile version/content hash, accepted provider-envelope ID/version/hash, and the originally stored service-owned `formal_requested_at_utc`, resolve exactly one hash-valid `PublishedQualificationSet` whose half-open effective interval contains that time. Never select implicit latest/current and never accept caller-supplied compatibility. Then resolve and verify every `FactorQualificationContract` only from the set's canonical ordered A/B/C/E/F selections; each contract must also bind the exact provider envelope D and profile G. Construct one immutable `ResolvedFormalQualificationBundle` containing the set, provider envelope, and ordered factor contracts, and pass it to the gateway. `1009` may match only its own legacy exact envelope. Observed `1010` may not reuse it. Zero or multiple set matches, overlap, boundary ambiguity, set tamper/missing state, or any `OPEN`, `FAILED_FOR_EXACT_VERSION`, missing, or hash-mismatched result — including ADV20 — records a terminal qualification failure before clock acceptance, FORMAL gateway collection, evaluator, build, or persistence; the gateway/adapter closes the retained context.
 6. Only after Step 5, use the service-owned anchor and XNYS calendar to derive the candidate completed session. If the application instant is inside regular trading or no completed session exists, fail without full collection; the service does not wait, retry, or silently relabel.
-7. The **future gateway** retains the context created in Step 4, receives the service-resolved `ResolvedFormalQualificationBundle`, captures one canonical `ApiAcquisitionBracket` plus canonical SDK-level request/response/row evidence for every required call, and verifies/enforces exact equality of the probe, later observed provider identity, and every provider/factor contract ID/version/hash before it freezes candidate set `C`. Current `RawApiBatch` / `RawApiPage` cannot satisfy this step with `acquired_at_utc` alone.
+7. The **future gateway** retains the context created in Step 4, receives the service-resolved `ResolvedFormalQualificationBundle`, captures one canonical `ApiAcquisitionBracket` plus canonical SDK-level request/response/row evidence for every required call, and verifies/enforces exact equality of the selected qualification-set ID/version/hash and ordered selections, the probe, later observed provider identity, and every provider/factor contract ID/version/hash before it freezes candidate set `C`. Current `RawApiBatch` / `RawApiPage` cannot satisfy this step with `acquired_at_utc` alone.
 8. The gateway acquires future start/end `market_state` bookends and required Market Snapshot factor fields. It requires the exact accepted state/window contract, proves the bookends still equal the probe and accepted envelope, and requires every candidate to map to `COMPLETED_SESSION_TERMINAL_CLOSED` for the candidate session. Raw states may differ; normalized relationships may not.
 9. Freeze `locked_as_of_session` and `as_of_date` only from XNYS and the qualified start provider lifecycle. No later evidence may move or relabel the lock.
-10. Before evaluator input, the gateway verifies exact row coverage, source/derivation evidence, the accepted A–G factor versions, the service-resolved provider-envelope and factor-contract IDs/versions/hashes, and all clock/window/suspension predicates. It returns a terminal qualification failure for any unproven or mismatched contract; the evaluator, `build_snapshot()`, and persistence are not called.
+10. Before evaluator input, the gateway verifies exact row coverage, source/derivation evidence, the accepted A–G factor versions, the service-resolved qualification-set/provider-envelope/factor-contract IDs/versions/hashes, exact ordered-set equality, and all clock/window/suspension predicates. It returns a terminal qualification failure for any unproven or mismatched set or contract; the evaluator, `build_snapshot()`, and persistence are not called.
 11. Only after Step 10, run existing per-security evaluation and `build_funnel()`. The evaluator consumes qualified business evidence and thresholds only; it never decides provider compatibility.
-12. Call `build_snapshot(kind=FORMAL, ...)` with deterministic identity, the exact service-resolved provider envelope/factor contracts, future bracket/clock evidence, locked-session evidence, and verdicts. It emits only `universe-snapshot/v2` for this path.
+12. Call `build_snapshot(kind=FORMAL, ...)` with deterministic identity, the exact service-resolved qualification set/provider envelope/factor contracts, future bracket/clock evidence, locked-session evidence, and verdicts. It emits only `universe-snapshot/v2` for this path.
 13. Call only `SnapshotRepository.append(snapshot)`. SQLite stores the accepted bindings; it does not decide qualification.
-14. Reopen with `SnapshotRepository.get(snapshot_id)` and verify exact hashes, request/intent equality, service-resolved provider-envelope ID/version/hash, A–G bindings, exact factor contracts, and all v2 qualification fields. Return `SUCCEEDED` only after this verification.
+14. Reopen with `SnapshotRepository.get(snapshot_id)` and verify exact hashes, request/intent equality, service-resolved qualification-set ID/version/hash/effective interval and ordered selections, provider-envelope ID/version/hash, A–G bindings, exact factor contracts, and all v2 qualification fields. Return `SUCCEEDED` only after this verification.
 
 ### 7.4 Attempt diagnostics repository
 
@@ -887,6 +943,7 @@ Rules:
 | `qot_logined` false/unknown | `FAILED` | `INCOMPLETE` | false | No | Show quote-login blocker | No |
 | `program_status_type != READY` | `FAILED` | `INCOMPLETE` | false | No | Show OpenD status blocker | No |
 | SDK/OpenD version absent, `OPEN`, `FAILED_FOR_EXACT_VERSION`, or not bound to an exact accepted identity envelope | `FAILED` | `INCOMPLETE` | false | No | Show exact version/contract blocker; never reuse a `1009` mapping/hash for `1010` | No |
+| `PublishedQualificationSet` is missing, tampered, non-effective, overlapping, zero/multiple-match, or selected by implicit latest/current or caller compatibility | `FAILED` | `INCOMPLETE` | false | No | Show exact qualification-set blocker before factor resolution/evaluator; use only stored `formal_requested_at_utc` | No |
 | Application UTC, provider `timestamp`, or OpenD `local_timestamp` fails the request-bracket/monotonic clock contract | `FAILED` | `INCOMPLETE` | false | No | Show `CLOCK_AUTHORITY_BLOCKER` with the failed predicate; never apply arbitrary skew | No |
 | Requested instant is premarket, within the regular XNYS session, or ordinary/nonterminal after-hours | `FAILED` | `INCOMPLETE` | false | No | Show `FORMAL_COLLECTION_WINDOW_NOT_CLOSED`; do not wait or label the prior session | No |
 | Any start/end per-code provider state maps to mixed normalized relationships, unknown, nonterminal, or a lifecycle transition | `FAILED` | `INCOMPLETE` | false | No | Show market-state/lifecycle blocker and require a new command; different raw states are not failure when all map terminal for the same session | No |
@@ -1022,14 +1079,14 @@ Page import/render and all passive reruns perform zero Futu/OpenD calls. Only a 
 15. PRICE tests require Market Snapshot `last_price` plus `update_time` under the completed-session contract; MARKET_CAP tests require `total_market_val` plus `equity_valid`/`issued_shares`/`last_price` consistency. Both bind new C `factor_evidence_version` values, independently bound E derivations, exact D/F provider-envelope/factor contracts, and the provider-envelope reference ID/version/hash; under their approved factor decisions, G remains the exact existing Profile Version when business semantics and thresholds do not change.
 16. LISTED tests require Market Snapshot `listing_date`, a named/versioned XNYS calendar, both-inclusive completed-session arithmetic, and selected-session hash. The accepted change requires the new C `factor_evidence_version`, exact E derivation and F factor contract, and a new G Profile Version because its accepted membership identity changes, while preserving threshold `>=250`.
 17. Tests preserve the observed Stock Screen `AVG_TURNOVER=3105` `period_average=None`, `True`, and `False` forms as rejected. They prove none supplies CORE v1 ADV20 authority; no provider implementation is selected until an alternate scalable authority is separately qualified.
-18. Registry tests cover A business semantic, B metric identity, C `factor_evidence_version` (the canonical factor Evidence Version/source identity), D provider/version, E derivation identity, F qualification contract, and G Profile Version independently. They prove an E-only change leaves C unchanged, records/binds new E, and requires F requalification; an alternate ADV20 authority requires a new C factor Evidence Version and a new G even when membership is unchanged, updates E only when its derivation changes, and newly qualifies F, while E-only changes ordinarily do not change G. They also prove `OPEN`, `FAILED_FOR_EXACT_VERSION`, missing, and hash-mismatched provider/factor contracts stop before evaluator/build/persist, and that evaluator compatibility logic is absent.
+18. Registry tests cover A business semantic, B metric identity, C `factor_evidence_version` (the canonical factor Evidence Version/source identity), D provider/version, E derivation identity, F qualification contract, and G Profile Version independently. They prove selection comes only through an exact `PublishedQualificationSet`; an E-only change leaves C unchanged, records/binds new E, and requires F requalification; an alternate ADV20 authority requires a new C factor Evidence Version and a new G even when membership is unchanged, updates E only when its derivation changes, and newly qualifies F, while E-only changes ordinarily do not change G. They also prove `OPEN`, `FAILED_FOR_EXACT_VERSION`, missing, and hash-mismatched provider/factor contracts stop before evaluator/build/persist, and that evaluator compatibility logic is absent.
 19. The exact-version suspension contract is required for every FORMAL attempt; every non-exception row records `EXCEPTION_NOT_APPLIED`, and no empty/no-suspension candidate set bypasses the contract.
 20. Qualified current `suspension=True` yields security-level `FAIL/SUSPENDED_AS_OF_SNAPSHOT` even when price `update_time` is old; it does not waive any other required evidence.
 21. Missing, conflicting, or unqualified suspension freshness makes the provider attempt `FAILED/INCOMPLETE`; explicitly qualified unknown status may instead yield security-level `QUARANTINE/ACTIVE_STATUS_UNKNOWN` but never receives the stale-price exception.
 22. Every security/factor temporal verdict round-trips explicit locked/effective/provider-local dates as applicable; a successful verdict whose session date differs from `UniverseSnapshotHeader.as_of_session` is an invariant failure and changes attempt/content/record hashes.
 23. A **future implementation** captures application UTC from a wall/monotonic anchor and gateway brackets. Tests inject forward and backward wall steps, monotonic reversal, resolution-edge overlap, and an interval straddling an XNYS boundary; discontinuity/ambiguity fails without any skew threshold, while exact resolution overlap passes. This does not assert that current `RawApiBatch` / `RawApiPage` contain brackets.
 24. One immutable `application_context_instance_id` covers every required future call. A changed context object fails; when documented `connID` is exposed, start/end mismatch also fails. This is context identity evidence, not proof that brackets exist.
-25. `OPEN`, failed, unknown, or hash-mismatched `ProviderIdentityQualificationEnvelope`, `QualifiedMarketStateConsistencyContract`, `QualifiedFormalCollectionWindowReachabilityContract`, `FormalSnapshotTemporalCoherenceContract`, `FactorQualificationContract`, `QualifiedSuspensionFreshnessContract`, or `ClockAuthorityEvidence` fails closed.
+25. Zero/multiple/overlapping, non-effective, missing, or hash-mismatched `PublishedQualificationSet`, or `OPEN`, failed, unknown, or hash-mismatched `ProviderIdentityQualificationEnvelope`, `QualifiedMarketStateConsistencyContract`, `QualifiedFormalCollectionWindowReachabilityContract`, `FormalSnapshotTemporalCoherenceContract`, `FactorQualificationContract`, `QualifiedSuspensionFreshnessContract`, or `ClockAuthorityEvidence` fails closed.
 26. Draft, missing, or hash-mismatched profile cannot produce `FORMAL`; published `CORE:v1` remains byte/hash-identical.
 27. Unknown prerequisite/classification is represented and quarantined; missing evidence makes collection incomplete.
 28. S0-S10 counts reconcile exactly and are bound into canonical hashes.
@@ -1037,13 +1094,14 @@ Page import/render and all passive reruns perform zero Futu/OpenD calls. Only a 
 30. Repository failure at every insert position rolls back header, rows, and decisions.
 31. Same request ID after success returns the same reopened snapshot with zero provider calls.
 32. Same request ID after terminal failure or ambiguous start makes zero provider calls.
-33. The public command rejects `requested_at_utc` and every session/readiness override; identical public intent reuses the original stored internal envelope, while a different public intent produces `REQUEST_ID_CONFLICT` without provider calls.
+33. The public command rejects `requested_at_utc`, qualification-set/compatibility selection, and every session/readiness override; identical public intent reuses the original stored internal envelope and its original set-selection time, while a different public intent produces `REQUEST_ID_CONFLICT` without provider calls.
 34. Passive Streamlit render/rerun makes zero provider calls; one explicit click invokes the service once.
 35. UI displays only the reopened persisted snapshot as ready.
 36. M3D consumes the exact persisted snapshot ID and does not recompute membership.
 37. Concurrent identical public intents produce exactly one atomic claim and at most one provider invocation; a reused request ID with a different public intent returns `REQUEST_ID_CONFLICT`.
-38. A **future implementation** makes `universe-snapshot/v2` round-trip every proposed qualification field, rejects missing/unknown fields, preserves v1 read compatibility, and makes `formal_intent_sha256`, service-owned `formal_requested_at_utc`, the clock anchor, future gateway-captured `ApiAcquisitionBracket` values, the exact accepted `ProviderIdentityQualificationEnvelope` and service-resolved-bundle IDs/versions/hashes, A–G versions including C `factor_evidence_version`, exact factor contract IDs/versions/hashes, locked-session data, lifecycle/reachability contracts and bookends, fully defined per-code/per-factor verdicts, factor/suspension contracts, canonical ordering, and all associated hashes content/record-hash sensitive.
+38. A **future implementation** makes `universe-snapshot/v2` round-trip every proposed qualification field, rejects missing/unknown fields, preserves v1 read compatibility, and makes `formal_intent_sha256`, service-owned `formal_requested_at_utc`, the clock anchor, future gateway-captured `ApiAcquisitionBracket` values, the exact accepted `PublishedQualificationSet` ID/version/hash/effective interval/record state/ordered selections, `ProviderIdentityQualificationEnvelope` and service-resolved-bundle IDs/versions/hashes, A–G versions including C `factor_evidence_version`, exact factor contract IDs/versions/hashes, locked-session data, lifecycle/reachability contracts and bookends, fully defined per-code/per-factor verdicts, factor/suspension contracts, canonical ordering, and all associated hashes content/record-hash sensitive.
 39. The current `latest_summary()` Today Scan behavior is not accepted for exact handoff; the future integration test injects/selects a specific snapshot ID and proves a newer snapshot cannot replace it.
+40. `PublishedQualificationSet` tests prove append-only immutability, exact profile-content/provider-envelope keying, canonical ordered-factor hashing, rejection of a missing/tampered set, rejection at publication of overlapping intervals, half-open boundary behavior (`from` included, `until` excluded), exactly-one selection by the originally stored service-owned `formal_requested_at_utc`, zero-match and multiple-match fail-closed behavior under corrupted/legacy state, and the complete absence of implicit latest/current fallback. A D/F-only change creates a new non-overlapping effective-dated set without changing G and leaves the predecessor historically readable.
 
 ### 12.2 Windows real-environment acceptance
 
@@ -1076,7 +1134,7 @@ Required evidence record:
 - confirmation that no subscribe/unsubscribe/right-escalation call occurred; only the acceptance harness, not the production service, may issue the two read-only `query_subscription()` audit calls;
 - the captured effective `auto_hold_quote_right=0` value plus an isolated OpenD log/operation interval showing no automatic reacquisition and no Telnet/O&M `request_highest_quote_right` command;
 - selected published profile version and exact content/filter hashes;
-- each source-neutral factor identity, its A–G versions including C `factor_evidence_version` (the canonical factor Evidence Version/source identity), exact provider/derivation definition, accepted contract ID/version/hash, canonical evidence hashes, and independent per-factor verdicts; Stock Screen `3105` None/True/False remains rejected;
+- selected `PublishedQualificationSet` ID/version/hash, half-open effective interval, record state, exact profile-content/provider-envelope key, qualification references, and canonical ordered factor selections, plus each source-neutral factor identity, its A–G versions including C `factor_evidence_version` (the canonical factor Evidence Version/source identity), exact provider/derivation definition, accepted contract ID/version/hash, canonical evidence hashes, and independent per-factor verdicts; Stock Screen `3105` None/True/False remains rejected;
 - accepted evidence from a separately selected alternate ADV20 authority proving arithmetic mean of actual USD dollar turnover over exactly 20 completed XNYS sessions, with that authority bound as a new C factor Evidence Version and the required new G Profile Version, plus LISTED `listing_date`/XNYS both-inclusive evidence under the new Profile Version;
 - start/end per-code raw market-state evidence and normalized session relationship, the accepted collection-window reachability artifact and actual candidate-set reachability verdict, snapshot suspension/status evidence, the accepted suspension qualification-spike artifact, exact snapshot update watermark, and every per-code temporal/suspension verdict;
 - gateway status/completeness/formal-ready/reason codes;
@@ -1190,6 +1248,7 @@ Before integration, the M3D worktree’s protected uncommitted state must be rev
 | No `QOT_RIGHT` authority | Section 4.4 |
 | No subscription/quota/right escalation | Sections 2.3, 4.4, 14 |
 | Source-neutral CORE v1 factor identities and independent A-G versions | Section 4.3 |
+| Immutable stored-time qualification-set selection; no implicit latest/current | Sections 4.3, 5, 7, and 12.1 |
 | Completed-session and provider-lifecycle lock | Sections 5 and 6.1-6.3 |
 | Independent factor qualification authority and pre-evaluator gateway enforcement | Sections 4.3, 5, 6.2, and 7 |
 | Suspension/halt freshness semantics | Sections 5 and 6.4 |
@@ -1209,8 +1268,9 @@ The state machine is proposed but not implementation-ready. The linked 2026-09-0
 1. **`FUTU_EXACT_PROVIDER_IDENTITY_ENVELOPE`** — create and accept an immutable envelope for each exact `(provider, SDK, OpenD)` identity before any clock acceptance. The `1010` envelope must independently bind provider/version identity, mapping/schema/capability definitions, qualification references, and its canonical hash; it may not reuse any legacy `1009` artifact. The recorded `1010` observations are diagnostic, not an accepted envelope.
 2. **`FUTU_FORMAL_COLLECTION_WINDOW_REACHABILITY_QUALIFICATION`** — only after the exact identity, future bracket/canonical-retention seam, and replacement clock contract are accepted, prove raw-state-to-session mapping and reachable terminal-closed windows for every claimed class: standard weekday, early close, both DST directions, weekend, XNYS holiday, and overnight/next-session boundaries. The recorded `AFTER_HOURS_END`/per-code `OVERNIGHT` and strict-clock observations are negative diagnostics. Until accepted, no supported FORMAL window is published.
 3. **`CORE_V1_FACTOR_QUALIFICATION_REGISTRY`** — accept exact, source-neutral A–G contracts for `PRICE_USD`, `EQUITY_MARKET_CAP_USD`, and `LISTED_TRADING_SESSIONS`, each bound to an accepted exact provider envelope by ID/version/hash, then bind them in `universe-snapshot/v2`. PRICE requires Market Snapshot `last_price`/`update_time`; MARKET_CAP requires `total_market_val` with `equity_valid`/shares/price consistency; LISTED requires `listing_date`, named/versioned XNYS, both-inclusive completed-session derivation, selected-session hash, and a new G Profile Version because its accepted membership identity changes. The historical Stock Screen `2201`, `2301`, and `2307` results remain legible diagnostics, not FORMAL authorities. The historical `3105` None/True/False observations are REJECTED for ADV20.
-4. **`ADV20_ALTERNATE_SCALABLE_AUTHORITY`** — ADV20 remains `OPEN`: it needs an authority for the exact arithmetic mean of actual USD dollar turnover across exactly 20 completed XNYS sessions ending `as_of`. The provider-neutral interface is frozen, but no provider implementation is selected or claimed. A later selected authority requires a **mandatory new C `factor_evidence_version` (the canonical factor-specific Evidence Version/source identity)**, a new E only if its derivation changes, a newly qualified F contract, accepted provider envelope, and a **mandatory new G Profile Version even if accepted membership identity is unchanged**. This ADV20-specific requirement does not add a separate Evidence Version axis or weaken the general C/E orthogonality rule: an E-only change ordinarily leaves C and G unchanged. Historical CORE:v1 bytes/hashes are not rewritten.
-5. **`FUTU_SUSPENDED_SECURITY_FRESHNESS_QUALIFICATION`** — using an authorized sample, prove that suspension/status is independently current under terminal-closed lifecycle bookends even when `last_price` `update_time` is old. Bind the exact provider identity, future gateway bracket/canonical evidence, corroboration, allowlisted mapping, and contract hash. The recorded `CRNX`, `HCHL`, and `LPSN` facts remain diagnostic; none authorizes the stale-price exception. Until accepted, that exception is forbidden.
+4. **`PUBLISHED_QUALIFICATION_SET_AUTHORITY`** — publish no selectable set until the exact provider envelope and every required factor contract, including ADV20, are accepted. The registry must append an immutable ID/version/hash-bound set for the exact profile-content/provider-envelope tuple and a non-overlapping half-open effective interval, and the service must select exactly one using its stored `formal_requested_at_utc`. A D/F-only successor receives a new set while preserving G and the old historical set. No profile-only, latest/current, or caller compatibility selection is allowed.
+5. **`ADV20_ALTERNATE_SCALABLE_AUTHORITY`** — ADV20 remains `OPEN`: it needs an authority for the exact arithmetic mean of actual USD dollar turnover across exactly 20 completed XNYS sessions ending `as_of`. The provider-neutral interface is frozen, but no provider implementation is selected or claimed. A later selected authority requires a **mandatory new C `factor_evidence_version` (the canonical factor-specific Evidence Version/source identity)**, a new E only if its derivation changes, a newly qualified F contract, accepted provider envelope, and a **mandatory new G Profile Version even if accepted membership identity is unchanged**. This ADV20-specific requirement does not add a separate Evidence Version axis or weaken the general C/E orthogonality rule: an E-only change ordinarily leaves C and G unchanged. Historical CORE:v1 bytes/hashes are not rewritten.
+6. **`FUTU_SUSPENDED_SECURITY_FRESHNESS_QUALIFICATION`** — using an authorized sample, prove that suspension/status is independently current under terminal-closed lifecycle bookends even when `last_price` `update_time` is old. Bind the exact provider identity, future gateway bracket/canonical evidence, corroboration, allowlisted mapping, and contract hash. The recorded `CRNX`, `HCHL`, and `LPSN` facts remain diagnostic; none authorizes the stale-price exception. Until accepted, that exception is forbidden.
 
 Failure to prove a contract is not permission to weaken it. `OPEN`, `FAILED_FOR_EXACT_VERSION`, missing, or hash-mismatched qualification remains a pre-evaluator blocker. Historical recomputation is not silently substituted, and no historical CORE:v1 snapshot is rewritten.
 
@@ -1218,7 +1278,7 @@ Failure to prove a contract is not permission to weaken it. `OPEN`, `FAILED_FOR_
 
 This documentation reconciliation is ready for user spec re-review only when:
 
-- this Design Spec and its linked qualification-evidence document reconcile the exact-identity, factor-authority, versioning, bracket, and fail-closed boundaries above;
+- this Design Spec and its linked qualification-evidence document reconcile the exact-identity, immutable qualification-set selection, factor-authority, versioning, bracket, and fail-closed boundaries above;
 - this docs-only node stages only those two documents and does not alter protected code, tests, profiles, data, SQLite, snapshots, or historical evidence bytes;
 - spec self-review and independent `GPT-5.6 Sol` / `xhigh` review report zero Critical and zero Important findings; and
 - `git diff --check` passes.

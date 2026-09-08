@@ -22,6 +22,8 @@ All observations in this evidence document are historical, diagnostic qualificat
 
 The observed identity `futu_api 10.10.7008` + OpenD `1010` is independently **unqualified**. Legacy production OpenD `1009` is an exact-qualified identity, not a minimum version or schema proxy. No inference may be drawn from `1010 > 1009`, and no FORMAL evidence may reuse a `1009` mapping or contract hash. This label preserves every historical timestamp, hash, table, and verdict below; it does not rewrite them.
 
+For contract reconciliation, C is `factor_evidence_version`, the canonical factor Evidence Version/source identity; E is the orthogonal derivation identity, not an eighth evidence-version axis. Selecting any alternate ADV20 authority replaces frozen `CORE:v1`'s source-coupled authority and therefore requires a new C and a new G Profile Version even if the business threshold and observed membership semantics are unchanged. E changes only if the derivation changes, and F must be requalified. These are future contract requirements and do not alter the historical measurements below.
+
 ## 2. Environment identity
 
 | Item | Observed value |
@@ -472,9 +474,9 @@ No ACTIVE pagination or terminal factor request was executed during this recover
 
 This follow-up does not attempt to recover, relabel, or reconstruct the unavailable `2026-09-01` terminal evidence. It opens a separate `1010` diagnostic qualification attempt for XNYS session `2026-09-04` and preserves all historical `CORE:v1` thresholds and Funnel semantics. It does not accept a `1010` contract, and it does not reuse legacy `1009` mappings or hashes.
 
-Any future acceptance must independently bind: A business semantic; B metric identity; C source identity; D provider/version identity; E derivation identity; F qualification-contract version; and G Profile Version. C and E are independently versioned: an E-only change leaves C unchanged, binds a newly requalified F contract, and does not itself require G; G changes only when accepted membership semantics/identity changes. These observations identify possible future interfaces only; they are not the missing accepted A–G contract tuple.
+Any future acceptance must independently bind: A business semantic; B metric identity; C `factor_evidence_version`, the canonical factor Evidence Version/source identity; D provider/version identity; E derivation identity; F qualification-contract version; and G Profile Version. C and E are independently versioned: an E-only change leaves C unchanged, binds a newly requalified F contract, and does not itself require G. The ADV20 replacement is the explicit source-authority exception: any alternate authority requires a new C and a new G even when the business threshold and membership semantics are unchanged, changes E only if derivation changes, and always requalifies F. These observations identify possible future interfaces only; they are not the missing accepted A–G contract tuple.
 
-Sections 9.2–9.5 are diagnostic observations only. They publish no `ProviderIdentityQualificationEnvelope`, no `QualificationRegistry` acceptance, no service-resolved bundle, and no `universe-snapshot/v2` binding. Any future accepted artifact must make those bindings independently.
+Sections 9.2–9.5 are diagnostic observations only. They publish no `ProviderIdentityQualificationEnvelope`, no `PublishedQualificationSet`, no `QualificationRegistry` acceptance, no service-resolved bundle, and no `universe-snapshot/v2` binding. Any future accepted artifact must make those bindings independently.
 
 `QUALIFICATION_SESSION_LOCKED_XNYS_2026-09-04`
 
@@ -516,7 +518,7 @@ Authority verdict: `UNACCEPTED_PROPOSED_INTERFACE_FOR_1010`.
 
 ### 9.4 LISTED trading-session candidate authority
 
-`Stock Screen LISTED_DAYS=2307` remains `REJECTED`: its prior `KLAR=357` value followed calendar-day scale and contradicted XNYS-session arithmetic. The proposed source-neutral metric is `LISTED_TRADING_SESSIONS`, using `get_market_snapshot().listing_date` plus the exact named/versioned XNYS calendar. It preserves threshold `Listed >= 250 trading days`. This diagnostic subsection does not publish an accepted contract: a future accepted artifact must independently bind its new C source identity, E derivation identity, F requalification, and a new G Profile Version because the accepted membership identity changes.
+`Stock Screen LISTED_DAYS=2307` remains `REJECTED`: its prior `KLAR=357` value followed calendar-day scale and contradicted XNYS-session arithmetic. The proposed source-neutral metric is `LISTED_TRADING_SESSIONS`, using `get_market_snapshot().listing_date` plus the exact named/versioned XNYS calendar. It preserves threshold `Listed >= 250 trading days`. This diagnostic subsection does not publish an accepted contract: a future accepted artifact must independently bind its new C `factor_evidence_version`, E derivation identity, F requalification, and a new G Profile Version because the accepted membership identity changes.
 
 The live snapshot again returned `US.KLAR listing_date=2025-09-10`. With `exchange_calendars 4.13.2` / `XNYS`, that date and `2026-09-04` are both sessions. The binding rule is both-inclusive: include the listing session when the listing date is an XNYS session, and include `as_of_date` only after that session has completed. Weekends and exchange holidays are excluded by the calendar. The result is `249` sessions through completed session `2026-09-04`; excluding the listing session would be `248`. The calendar artifact SHA-256 is `ba1a0fc72350bcc3bf2120515e861fa5b0eeb3316caf17e71fe1002c78aad150`.
 
@@ -545,6 +547,8 @@ Compared with the existing independent 20-session Nasdaq close-times-volume evid
 - ADV20 `period_average=False` authority: `REJECTED`.
 - ADV20 final authority: `OPEN` — provider-neutral interface frozen; an alternate scalable authority is required and no provider implementation is selected here.
 
+Any later alternate ADV20 authority must receive a new C `factor_evidence_version` and a new G Profile Version even if its threshold and membership semantics are unchanged, because it replaces frozen `CORE:v1`'s source-coupled authority. E remains independently versioned and changes only if derivation changes; F must be newly qualified. No eighth version axis is introduced.
+
 Historical Kline per-security reads were not promoted into a 12,000-security production design; no quota/scalability proof was attempted.
 
 ### 9.6 Clock-contract result
@@ -557,7 +561,7 @@ Repeated observations show a precise, near-application OpenD local clock togethe
 
 Clock contract result: `DESIGN_CONTRACT_REVIEW_REQUIRED`. No tolerance, skew allowance, midpoint, or replacement clock rule is introduced here.
 
-### 9.7 Current authority matrix and session evidence
+### 9.7 Pre-ACTIVE checkpoint authority matrix and session evidence
 
 | CORE v1 prerequisite | Candidate authority | Authority verdict |
 |---|---|---|
@@ -566,16 +570,16 @@ Clock contract result: `DESIGN_CONTRACT_REVIEW_REQUIRED`. No tolerance, skew all
 | LISTED `>= 250 trading days` | proposed `LISTED_TRADING_SESSIONS`: `listing_date` + versioned XNYS both-inclusive completed-session count | `UNACCEPTED_PROPOSED_INTERFACE_FOR_1010` |
 | ADV20 `>= USD 20M` | provider-neutral interface only; no scalable exact arithmetic-mean authority accepted | `OPEN` |
 
-| Qualification/session evidence | Current result |
+| Qualification/session evidence | Captured result at this pre-ACTIVE checkpoint |
 |---|---|
 | XNYS `2026-09-04` locked | yes; dedicated durable marker exists |
 | Premarket evidence | captured; `PRE_MARKET_BEGIN` at global and all three per-code observations |
-| Active evidence | `OPEN` |
-| Terminal evidence | `OPEN` |
+| Active evidence | `OPEN` — not yet captured at this checkpoint; see the later Section 10 completed marker |
+| Terminal evidence | `OPEN` — not yet captured at this checkpoint; see the later Section 11 completed marker |
 | Suspension evidence | `OPEN` |
 | Clock contract | `DESIGN_CONTRACT_REVIEW_REQUIRED` |
 
-Because ADV20 remains `OPEN`, all four CORE v1 prerequisites lack accepted scalable authority. At the time of this capture the Design Spec was not amended and no independent spec review was dispatched. This later reconciliation still does not accept any `1010` factor contract. `FUTU_FORMAL_COLLECTION_WINDOW_REACHABILITY_QUALIFICATION`, `FUTU_SUSPENDED_SECURITY_FRESHNESS_QUALIFICATION`, and overall `formal_ready` remain `OPEN`, `OPEN`, and `false`. `FUTU_STOCK_SCREEN_TEMPORAL_AUTHORITY_QUALIFICATION` remains `FAILED_FOR_EXACT_VERSION`; the rejected screen properties are not relabeled as qualified authorities.
+Because ADV20 remains `OPEN`, all four CORE v1 prerequisites lack accepted scalable authority. At this pre-ACTIVE checkpoint the Design Spec was not amended and no independent spec review was dispatched. The later Sections 10 and 11 capture markers do not accept any `1010` factor contract. `FUTU_FORMAL_COLLECTION_WINDOW_REACHABILITY_QUALIFICATION`, `FUTU_SUSPENDED_SECURITY_FRESHNESS_QUALIFICATION`, and overall `formal_ready` remain `OPEN`, `OPEN`, and `false`. `FUTU_STOCK_SCREEN_TEMPORAL_AUTHORITY_QUALIFICATION` remains `FAILED_FOR_EXACT_VERSION`; the rejected screen properties are not relabeled as qualified authorities.
 
 ## 10. XNYS 2026-09-04 ACTIVE qualification capture
 
@@ -608,7 +612,7 @@ For every row, `total_market_val = issued_shares * last_price` exactly. The thre
 
 ### 10.4 Global-state and clock artifact
 
-**Qualification-harness-only bracket observation — not a current production adapter field.** The start global-state request envelope was `[2026-09-04T18:10:08.282689Z, 2026-09-04T18:10:08.283265Z]`, monotonic `227065059080000` through `227065059660500`. It returned provider `timestamp=1788545406`, OpenD `local_timestamp=1788545408.282663`, `qot_logged=true`, program status `READY`, and server version `1010`; response hash `b2d0d93a10a60cedecb07ca21092c231674c422565f2ff47b55c83f718e4d6ff`.
+**Qualification-harness-only bracket observation — not a current production adapter field.** The start global-state request envelope was `[2026-09-04T18:10:08.282689Z, 2026-09-04T18:10:08.283265Z]`, monotonic `227065059080000` through `227065059660500`. It returned provider `timestamp=1788545406`, OpenD `local_timestamp=1788545408.282663`, `qot_logined=true`, program status `READY`, and server version `1010`; response hash `b2d0d93a10a60cedecb07ca21092c231674c422565f2ff47b55c83f718e4d6ff`.
 
 The end request envelope was `[2026-09-04T18:10:08.394128Z, 2026-09-04T18:10:08.394792Z]`, monotonic `227065170521400` through `227065171187300`. It returned provider `timestamp=1788545407`, OpenD `local_timestamp=1788545408.394204`, and the same login/program/version state; response hash `229be1af856753a9f90aefaae6d8d396103889f30f0afafd5ff2a908a53a4456`.
 

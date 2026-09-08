@@ -1353,6 +1353,8 @@ Before integration, the M3D worktree’s protected uncommitted state must be rev
 
 The state machine is proposed but not implementation-ready. The linked 2026-09-01/04/05 OpenD evidence remains historical diagnostic evidence; it accepted no provider, clock, factor, or suspension qualification contract. In particular, its `futu_api 10.10.7008` + OpenD `1010` captures are unqualified. They cannot inherit any legacy exact `1009` mapping, contract, or hash, and `formal_ready=false`.
 
+The open items below are post-spec-review implementation and empirical blockers. They block Gate C formal production readiness, but they do not block Gate A Design Spec review completion: this Design can be internally coherent, fail-closed, and ready for independent spec review while the future implementation and empirical qualification work remains open.
+
 1. **`FUTU_EXACT_PROVIDER_IDENTITY_ENVELOPE`** — create and accept an immutable envelope for each exact `(provider, SDK, OpenD)` identity before any clock acceptance. The `1010` envelope must independently bind provider/version identity, mapping/schema/capability definitions, qualification references, and its canonical hash; it may not reuse any legacy `1009` artifact. The recorded `1010` observations are diagnostic, not an accepted envelope.
 2. **`FUTU_FORMAL_COLLECTION_WINDOW_REACHABILITY_QUALIFICATION`** — only after the exact identity, future bracket/canonical-retention seam, and replacement clock contract are accepted, prove raw-state-to-session mapping and reachable terminal-closed windows for every claimed class: standard weekday, early close, both DST directions, weekend, XNYS holiday, and overnight/next-session boundaries. The recorded `AFTER_HOURS_END`/per-code `OVERNIGHT` and historical clock observations are negative diagnostics. Until accepted, no supported FORMAL window is published.
 3. **`FORMAL_PROFILE_FACTOR_QUALIFICATION_REGISTRY`** — treat `CORE:v1` only as an immutable historical reference, then accept exact, source-neutral A–G contracts for `PRICE_USD`, `EQUITY_MARKET_CAP_USD`, and `LISTED_TRADING_SESSIONS` under the actual newly published FORMAL Profile Version, each bound to an accepted exact provider envelope by ID/version/hash, and bind them in `universe-snapshot/v2`. PRICE requires Market Snapshot `last_price`/`update_time`; MARKET_CAP requires `total_market_val` with `equity_valid`/shares/price consistency; LISTED requires `listing_date`, named/versioned XNYS, both-inclusive completed-session derivation, selected-session hash, and the new G Profile Version. The historical Stock Screen `2201`, `2301`, and `2307` results remain legible diagnostics, not FORMAL authorities. The historical `3105` None/True/False observations are REJECTED for ADV20.
@@ -1364,11 +1366,25 @@ Failure to prove a contract is not permission to weaken it. `OPEN`, `FAILED_FOR_
 
 ## 18. Completion Gate for This Spec
 
-This documentation reconciliation is ready for user spec re-review only when:
+### 18.1 Abstract model-routing policy
+
+Spec review and implementation work use the applicable automated model-routing policy to select the lowest sufficient model and reasoning effort from the task's scope and risk. This Design does not hardcode a model name, provider, tier, or reasoning level; an independent review records the route it actually used.
+
+### 18.2 Gate A — Design Spec Review Ready
+
+Gate A is reached when this documentation reconciliation is ready to enter independent Design Spec review. It requires:
 
 - this Design Spec and its linked qualification-evidence document reconcile the exact-identity, immutable qualification-set selection, factor-authority, versioning, bracket, and fail-closed boundaries above;
 - this docs-only node stages only those two documents and does not alter protected code, tests, profiles, data, SQLite, snapshots, or historical evidence bytes;
-- spec self-review and independent `GPT-5.6 Sol` / `high` review report zero Critical and zero Important findings; and
+- prior findings within this docs-only scope are repaired and the linked historical Evidence bytes remain unchanged;
 - `git diff --check` passes.
 
-It is not implementation-ready, and the terminal token `READY FOR USER SPEC RE-REVIEW` must not be emitted while any Section 17 blocker remains open. Any provider capture, clock replacement, profile change, schema implementation, or production repair requires new explicit scope. Accepted artifacts must enter their own exact-version contracts before any implementation node begins.
+Gate A is allowed while any Section 17 blocker remains open. It means only that the Design is ready for review; it does not claim that an independent review has completed, that implementation is authorized, or that production is ready.
+
+### 18.3 Gate B — Explicit user implementation authorization
+
+Gate B requires an explicit user authorization for a separately bounded implementation scope after Gate A. It is the only gate that permits code, schema, profile, provider, clock, or production-repair work to begin. A review result, this Design, or the existence of a Draft PR does not substitute for that authorization. Any provider capture or other empirical work must receive its own explicit authorization when it reaches that boundary.
+
+### 18.4 Gate C — Formal production ready
+
+Gate C requires Gate B, an implemented and independently reviewed fail-closed system, all applicable tests and acceptance checks, accepted exact-version qualification artifacts, and resolution of every Section 17 blocker. It also requires the separately authorized real-environment acceptance described in Section 12.2, including immutable evidence persistence and exact restart replay. Until then, `formal_ready=false`; this Design and its Draft PR must not claim formal production readiness.

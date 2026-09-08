@@ -472,7 +472,7 @@ The successful snapshot-bound attempt, and the sanitized diagnostic record for a
 - exact `PublishedQualificationSet` ID/version/hash/effective interval and exact provider identity envelope plus temporal coherence, collection-window reachability, per-factor, suspension freshness, clock authority, and market-state consistency contract identities/versions/hashes;
 - optional, explicitly out-of-band quota and `QOT_RIGHT` audit evidence;
 - final blockers and stable reason codes;
-- profile, mapping, prerequisite, member, content, record, and attempt hashes already required by the domain contract.
+- the final downstream attempt and snapshot hashes already required by the domain contract, but only through the post-hash audit projection defined below; those hashes are not inputs to the qualification provenance hash.
 
 Hashes and references alone are not durable evidence. Every successful FORMAL decision must be reopenable and revalidated after process restart from the following versioned canonical objects.
 
@@ -519,7 +519,83 @@ Manifest entry order is exactly `(endpoint_id, call_ordinal, scope_identity, rol
 
 The future `SnapshotRepository.append(snapshot, evidence_manifest, evidence_artifacts)` owns the only successful append path. Section 9 defines its single SQLite transaction, durable table placement, content-addressed deduplication, and restart validation. Missing artifacts, artifact/hash mismatches, unavailable serializer IDs/versions, manifest/hash mismatches, or a payload that cannot be decoded under its exact serializer fail closed; no reopened FORMAL result or M3D membership handoff is allowed. Evidence artifacts and manifests explain, verify, and replay persisted decisions only. They never independently produce a `MEMBER` verdict: the sole membership authority remains the persisted `UniverseSnapshot` plus its persisted rows and decisions.
 
-**Proposed Interface — `FormalQualificationProvenance`** is the application-owned assembly of these existing evidence/reference values. It must be embedded through the snapshot attempt/header contract rather than persisted as a competing membership record.
+**Proposed Interfaces — `FormalQualificationProvenance` and final audit projection**
+
+`FormalQualificationProvenance` is an independent immutable canonical object. Its canonical projection contains exactly the following provenance-level values and references; no unlisted runtime, persistence, display, or downstream hash field is admitted implicitly.
+
+```text
+FormalQualificationProvenance
+  provenance_schema_version: formal-qualification-provenance/v1
+  runtime_observation_tuple: provider_id + provider_sdk_version + opend_server_version
+  runtime_identity_probe_sha256
+  application_context_instance_id
+  connection_identity_sha256
+  qualification_set_id
+  qualification_set_version
+  qualification_set_sha256
+  provider_identity_contract_id
+  provider_identity_contract_version
+  provider_identity_contract_sha256
+  ordered_factor_contract_references: exact canonical factor-ID order of IDs + versions + hashes
+  service_resolved_qualification_bundle_sha256
+  clock_authority_sha256
+  temporal_coherence_sha256
+  formal_collection_window_reachability_sha256
+  market_state_consistency_sha256
+  suspension_freshness_sha256
+  ordered_required_capability_verdict_sha256s: exact canonical capability-ID order
+  ordered_per_code_temporal_verdict_sha256s: exact canonical normalized-code order
+  ordered_per_code_factor_verdict_sha256s: exact canonical (normalized_code, factor_id) order
+  evidence_manifest_sha256
+  ordered_evidence_artifact_sha256s: exact immutable manifest-reference order
+  ordered_api_acquisition_bracket_sha256s: exact canonical call order
+  profile_version_id
+  profile_content_sha256
+  profile_filter_sha256
+  profile_rules_sha256
+  locked_session_date
+  locked_session_open_at_utc
+  locked_session_close_at_utc
+  provider_lifecycle_start
+  provider_lifecycle_end
+  stable_reason_codes: exact canonical reason-code order
+
+PersistedFinalAuditProjection
+  qualification_provenance_sha256
+  gateway_attempt_sha256
+  snapshot_content_sha256
+  snapshot_record_sha256
+  downstream_presentation_and_out_of_band_audit_fields
+
+Canonical hash dependency DAG
+  EvidenceArtifact hashes + ApiAcquisitionBracket hashes
+    -> EvidenceManifestEntry hashes
+    -> GatewayAttemptEvidenceManifest.evidence_manifest_sha256
+    -> provider/factor/clock/temporal/capability/verdict hashes
+    -> FormalQualificationProvenance canonical projection
+    -> qualification_provenance_sha256
+    -> gateway_attempt_sha256
+    -> snapshot mapping/prerequisite/member/content/record hashes
+    -> PersistedFinalAuditProjection
+```
+
+`qualification_provenance_sha256` is exactly SHA-256 over the canonical serialization of the complete `FormalQualificationProvenance` projection under its named schema/version and the future audit codec's named serializer/version. The profile fields bind the selected published G identity and its content/filter/rules hashes. Locked-session/lifecycle fields bind the session authority used by every verdict. Required capability, per-code temporal, and per-code factor verdict hashes use only the explicit canonical orders above. Evidence artifacts and acquisition brackets are frozen and hashed first; manifest entries and the manifest root are then hashed; the individual provider/factor/clock/temporal/capability/verdict objects are recomputed and hashed; only then may the application construct and hash `FormalQualificationProvenance`.
+
+The canonical `FormalQualificationProvenance` input explicitly excludes:
+
+- `qualification_provenance_sha256` itself;
+- `gateway_attempt_sha256`;
+- `mapping_sha256` / `snapshot_mapping_sha256`;
+- `prerequisite_sha256` / `snapshot_prerequisite_sha256`;
+- `members_sha256` / `snapshot_member_sha256`;
+- `snapshot_content_sha256`;
+- `snapshot_record_sha256`;
+- every persistence-row hash that can exist only after provenance has been frozen;
+- every downstream object or hash whose canonical input directly or transitively includes `qualification_provenance_sha256`.
+
+No excluded value may be read, defaulted, or projected back into the provenance canonical serializer. `GatewayAttempt` may and must bind `qualification_provenance_sha256`; the `universe-snapshot/v2` mapping, prerequisite, member, content, and record hash projections may and must bind the frozen provenance/attempt hashes in their versioned downstream projections. The direction is therefore provenance to attempt to snapshot only. Changing a downstream display, out-of-band audit, persistence metadata, or final hash value cannot change valid recomputation of `qualification_provenance_sha256`.
+
+`PersistedFinalAuditProjection` is assembled only after all listed hashes exist so a persisted audit/display view can show provenance, attempt, content, and record hashes together. It is not `FormalQualificationProvenance`, is not a direct or transitive input to its canonical hash, and creates no membership authority. The sole membership authority remains the persisted `UniverseSnapshot` rows and decisions.
 
 ### 5.7 Proposed immutable schema binding
 
@@ -562,6 +638,7 @@ suspension_freshness_contract: QualifiedSuspensionFreshnessContract
 per_code_temporal_verdicts: tuple[SecurityTemporalVerdict, ...]
 per_code_factor_temporal_verdicts: tuple[SecurityFactorTemporalVerdict, ...]
 required_capability_verdicts: tuple[RequiredCapabilityVerdict, ...]
+qualification_provenance: FormalQualificationProvenance
 qualification_provenance_sha256: SHA-256
 ```
 
@@ -615,7 +692,7 @@ SecurityFactorTemporalVerdict
   verdict_sha256
 ```
 
-The existing field name remains `attempt_status`, not `status`. A successful per-code verdict requires `locked_as_of_date == effective_session_date == UniverseSnapshotHeader.as_of_session`; a non-exempt snapshot row additionally requires `provider_update_local_date` to equal that date. A successful factor verdict requires its `locked_as_of_date` and `effective_session_date` to equal the same header session date. The service-resolved qualification-set ID/version/hash must exactly equal `GatewayAttempt`, `ResolvedFormalQualificationBundle`, and the later header projection; its profile/runtime selector tuple, exact envelope reference, effective interval, stored request-time membership, and ordered factor selections must also verify exactly. The service-resolved provider-envelope ID/version/hash must exactly equal `OpenDConnectionIdentity`, the qualification set, `GatewayAttempt`, every factor contract's provider reference, and the later header projection; every factor's C `factor_evidence_version` must exactly equal between its set selection, accepted registry contract, `GatewayAttempt`, per-code factor verdict, and Snapshot v2 header projection. Missing or mismatched bindings are invariant failures. All proposed fields participate in `gateway_attempt_sha256`, `snapshot_content_sha256`, and `snapshot_record_sha256`; capability verdicts use canonical capability-ID order and canonical batch-hash order.
+The existing field name remains `attempt_status`, not `status`. A successful per-code verdict requires `locked_as_of_date == effective_session_date == UniverseSnapshotHeader.as_of_session`; a non-exempt snapshot row additionally requires `provider_update_local_date` to equal that date. A successful factor verdict requires its `locked_as_of_date` and `effective_session_date` to equal the same header session date. The service-resolved qualification-set ID/version/hash must exactly equal `GatewayAttempt`, `ResolvedFormalQualificationBundle`, and the later header projection; its profile/runtime selector tuple, exact envelope reference, effective interval, stored request-time membership, and ordered factor selections must also verify exactly. The service-resolved provider-envelope ID/version/hash must exactly equal `OpenDConnectionIdentity`, the qualification set, `GatewayAttempt`, every factor contract's provider reference, and the later header projection; every factor's C `factor_evidence_version` must exactly equal between its set selection, accepted registry contract, `GatewayAttempt`, per-code factor verdict, and Snapshot v2 header projection. Missing or mismatched bindings are invariant failures. The embedded `FormalQualificationProvenance` is first recomputed from only the Section 5.6 canonical projection and compared with `qualification_provenance_sha256`; that frozen hash is then a canonical input to `gateway_attempt_sha256`. The `universe-snapshot/v2` mapping, prerequisite, member, content, and record hash projections bind the frozen `qualification_provenance_sha256` and `gateway_attempt_sha256` in addition to their existing versioned business inputs. None of those attempt/snapshot hashes is a provenance input. Capability verdicts use canonical capability-ID order and canonical batch-hash order.
 
 **Proposed Interface — additions to `UniverseSnapshotHeader`**
 
@@ -884,8 +961,10 @@ The existing `QualifiedMarketStateConsistencyContract` remains mandatory and exa
 
 Formal blockers include:
 
-- naive or non-monotonic application/acquisition timestamps;
-- any clock-authority failure;
+- naive/non-aware application UTC reads;
+- a non-finite or decreasing monotonic sample, or a request-send/response-receive sequencing violation;
+- an application wall-clock step only when the recorded wall-clock resolution plus monotonic sequencing no longer permits one unique XNYS session/boundary result for request, start, or completion; a backward or forward wall-clock step that preserves one unique result is not automatically blocked;
+- any other clock-authority failure under Section 6.5;
 - unavailable/invalid XNYS calendar or contract version;
 - a provider timestamp contradiction proved under its documented precision; a coarse or indeterminate provider timestamp alone is not a blocker;
 - pre-market, regular-open, or nonterminal after-hours state;
@@ -953,14 +1032,18 @@ The application service owns sequencing and resolution of the immutable exact qu
 4. Open/coordinate one attempt context by asking the gateway/adapter to create and retain exactly one quote context, then perform the immutable, non-authorizing `RuntimeIdentityProbe`. It captures only the documented provider/SDK/OpenD tuple plus mapping/capability versions and canonical hashes/provenance; it is not clock, factor, or FORMAL evidence. Structural probe failure is terminal. This is the sole provider discovery operation allowed before the bundle.
 5. Query `QualificationRegistry.resolve_published_qualification_set_exact()` using only the exact profile version/content hash, actual probe-observed provider/SDK/OpenD tuple, and the originally stored service-owned `formal_requested_at_utc`. Require exactly one hash-valid `PUBLISHED` set whose half-open effective interval contains that time. Never select implicit latest/current/highest or lexicographic version and never accept caller-supplied compatibility. After selection, dereference `ProviderIdentityQualificationEnvelope` only through the selected set's exact envelope ID/version/hash, recompute its canonical hash, require `ACCEPTED`, and require its tuple to equal the probe tuple. Then dereference and verify every `FactorQualificationContract` only through the set's canonical ordered A/B/C/E/F selections; each contract must bind that exact envelope D and profile G. Construct one immutable `ResolvedFormalQualificationBundle` containing the set, dereferenced envelope, and ordered factor contracts, and pass it to the gateway. `1009` may match only a set that exactly names its own legacy envelope. Observed `1010` may not reuse it. `QUALIFICATION_SET_ZERO_MATCH`, `QUALIFICATION_SET_MULTIPLE_MATCH`, interval publication corruption, boundary ambiguity, set tamper/missing state, or any `OPEN`, `FAILED_FOR_EXACT_VERSION`, missing, tuple-mismatched, or hash-mismatched dereference — including ADV20 — records a terminal qualification failure before clock acceptance, FORMAL gateway collection, evaluator, build, or persistence; the gateway/adapter closes the retained context.
 6. Only after Step 5, use the service-owned anchor and XNYS calendar to derive the candidate completed session. If the application instant is inside regular trading or no completed session exists, fail without full collection; the service does not wait, retry, or silently relabel.
-7. The **future gateway** retains the context created in Step 4, receives the service-resolved `ResolvedFormalQualificationBundle`, captures one canonical `ApiAcquisitionBracket` plus a durable `EvidenceArtifact` for every required SDK-decoded request/response/row payload, and builds the ordered `GatewayAttemptEvidenceManifest`. It separately verifies the selected qualification-set ID/version/hash and ordered selections, the probe tuple/hash, application context identity, later observed provider identity, selected envelope ID/version/content hash, and every factor contract ID/version/hash before it freezes candidate set `C`. Current `RawApiBatch` / `RawApiPage` cannot satisfy this step with `acquired_at_utc` alone.
+7. The **future gateway** retains the context created in Step 4, receives the service-resolved `ResolvedFormalQualificationBundle`, and captures one canonical `ApiAcquisitionBracket` plus a durable, still-unhashed `EvidenceArtifact` value for every required SDK-decoded request/response/row payload. It separately verifies the selected qualification-set ID/version/hash and ordered selections, the probe tuple/hash, application context identity, later observed provider identity, selected envelope ID/version/content hash, and every factor contract ID/version/hash before it freezes candidate set `C`. Current `RawApiBatch` / `RawApiPage` cannot satisfy this step with `acquired_at_utc` alone.
 8. The gateway acquires future start/end `market_state` bookends and required Market Snapshot factor fields. It requires the exact accepted state/window contract, proves the bookends still equal the probe and accepted envelope, and requires every candidate to map to `COMPLETED_SESSION_TERMINAL_CLOSED` for the candidate session. Raw states may differ; normalized relationships may not.
 9. Freeze `locked_as_of_session` and `as_of_date` only from XNYS and the qualified start provider lifecycle. No later evidence may move or relabel the lock.
-10. Before evaluator input, the gateway verifies exact row coverage, source/derivation evidence, the accepted A–G factor versions, the service-resolved qualification-set/provider-envelope/factor-contract IDs/versions/hashes, exact ordered-set equality, and all clock/window/suspension predicates. It returns a terminal qualification failure for any unproven or mismatched set or contract; the evaluator, `build_snapshot()`, and persistence are not called.
-11. Only after Step 10, run existing per-security evaluation and `build_funnel()`. The evaluator consumes qualified business evidence and thresholds only; it never decides provider compatibility.
-12. Call `build_snapshot(kind=FORMAL, ...)` with deterministic identity, the exact service-resolved qualification set/provider envelope/factor contracts, future bracket/clock evidence, evidence-manifest hash and immutable artifact references, locked-session evidence, and verdicts. It emits only `universe-snapshot/v2` for this path.
-13. Call only `SnapshotRepository.append(snapshot, evidence_manifest, evidence_artifacts)`. Its one SQLite transaction stores the accepted snapshot aggregate, manifest, and referenced canonical artifacts. SQLite does not decide qualification or membership.
-14. After process-independent reopen with `SnapshotRepository.get(snapshot_id)`, load the exact manifest and every artifact reference, select each exact serializer ID/version, decode and re-hash them, and verify request/intent equality, service-resolved qualification-set ID/version/hash/effective interval and ordered selections, provider-envelope ID/version/hash, A–G bindings, exact factor contracts, and all v2 qualification fields. Return `SUCCEEDED` only after this verification; missing artifacts or serializer/hash/manifest mismatches fail closed.
+10. Before evaluator input, the gateway verifies exact row coverage, source/derivation evidence, the accepted A–G factor versions, the service-resolved qualification-set/provider-envelope/factor-contract IDs/versions/hashes, exact ordered-set equality, and all clock/window/suspension predicates. It returns a terminal qualification failure for any unproven or mismatched set or contract; the evaluator, `build_snapshot()`, and persistence are not called. On success it freezes the complete canonical provider-evidence value graph; no later step may mutate it.
+11. Compute every `EvidenceArtifact.artifact_sha256` and `ApiAcquisitionBracket` hash from the frozen canonical evidence, then every ordered `EvidenceManifestEntry.entry_sha256`, then `GatewayAttemptEvidenceManifest.evidence_manifest_sha256`. No manifest or verdict hash is computed from mutable provider data.
+12. Construct and hash the individual provider/factor qualification references, clock authority, temporal coherence, collection-window reachability, market-state consistency, suspension freshness, required-capability verdicts, per-code temporal verdicts, and per-code factor verdicts. Each object binds only already-frozen evidence/artifact/manifest references and uses its specified canonical order.
+13. Construct the exact immutable Section 5.6 `FormalQualificationProvenance` projection from those upstream hashes and references, then compute `qualification_provenance_sha256`. No attempt, snapshot, persistence-row, or final-audit hash exists as an input at this step.
+14. Construct and freeze `GatewayAttempt` with the complete provenance object and its verified hash, then compute `gateway_attempt_sha256`. This is the first hash layer permitted to consume `qualification_provenance_sha256`.
+15. Only after Step 14, run existing per-security evaluation and `build_funnel()`, then call `build_snapshot(kind=FORMAL, ...)` with deterministic identity, the exact service-resolved qualification set/provider envelope/factor contracts, future bracket/clock evidence, evidence-manifest hash and immutable artifact references, locked-session evidence, verdicts, `qualification_provenance_sha256`, and `gateway_attempt_sha256`. The evaluator consumes qualified business evidence and thresholds only; it never decides provider compatibility. The builder emits only `universe-snapshot/v2` for this path.
+16. Compute the versioned snapshot mapping, prerequisite, member, content, and record hashes in that deterministic order. Their v2 projections bind the already-frozen provenance and attempt hashes; none is read back into any upstream hash. Assemble `PersistedFinalAuditProjection` only after the record hash exists.
+17. Call only `SnapshotRepository.append(snapshot, evidence_manifest, evidence_artifacts)`. Its one SQLite transaction stores the accepted snapshot aggregate, manifest, referenced canonical artifacts, and any downstream final-audit projection. SQLite does not decide qualification or membership.
+18. After process-independent reopen with `SnapshotRepository.get(snapshot_id)`, recompute and exact-compare in the same topological order: artifact/acquisition-bracket hashes, manifest-entry/root hashes, individual qualification/clock/temporal/capability/verdict hashes, provenance projection/hash, attempt hash, then snapshot mapping/prerequisite/member/content/record hashes. Return `SUCCEEDED` only after every layer verifies. The replay must never use stored `snapshot_record_sha256` or any other downstream hash to reconstruct provenance; a missing layer, hash mismatch, serializer mismatch, or canonical-order mismatch fails closed.
 
 ### 7.4 Attempt diagnostics repository
 
@@ -1053,6 +1136,8 @@ M3D must resolve membership only from the SQLite-persisted snapshot aggregate se
 
 The future `SnapshotRepository.append(snapshot, evidence_manifest, evidence_artifacts)` extends, but does not split, the existing atomic boundary:
 
+Before this method writes, the producer must complete the Section 5.6/7.3 topology in memory: freeze canonical provider evidence; compute artifact/acquisition-bracket hashes; compute manifest entry/root hashes; compute individual qualification/clock/temporal/capability/verdict hashes; construct/hash `FormalQualificationProvenance`; construct/freeze/hash `GatewayAttempt`; run evaluator/funnel/builder; and compute snapshot mapping, prerequisite, member, content, and record hashes. Every input at each layer must already exist and be immutable. No persistence-generated row hash or downstream audit projection may feed any earlier layer.
+
 - validate and freeze the snapshot, complete ordered manifest, and referenced artifact set before writes;
 - issue one `BEGIN IMMEDIATE` before any successful-result write;
 - insert content-addressed artifacts into `evidence_artifacts`, keyed by `artifact_sha256`, with exact serializer ID/version, payload kind, provider/SDK/OpenD identity, endpoint, scope identity, encoding, and canonical payload;
@@ -1069,9 +1154,9 @@ The artifact tables and manifest tables live in the same SQLite database and tra
 
 ### 9.3 Restart reopen and fail-closed validation
 
-`SnapshotRepository.get(snapshot_id)` first reopens the immutable snapshot aggregate, then loads the manifest by the header's exact `evidence_manifest_sha256`, verifies canonical entry order and hash, resolves every artifact reference, and selects the decoder only by the stored `serializer_id + serializer_version`. It recomputes each artifact hash from the stored canonical metadata/payload and replays all FORMAL qualification inputs and verdict bindings needed by the snapshot.
+`SnapshotRepository.get(snapshot_id)` first reopens the immutable snapshot aggregate, then loads the manifest by the header's exact `evidence_manifest_sha256`, resolves every artifact reference, and selects the decoder only by the stored `serializer_id + serializer_version`. It then replays the same dependency DAG: recompute and exact-compare artifact/acquisition-bracket hashes; manifest entry order/hashes and root hash; individual provider/factor/clock/temporal/capability/verdict objects and hashes; the exact `FormalQualificationProvenance` canonical projection and `qualification_provenance_sha256`; the frozen `GatewayAttempt` and `gateway_attempt_sha256`; and finally snapshot mapping, prerequisite, member, content, and record hashes. Stored attempt/content/record hashes are comparison targets only and must never be supplied as provenance inputs.
 
-Missing manifest/entry/artifact rows, duplicate or reordered entries, reference-set mismatch, artifact/hash mismatch, manifest/hash mismatch, unsupported or substituted serializer version, decode failure, or replay disagreement yields a repository-integrity failure and no FORMAL reopen. The UI must not show ready and M3D must not receive the snapshot ID. Deduplication never weakens this rule: one physical artifact may satisfy many immutable references only when its complete content and metadata are identical.
+Missing manifest/entry/artifact rows, duplicate or reordered entries, reference-set mismatch, artifact/hash mismatch, manifest/hash mismatch, unavailable/unsupported/substituted serializer ID or version, serializer mismatch, decode failure, canonical-order mismatch, or any layer's replay disagreement yields a repository-integrity failure and no FORMAL reopen. The UI must not show ready and M3D must not receive the snapshot ID. Deduplication never weakens this rule: one physical artifact may satisfy many immutable references only when its complete content and metadata are identical.
 
 These tables are evidence persistence, not membership authority. They can explain, verify, and replay why a persisted row received `MEMBER`, `FAIL`, or `QUARANTINE`, but cannot create or override any decision. Only the transactionally persisted `UniverseSnapshot` header, securities, and decisions define membership, and M3D continues to load only its persisted `MEMBER` rows by exact snapshot ID.
 
@@ -1181,6 +1266,7 @@ Page import/render and all passive reruns perform zero Futu/OpenD calls. Only a 
 39. The current `latest_summary()` Today Scan behavior is not accepted for exact handoff; the future integration test injects/selects a specific snapshot ID and proves a newer snapshot cannot replace it.
 40. `PublishedQualificationSet` tests prove append-only immutability, exact profile-content/runtime-provider-SDK-OpenD tuple keying, canonical ordered-factor hashing, rejection of a missing/tampered set, rejection at publication of intersecting intervals, half-open boundary behavior (`from` included, `until` excluded), exactly-one selection by the originally stored service-owned `formal_requested_at_utc`, zero-match and multiple-match fail-closed behavior under corrupted/legacy state, and the complete absence of implicit latest/current/highest/lexicographic fallback. Only after set selection do tests dereference its exact envelope ID/version/hash and ordered factor contracts; a D/F-only change creates a new disjoint effective-dated set without changing G and leaves the predecessor historically readable.
 41. Evidence persistence tests inject failure at every artifact, manifest, snapshot-header, security-row, and decision-row insert and prove one rollback boundary. Restart tests reopen the manifest and every canonical artifact with exact serializer ID/version, recompute hashes, and replay FORMAL bindings. Missing artifacts, hash/manifest mismatch, serializer mismatch, dedup collision, and incomplete `UNKNOWN`/`QUARANTINE`/conflict/schema-anomaly payload retention all fail closed. Evidence never creates membership independently of persisted snapshot rows/decisions.
+42. An explicit dependency/topological-order test constructs the hash DAG in the Section 5.6/7.3 order: frozen evidence -> artifact/acquisition-bracket hashes -> manifest entry/root hashes -> individual qualification/clock/temporal/capability/verdict hashes -> `FormalQualificationProvenance` -> `qualification_provenance_sha256` -> `gateway_attempt_sha256` -> snapshot mapping/prerequisite/member/content/record hashes -> `PersistedFinalAuditProjection`. It proves no self-reference or cyclic dependency exists; attempt/snapshot downstream hashes are absent from the provenance serializer; changing any provenance-level input changes `qualification_provenance_sha256`; changing that hash changes the attempt and snapshot downstream hashes; changing a downstream-only presentation/audit field does not change provenance; and restart recomputation uses the identical DAG and canonical orders. Missing layers, hash mismatches, serializer mismatches, and canonical-order mismatches all fail closed.
 
 ### 12.2 Windows real-environment acceptance
 
@@ -1217,6 +1303,7 @@ Required evidence record:
 - accepted evidence from a separately selected alternate ADV20 authority proving arithmetic mean of actual USD dollar turnover over exactly 20 completed XNYS sessions, with that authority bound as a new C factor Evidence Version and the required new G Profile Version, plus LISTED `listing_date`/XNYS both-inclusive evidence under the new Profile Version;
 - start/end per-code raw market-state evidence and normalized session relationship, the accepted collection-window reachability artifact and actual candidate-set reachability verdict, snapshot suspension/status evidence, the accepted suspension qualification-spike artifact, exact snapshot update watermark, and every per-code temporal/suspension verdict;
 - exact `GatewayAttemptEvidenceManifest`, `evidence_manifest_sha256`, ordered `EvidenceManifestEntry` records, every referenced `EvidenceArtifact`, serializer ID/version, canonical SDK-decoded payload, artifact hash, and restart replay result; no wire-level fidelity is claimed unless actual provider wire bytes are separately captured;
+- exact `FormalQualificationProvenance` schema/projection and `qualification_provenance_sha256`, its explicit exclusion of attempt/snapshot/persistence-row/final-audit hashes, the topological build/restart trace, `gateway_attempt_sha256`, and the downstream-only `PersistedFinalAuditProjection`;
 - gateway status/completeness/formal-ready/reason codes;
 - S0-S10 totals, member/fail/quarantine counts, and reconciliation;
 - persisted snapshot ID plus mapping/prerequisite/member/content/record hashes;

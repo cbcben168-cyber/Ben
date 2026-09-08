@@ -194,3 +194,15 @@ MIGRATION_3_STATEMENTS = (
         WHEN EXISTS (SELECT 1 FROM scan_batches sb WHERE sb.scan_batch_id=NEW.scan_batch_id AND sb.status='COMPLETED')
         BEGIN SELECT RAISE(ABORT, 'completed pattern candidate is immutable'); END""",
 )
+
+
+MIGRATION_4_STATEMENTS = (
+    "DROP TRIGGER pattern_candidates_immutable_update",
+    """CREATE TRIGGER pattern_candidates_immutable_update BEFORE UPDATE ON pattern_candidates
+        WHEN EXISTS (
+            SELECT 1 FROM scan_batches sb
+            WHERE (sb.scan_batch_id=OLD.scan_batch_id OR sb.scan_batch_id=NEW.scan_batch_id)
+              AND sb.status='COMPLETED'
+        )
+        BEGIN SELECT RAISE(ABORT, 'completed pattern candidate is immutable'); END""",
+)

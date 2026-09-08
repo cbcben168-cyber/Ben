@@ -242,6 +242,55 @@ def test_completed_batch_rejects_new_candidate_insert(database, batch) -> None:
     assert ScanRepository(database).get(batch.scan_batch_id) == batch
 
 
+def test_candidate_cannot_move_from_building_to_completed_batch(database, batch) -> None:
+    from tv_quant.pattern_finder.persistence.scan_repository import ScanRepository
+
+    ScanRepository(database).append_completed(batch)
+    original = batch.results[0]
+    with database.connect() as connection:
+        connection.execute(
+            """INSERT INTO scan_batches(
+                scan_batch_id,snapshot_id,pattern_type,pattern_version,
+                started_at_utc,completed_at_utc,status,input_hash,config_hash,result_hash
+            ) VALUES(?,?,?,?,?,NULL,'BUILDING',?,?,NULL)""",
+            (
+                "scan-building",
+                batch.snapshot_id,
+                batch.pattern_type,
+                batch.pattern_version,
+                batch.started_at_utc.isoformat(),
+                batch.input_hash,
+                batch.config_hash,
+            ),
+        )
+        connection.execute(
+            """INSERT INTO pattern_candidates(
+                candidate_id,scan_batch_id,stock_id,pattern_type,
+                pattern_version,signal_date,computer_decision,
+                computer_score,features_json,reason_codes_json,created_at_utc
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+            (
+                "candidate-building",
+                "scan-building",
+                "stock-building",
+                original.pattern_type,
+                original.pattern_version,
+                original.signal_date,
+                original.computer_decision.value,
+                None,
+                '{}',
+                '[]',
+                original.created_at_utc.isoformat(),
+            ),
+        )
+
+        with pytest.raises(sqlite3.IntegrityError, match="completed pattern candidate"):
+            connection.execute(
+                "UPDATE pattern_candidates SET scan_batch_id=? WHERE candidate_id=?",
+                (batch.scan_batch_id, "candidate-building"),
+            )
+
+
 def test_get_restores_source_rank_order_not_candidate_id_order(database, batch) -> None:
     from tv_quant.pattern_finder.persistence.scan_repository import ScanRepository
 

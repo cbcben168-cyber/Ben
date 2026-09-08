@@ -129,9 +129,9 @@ def test_concurrent_migration_attempts_serialize_cleanly(tmp_path: Path) -> None
     path = tmp_path / "concurrent.db"
     with ThreadPoolExecutor(max_workers=2) as pool:
         versions = tuple(pool.map(lambda _: SqliteDatabase(path).migrate(), range(2)))
-    assert versions == (3, 3)
+    assert versions == (4, 4)
     with SqliteDatabase(path).connect() as connection:
-        assert connection.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == 3
+        assert connection.execute("SELECT count(*) FROM schema_migrations").fetchone()[0] == 4
 
 
 def test_version_two_database_upgrades_with_completed_candidate_insert_guard(
@@ -141,7 +141,7 @@ def test_version_two_database_upgrades_with_completed_candidate_insert_guard(
     SqliteDatabase(path, migrations=DEFAULT_MIGRATIONS[:2]).migrate()
 
     database = SqliteDatabase(path)
-    assert database.migrate() == 3
+    assert database.migrate() == 4
     with database.connect() as connection:
         trigger = connection.execute(
             """SELECT sql FROM sqlite_master

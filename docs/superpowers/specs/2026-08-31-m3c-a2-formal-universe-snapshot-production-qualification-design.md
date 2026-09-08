@@ -1368,7 +1368,7 @@ This documentation reconciliation is ready for user spec re-review only when:
 
 - this Design Spec and its linked qualification-evidence document reconcile the exact-identity, immutable qualification-set selection, factor-authority, versioning, bracket, and fail-closed boundaries above;
 - this docs-only node stages only those two documents and does not alter protected code, tests, profiles, data, SQLite, snapshots, or historical evidence bytes;
-- spec self-review and independent `GPT-5.6 Sol` / `xhigh` review report zero Critical and zero Important findings; and
+- spec self-review and independent `GPT-5.6 Sol` / `high` review report zero Critical and zero Important findings; and
 - `git diff --check` passes.
 
 It is not implementation-ready, and the terminal token `READY FOR USER SPEC RE-REVIEW` must not be emitted while any Section 17 blocker remains open. Any provider capture, clock replacement, profile change, schema implementation, or production repair requires new explicit scope. Accepted artifacts must enter their own exact-version contracts before any implementation node begins.

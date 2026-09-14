@@ -31,6 +31,36 @@ M3B_TARGET_SIZES = (25, 50, 100)
 
 
 @dataclass(frozen=True, slots=True)
+class RefreshFailure:
+    symbol: str
+    error_type: str
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
+class RefreshBatchResult:
+    outcomes: tuple[CacheEntry | RefreshFailure, ...]
+
+    @property
+    def successes(self) -> tuple[CacheEntry, ...]:
+        return tuple(
+            outcome for outcome in self.outcomes if isinstance(outcome, CacheEntry)
+        )
+
+    @property
+    def failures(self) -> tuple[RefreshFailure, ...]:
+        return tuple(
+            outcome for outcome in self.outcomes if isinstance(outcome, RefreshFailure)
+        )
+
+    def __iter__(self):
+        return iter(self.successes)
+
+    def __len__(self) -> int:
+        return len(self.successes)
+
+
+@dataclass(frozen=True, slots=True)
 class ExpansionResult:
     target_size: int
     starting_count: int
@@ -94,7 +124,7 @@ def refresh_pilot_universe(
     log_path: str | Path = Path("logs/futu_quota.jsonl"),
     sdk: Any | None = None,
     sleep: Callable[[float], None] = time.sleep,
-) -> tuple[CacheEntry, ...]:
+) -> RefreshBatchResult:
     """Refresh the fixed pilot symbols through the generic refresh service."""
     return refresh_symbols(
         PILOT_SYMBOLS,
@@ -118,7 +148,7 @@ def refresh_symbols(
     log_path: str | Path = Path("logs/futu_quota.jsonl"),
     sdk: Any | None = None,
     sleep: Callable[[float], None] = time.sleep,
-) -> tuple[CacheEntry, ...]:
+) -> RefreshBatchResult:
     """Refresh exactly the supplied symbols in order using OpenD quota authority."""
     ordered_symbols = tuple(dict.fromkeys(str(symbol).strip().upper() for symbol in symbols))
     if not ordered_symbols or any(not symbol for symbol in ordered_symbols):
@@ -126,7 +156,7 @@ def refresh_symbols(
 
     runtime = _load_futu_sdk() if sdk is None else sdk
     context = runtime.OpenQuoteContext(host=host, port=port)
-    entries: list[CacheEntry] = []
+    outcomes: list[CacheEntry | RefreshFailure] = []
     try:
         _validate_opend(context, runtime.RET_OK, runtime.ProgramStatusType.READY)
         for symbol in ordered_symbols:
@@ -145,13 +175,16 @@ def refresh_symbols(
                     autype=runtime.AuType.QFQ,
                     sleep=sleep,
                 )
-            except Exception:
+            except (FutuDownloadError, PatternCacheError) as error:
                 write_quota_log(log_path, "post", pre_snapshot, code, decision, "failed")
-                raise
+                outcomes.append(
+                    RefreshFailure(symbol, type(error).__name__, str(error))
+                )
+                continue
             post_snapshot = _quota_snapshot(context, runtime.RET_OK, sleep)
             write_quota_log(log_path, "post", post_snapshot, code, decision, "success")
-            entries.append(entry)
-        return tuple(entries)
+            outcomes.append(entry)
+        return RefreshBatchResult(tuple(outcomes))
     finally:
         context.close()
 

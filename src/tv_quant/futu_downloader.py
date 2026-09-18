@@ -19,6 +19,24 @@ class FutuCsvUpdate:
 class QuoteContext(Protocol):
     def request_history_kline(self, **kwargs: Any) -> tuple[int, pd.DataFrame | str, bytes | None]: ...
 
+
+def _is_transient_history_timeout(detail: object) -> bool:
+    text = str(detail).lower()
+    permanent_markers = (
+        "permission",
+        "denied",
+        "unauthorized",
+        "authentication",
+        "invalid",
+        "unsupported",
+        "权限",
+        "参数错误",
+    )
+    if any(marker in text for marker in permanent_markers):
+        return False
+    return "timeout" in text or "timed out" in text or "超时" in text
+
+
 _DEFAULT_ALLOWED_TICKERS = frozenset({"SPY", "QQQ"})
 
 
@@ -42,9 +60,14 @@ def futu_to_standardized(
 def download_futu_daily(code: str, start: date, end: date, quote_context: QuoteContext, *, ret_ok: int = 0, ktype: Any = "K_DAY", autype: Any = "QFQ", allowed_tickers: AbstractSet[str] | None = None, sleep: Callable[[float], None] = time.sleep) -> pd.DataFrame:
     pages: list[pd.DataFrame] = []; page_key = None
     while True:
-        sleep(1)
-        ret, data, next_key = quote_context.request_history_kline(code=code, start=start.isoformat(), end=end.isoformat(), ktype=ktype, autype=autype, max_count=1000, page_req_key=page_key)
-        if ret != ret_ok: raise FutuDownloadError(f"Futu history request failed for {code}: {data}")
+        for attempt in range(2):
+            sleep(1)
+            ret, data, next_key = quote_context.request_history_kline(code=code, start=start.isoformat(), end=end.isoformat(), ktype=ktype, autype=autype, max_count=1000, page_req_key=page_key)
+            if ret == ret_ok:
+                break
+            if attempt == 0 and _is_transient_history_timeout(data):
+                continue
+            raise FutuDownloadError(f"Futu history request failed for {code}: {data}")
         if not isinstance(data, pd.DataFrame): raise FutuDownloadError(f"Futu history request returned invalid data for {code}")
         pages.append(data)
         if next_key is None: break

@@ -8,7 +8,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable, Iterable
 
+from tv_quant.data_quality import DataQualityError
 from tv_quant.futu_quota import (
+    QuotaDecision,
     QuotaPolicyError,
     QuotaSnapshot,
     check_quota,
@@ -28,6 +30,36 @@ from .universe import M3B_SYMBOLS, PILOT_SYMBOLS, futu_code
 
 
 M3B_TARGET_SIZES = (25, 50, 100)
+
+
+@dataclass(frozen=True, slots=True)
+class RefreshFailure:
+    symbol: str
+    error_type: str
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
+class RefreshBatchResult:
+    outcomes: tuple[CacheEntry | RefreshFailure, ...]
+
+    @property
+    def successes(self) -> tuple[CacheEntry, ...]:
+        return tuple(
+            outcome for outcome in self.outcomes if isinstance(outcome, CacheEntry)
+        )
+
+    @property
+    def failures(self) -> tuple[RefreshFailure, ...]:
+        return tuple(
+            outcome for outcome in self.outcomes if isinstance(outcome, RefreshFailure)
+        )
+
+    def __iter__(self):
+        return iter(self.successes)
+
+    def __len__(self) -> int:
+        return len(self.successes)
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,6 +117,41 @@ def _quota_snapshot(
     return QuotaSnapshot(int(used), int(remain), list(detail))
 
 
+def _write_failure_quota_log(
+    log_path: str | Path,
+    context: object,
+    ret_ok: int,
+    sleep: Callable[[float], None],
+    pre_snapshot: QuotaSnapshot,
+    code: str,
+    decision: QuotaDecision,
+    outcome: str,
+) -> None:
+    try:
+        snapshot = _quota_snapshot(context, ret_ok, sleep)
+    except RuntimeError as error:
+        write_quota_log(
+            log_path,
+            "post",
+            pre_snapshot,
+            code,
+            decision,
+            outcome,
+            snapshot_source="pre_fallback",
+            audit_error=f"{type(error).__name__}: {error}",
+        )
+        return
+    write_quota_log(
+        log_path,
+        "post",
+        snapshot,
+        code,
+        decision,
+        outcome,
+        snapshot_source="post",
+    )
+
+
 def refresh_pilot_universe(
     *,
     cache_root: str | Path = DEFAULT_CACHE_ROOT,
@@ -94,7 +161,7 @@ def refresh_pilot_universe(
     log_path: str | Path = Path("logs/futu_quota.jsonl"),
     sdk: Any | None = None,
     sleep: Callable[[float], None] = time.sleep,
-) -> tuple[CacheEntry, ...]:
+) -> RefreshBatchResult:
     """Refresh the fixed pilot symbols through the generic refresh service."""
     return refresh_symbols(
         PILOT_SYMBOLS,
@@ -118,7 +185,7 @@ def refresh_symbols(
     log_path: str | Path = Path("logs/futu_quota.jsonl"),
     sdk: Any | None = None,
     sleep: Callable[[float], None] = time.sleep,
-) -> tuple[CacheEntry, ...]:
+) -> RefreshBatchResult:
     """Refresh exactly the supplied symbols in order using OpenD quota authority."""
     ordered_symbols = tuple(dict.fromkeys(str(symbol).strip().upper() for symbol in symbols))
     if not ordered_symbols or any(not symbol for symbol in ordered_symbols):
@@ -126,14 +193,22 @@ def refresh_symbols(
 
     runtime = _load_futu_sdk() if sdk is None else sdk
     context = runtime.OpenQuoteContext(host=host, port=port)
-    entries: list[CacheEntry] = []
+    outcomes: list[CacheEntry | RefreshFailure] = []
     try:
         _validate_opend(context, runtime.RET_OK, runtime.ProgramStatusType.READY)
         for symbol in ordered_symbols:
             code = futu_code(symbol)
             pre_snapshot = _quota_snapshot(context, runtime.RET_OK, sleep)
             decision = check_quota(pre_snapshot, code)
-            write_quota_log(log_path, "pre", pre_snapshot, code, decision, "allowed")
+            write_quota_log(
+                log_path,
+                "pre",
+                pre_snapshot,
+                code,
+                decision,
+                "allowed",
+                snapshot_source="pre",
+            )
             try:
                 entry = refresh_cache_entry(
                     symbol,
@@ -145,13 +220,49 @@ def refresh_symbols(
                     autype=runtime.AuType.QFQ,
                     sleep=sleep,
                 )
+            except (FutuDownloadError, PatternCacheError, DataQualityError) as error:
+                _write_failure_quota_log(
+                    log_path,
+                    context,
+                    runtime.RET_OK,
+                    sleep,
+                    pre_snapshot,
+                    code,
+                    decision,
+                    "failed",
+                )
+                outcomes.append(
+                    RefreshFailure(symbol, type(error).__name__, str(error))
+                )
+                continue
             except Exception:
-                write_quota_log(log_path, "post", pre_snapshot, code, decision, "failed")
+                try:
+                    _write_failure_quota_log(
+                        log_path,
+                        context,
+                        runtime.RET_OK,
+                        sleep,
+                        pre_snapshot,
+                        code,
+                        decision,
+                        "unexpected",
+                    )
+                except Exception:
+                    # The original unexpected exception remains authoritative.
+                    pass
                 raise
             post_snapshot = _quota_snapshot(context, runtime.RET_OK, sleep)
-            write_quota_log(log_path, "post", post_snapshot, code, decision, "success")
-            entries.append(entry)
-        return tuple(entries)
+            write_quota_log(
+                log_path,
+                "post",
+                post_snapshot,
+                code,
+                decision,
+                "success",
+                snapshot_source="post",
+            )
+            outcomes.append(entry)
+        return RefreshBatchResult(tuple(outcomes))
     finally:
         context.close()
 

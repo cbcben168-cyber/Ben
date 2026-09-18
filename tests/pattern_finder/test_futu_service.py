@@ -5,7 +5,10 @@ import exchange_calendars as xcals
 import pandas as pd
 import pytest
 
-from tv_quant.futu_quota import QuotaPolicyError
+from tv_quant.data_quality import DataQualityError
+from tv_quant.futu_quota import QuotaPolicyError, QuotaSnapshot, read_quota_history
+from tv_quant.pattern_finder import futu_service
+from tv_quant.pattern_finder.cache import PatternCacheError
 from tv_quant.pattern_finder.futu_service import (
     refresh_pilot_universe,
     refresh_symbols,
@@ -16,9 +19,16 @@ from tv_quant.pattern_finder.universe import PILOT_SYMBOLS
 
 
 class Context:
-    def __init__(self, *, ready: bool = True, remain_quota: int = 120):
+    def __init__(
+        self,
+        *,
+        ready: bool = True,
+        remain_quota: int = 120,
+        failing_codes: frozenset[str] = frozenset(),
+    ):
         self.ready = ready
         self.remain_quota = remain_quota
+        self.failing_codes = failing_codes
         self.known_codes: list[str] = []
         self.requests: list[dict[str, object]] = []
         self.closed = False
@@ -40,6 +50,8 @@ class Context:
     def request_history_kline(self, **kwargs):
         self.requests.append(kwargs)
         code = str(kwargs["code"])
+        if code in self.failing_codes:
+            return 1, "provider timeout", None
         if code not in self.known_codes:
             self.known_codes.append(code)
             self.remain_quota -= 1
@@ -161,6 +173,289 @@ def test_refresh_symbols_preserves_exact_order_and_uses_provider_quota(tmp_path:
         "US.WFC",
     )
     assert context.remain_quota == 0
+    assert context.closed is True
+
+
+def test_refresh_symbols_isolates_middle_failure_and_returns_ordered_summary(
+    tmp_path: Path,
+) -> None:
+    context = Context(
+        remain_quota=4,
+        failing_codes=frozenset({"US.AMZN"}),
+    )
+
+    result = refresh_symbols(
+        ("AAPL", "MSFT", "AMZN", "GOOGL"),
+        cache_root=tmp_path / "cache",
+        as_of_utc=datetime(2026, 7, 6, 20, 1, tzinfo=UTC),
+        log_path=tmp_path / "quota.jsonl",
+        sdk=Sdk(context),
+        sleep=lambda _: None,
+    )
+
+    assert tuple(request["code"] for request in context.requests) == (
+        "US.AAPL",
+        "US.MSFT",
+        "US.AMZN",
+        "US.AMZN",
+        "US.GOOGL",
+    )
+    assert tuple(outcome.symbol for outcome in result.outcomes) == (
+        "AAPL",
+        "MSFT",
+        "AMZN",
+        "GOOGL",
+    )
+    assert tuple(entry.symbol for entry in result.successes) == (
+        "AAPL",
+        "MSFT",
+        "GOOGL",
+    )
+    assert len(result.failures) == 1
+    assert result.failures[0].symbol == "AMZN"
+    assert result.failures[0].error_type == "FutuDownloadError"
+    assert result.failures[0].message == (
+        "Futu history request failed for US.AMZN: provider timeout"
+    )
+    assert context.closed is True
+
+
+def test_refresh_symbols_records_pattern_cache_error_once_and_continues(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = Context(remain_quota=3)
+    original_refresh = futu_service.refresh_cache_entry
+    refresh_calls: list[str] = []
+
+    def refresh_with_cache_failure(symbol: str, *args, **kwargs):
+        refresh_calls.append(symbol)
+        if symbol == "AMZN":
+            raise PatternCacheError("quality gate failed")
+        return original_refresh(symbol, *args, **kwargs)
+
+    monkeypatch.setattr(futu_service, "refresh_cache_entry", refresh_with_cache_failure)
+
+    result = refresh_symbols(
+        ("AAPL", "AMZN", "GOOGL"),
+        cache_root=tmp_path / "cache",
+        as_of_utc=datetime(2026, 7, 6, 20, 1, tzinfo=UTC),
+        log_path=tmp_path / "quota.jsonl",
+        sdk=Sdk(context),
+        sleep=lambda _: None,
+    )
+
+    assert refresh_calls == ["AAPL", "AMZN", "GOOGL"]
+    assert tuple(request["code"] for request in context.requests) == (
+        "US.AAPL",
+        "US.GOOGL",
+    )
+    assert tuple(entry.symbol for entry in result.successes) == ("AAPL", "GOOGL")
+    assert tuple(failure.symbol for failure in result.failures) == ("AMZN",)
+    assert result.failures[0].error_type == "PatternCacheError"
+    assert context.closed is True
+
+
+def test_refresh_symbols_isolates_data_quality_error_and_continues(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = Context(remain_quota=3)
+    original_refresh = futu_service.refresh_cache_entry
+
+    def refresh_with_data_quality_failure(symbol: str, *args, **kwargs):
+        if symbol == "AMZN":
+            raise DataQualityError("duplicate timestamps")
+        return original_refresh(symbol, *args, **kwargs)
+
+    monkeypatch.setattr(
+        futu_service,
+        "refresh_cache_entry",
+        refresh_with_data_quality_failure,
+    )
+
+    result = refresh_symbols(
+        ("AAPL", "AMZN", "GOOGL"),
+        cache_root=tmp_path / "cache",
+        as_of_utc=datetime(2026, 7, 6, 20, 1, tzinfo=UTC),
+        log_path=tmp_path / "quota.jsonl",
+        sdk=Sdk(context),
+        sleep=lambda _: None,
+    )
+
+    assert tuple(entry.symbol for entry in result.successes) == ("AAPL", "GOOGL")
+    assert tuple(failure.symbol for failure in result.failures) == ("AMZN",)
+    assert result.failures[0].error_type == "DataQualityError"
+    assert context.closed is True
+
+
+def test_refresh_symbols_failure_audit_uses_actual_post_request_quota(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = Context(remain_quota=2)
+    log_path = tmp_path / "quota.jsonl"
+
+    def refresh_after_consuming_quota(symbol: str, *args, **kwargs):
+        context.known_codes.append(f"US.{symbol}")
+        context.remain_quota -= 1
+        raise PatternCacheError("quality gate failed")
+
+    monkeypatch.setattr(
+        futu_service,
+        "refresh_cache_entry",
+        refresh_after_consuming_quota,
+    )
+
+    result = refresh_symbols(
+        ("AMZN",),
+        cache_root=tmp_path / "cache",
+        as_of_utc=datetime(2026, 7, 6, 20, 1, tzinfo=UTC),
+        log_path=log_path,
+        sdk=Sdk(context),
+        sleep=lambda _: None,
+    )
+
+    history = read_quota_history(log_path)
+    assert tuple(failure.symbol for failure in result.failures) == ("AMZN",)
+    assert history[-1]["phase"] == "post"
+    assert history[-1]["outcome"] == "failed"
+    assert history[-1]["used_quota"] == 1
+    assert history[-1]["remain_quota"] == 1
+    assert history[-1]["snapshot_source"] == "post"
+
+
+def test_refresh_symbols_failure_audit_marks_pre_snapshot_fallback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = Context(remain_quota=1)
+    log_path = tmp_path / "quota.jsonl"
+    quota_calls = 0
+
+    def quota_snapshot(*args, **kwargs):
+        nonlocal quota_calls
+        quota_calls += 1
+        if quota_calls == 1:
+            return QuotaSnapshot(0, 1, [])
+        raise RuntimeError("quota read timeout")
+
+    def refresh_with_cache_failure(symbol: str, *args, **kwargs):
+        raise PatternCacheError("quality gate failed")
+
+    monkeypatch.setattr(futu_service, "_quota_snapshot", quota_snapshot)
+    monkeypatch.setattr(
+        futu_service,
+        "refresh_cache_entry",
+        refresh_with_cache_failure,
+    )
+
+    result = refresh_symbols(
+        ("AMZN",),
+        cache_root=tmp_path / "cache",
+        as_of_utc=datetime(2026, 7, 6, 20, 1, tzinfo=UTC),
+        log_path=log_path,
+        sdk=Sdk(context),
+        sleep=lambda _: None,
+    )
+
+    history = read_quota_history(log_path)
+    assert tuple(failure.symbol for failure in result.failures) == ("AMZN",)
+    assert quota_calls == 2
+    assert history[-1]["phase"] == "post"
+    assert history[-1]["outcome"] == "failed"
+    assert history[-1]["snapshot_source"] == "pre_fallback"
+    assert history[-1]["audit_error"] == "RuntimeError: quota read timeout"
+
+
+def test_refresh_symbols_keeps_unexpected_exception_fail_fast(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = Context(remain_quota=3)
+    log_path = tmp_path / "quota.jsonl"
+    original_refresh = futu_service.refresh_cache_entry
+    refresh_calls: list[str] = []
+
+    def refresh_with_programmer_error(symbol: str, *args, **kwargs):
+        refresh_calls.append(symbol)
+        if symbol == "AMZN":
+            raise AssertionError("programmer bug")
+        return original_refresh(symbol, *args, **kwargs)
+
+    monkeypatch.setattr(futu_service, "refresh_cache_entry", refresh_with_programmer_error)
+
+    with pytest.raises(AssertionError, match="programmer bug"):
+        refresh_symbols(
+            ("AAPL", "AMZN", "GOOGL"),
+            cache_root=tmp_path / "cache",
+            as_of_utc=datetime(2026, 7, 6, 20, 1, tzinfo=UTC),
+            log_path=log_path,
+            sdk=Sdk(context),
+            sleep=lambda _: None,
+        )
+
+    history = read_quota_history(log_path)
+    assert refresh_calls == ["AAPL", "AMZN"]
+    assert tuple(request["code"] for request in context.requests) == ("US.AAPL",)
+    assert history[-1]["phase"] == "post"
+    assert history[-1]["outcome"] == "unexpected"
+    assert history[-1]["snapshot_source"] == "post"
+    assert context.closed is True
+
+
+@pytest.mark.parametrize(
+    (
+        "failing_codes",
+        "expected_requests",
+        "expected_successes",
+        "expected_failures",
+    ),
+    (
+        (
+            frozenset({"US.AAPL"}),
+            ("US.AAPL", "US.AAPL", "US.MSFT", "US.AMZN", "US.GOOGL"),
+            ("MSFT", "AMZN", "GOOGL"),
+            ("AAPL",),
+        ),
+        (
+            frozenset({"US.AAPL", "US.AMZN"}),
+            (
+                "US.AAPL",
+                "US.AAPL",
+                "US.MSFT",
+                "US.AMZN",
+                "US.AMZN",
+                "US.GOOGL",
+            ),
+            ("MSFT", "GOOGL"),
+            ("AAPL", "AMZN"),
+        ),
+    ),
+)
+def test_refresh_symbols_preserves_later_successes_for_first_and_multiple_failures(
+    tmp_path: Path,
+    failing_codes: frozenset[str],
+    expected_requests: tuple[str, ...],
+    expected_successes: tuple[str, ...],
+    expected_failures: tuple[str, ...],
+) -> None:
+    symbols = ("AAPL", "MSFT", "AMZN", "GOOGL")
+    context = Context(remain_quota=4, failing_codes=failing_codes)
+
+    result = refresh_symbols(
+        symbols,
+        cache_root=tmp_path / "cache",
+        as_of_utc=datetime(2026, 7, 6, 20, 1, tzinfo=UTC),
+        log_path=tmp_path / "quota.jsonl",
+        sdk=Sdk(context),
+        sleep=lambda _: None,
+    )
+
+    assert tuple(request["code"] for request in context.requests) == expected_requests
+    assert tuple(outcome.symbol for outcome in result.outcomes) == symbols
+    assert tuple(entry.symbol for entry in result.successes) == expected_successes
+    assert tuple(failure.symbol for failure in result.failures) == expected_failures
     assert context.closed is True
 
 

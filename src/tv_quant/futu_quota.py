@@ -47,7 +47,17 @@ def read_quota_history(path: str | Path) -> list[dict[str, Any]]:
     file = Path(path)
     return [] if not file.exists() else [json.loads(line) for line in file.read_text(encoding="utf-8").splitlines() if line]
 
-def write_quota_log(path: str | Path, phase: str, snapshot: QuotaSnapshot, code: str, decision: QuotaDecision | None, outcome: str) -> None:
+def write_quota_log(
+    path: str | Path,
+    phase: str,
+    snapshot: QuotaSnapshot,
+    code: str,
+    decision: QuotaDecision | None,
+    outcome: str,
+    *,
+    snapshot_source: str | None = None,
+    audit_error: str | None = None,
+) -> None:
     record = {
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "phase": phase,
@@ -61,6 +71,10 @@ def write_quota_log(path: str | Path, phase: str, snapshot: QuotaSnapshot, code:
         "server_remain_quota": decision.server_remain_quota if decision else None,
         "outcome": outcome,
     }
+    if snapshot_source is not None:
+        record["snapshot_source"] = snapshot_source
+    if audit_error is not None:
+        record["audit_error"] = audit_error
     file = Path(path); file.parent.mkdir(parents=True, exist_ok=True)
     with file.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(record, ensure_ascii=False) + "\n")

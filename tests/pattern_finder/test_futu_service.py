@@ -5,7 +5,8 @@ import exchange_calendars as xcals
 import pandas as pd
 import pytest
 
-from tv_quant.futu_quota import QuotaPolicyError
+from tv_quant.data_quality import DataQualityError
+from tv_quant.futu_quota import QuotaPolicyError, QuotaSnapshot, read_quota_history
 from tv_quant.pattern_finder import futu_service
 from tv_quant.pattern_finder.cache import PatternCacheError
 from tv_quant.pattern_finder.futu_service import (
@@ -255,11 +256,124 @@ def test_refresh_symbols_records_pattern_cache_error_once_and_continues(
     assert context.closed is True
 
 
+def test_refresh_symbols_isolates_data_quality_error_and_continues(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = Context(remain_quota=3)
+    original_refresh = futu_service.refresh_cache_entry
+
+    def refresh_with_data_quality_failure(symbol: str, *args, **kwargs):
+        if symbol == "AMZN":
+            raise DataQualityError("duplicate timestamps")
+        return original_refresh(symbol, *args, **kwargs)
+
+    monkeypatch.setattr(
+        futu_service,
+        "refresh_cache_entry",
+        refresh_with_data_quality_failure,
+    )
+
+    result = refresh_symbols(
+        ("AAPL", "AMZN", "GOOGL"),
+        cache_root=tmp_path / "cache",
+        as_of_utc=datetime(2026, 7, 6, 20, 1, tzinfo=UTC),
+        log_path=tmp_path / "quota.jsonl",
+        sdk=Sdk(context),
+        sleep=lambda _: None,
+    )
+
+    assert tuple(entry.symbol for entry in result.successes) == ("AAPL", "GOOGL")
+    assert tuple(failure.symbol for failure in result.failures) == ("AMZN",)
+    assert result.failures[0].error_type == "DataQualityError"
+    assert context.closed is True
+
+
+def test_refresh_symbols_failure_audit_uses_actual_post_request_quota(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = Context(remain_quota=2)
+    log_path = tmp_path / "quota.jsonl"
+
+    def refresh_after_consuming_quota(symbol: str, *args, **kwargs):
+        context.known_codes.append(f"US.{symbol}")
+        context.remain_quota -= 1
+        raise PatternCacheError("quality gate failed")
+
+    monkeypatch.setattr(
+        futu_service,
+        "refresh_cache_entry",
+        refresh_after_consuming_quota,
+    )
+
+    result = refresh_symbols(
+        ("AMZN",),
+        cache_root=tmp_path / "cache",
+        as_of_utc=datetime(2026, 7, 6, 20, 1, tzinfo=UTC),
+        log_path=log_path,
+        sdk=Sdk(context),
+        sleep=lambda _: None,
+    )
+
+    history = read_quota_history(log_path)
+    assert tuple(failure.symbol for failure in result.failures) == ("AMZN",)
+    assert history[-1]["phase"] == "post"
+    assert history[-1]["outcome"] == "failed"
+    assert history[-1]["used_quota"] == 1
+    assert history[-1]["remain_quota"] == 1
+    assert history[-1]["snapshot_source"] == "post"
+
+
+def test_refresh_symbols_failure_audit_marks_pre_snapshot_fallback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = Context(remain_quota=1)
+    log_path = tmp_path / "quota.jsonl"
+    quota_calls = 0
+
+    def quota_snapshot(*args, **kwargs):
+        nonlocal quota_calls
+        quota_calls += 1
+        if quota_calls == 1:
+            return QuotaSnapshot(0, 1, [])
+        raise RuntimeError("quota read timeout")
+
+    def refresh_with_cache_failure(symbol: str, *args, **kwargs):
+        raise PatternCacheError("quality gate failed")
+
+    monkeypatch.setattr(futu_service, "_quota_snapshot", quota_snapshot)
+    monkeypatch.setattr(
+        futu_service,
+        "refresh_cache_entry",
+        refresh_with_cache_failure,
+    )
+
+    result = refresh_symbols(
+        ("AMZN",),
+        cache_root=tmp_path / "cache",
+        as_of_utc=datetime(2026, 7, 6, 20, 1, tzinfo=UTC),
+        log_path=log_path,
+        sdk=Sdk(context),
+        sleep=lambda _: None,
+    )
+
+    history = read_quota_history(log_path)
+    assert tuple(failure.symbol for failure in result.failures) == ("AMZN",)
+    assert quota_calls == 2
+    assert history[-1]["phase"] == "post"
+    assert history[-1]["outcome"] == "failed"
+    assert history[-1]["snapshot_source"] == "pre_fallback"
+    assert history[-1]["audit_error"] == "RuntimeError: quota read timeout"
+
+
 def test_refresh_symbols_keeps_unexpected_exception_fail_fast(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     context = Context(remain_quota=3)
+    log_path = tmp_path / "quota.jsonl"
     original_refresh = futu_service.refresh_cache_entry
     refresh_calls: list[str] = []
 
@@ -276,13 +390,17 @@ def test_refresh_symbols_keeps_unexpected_exception_fail_fast(
             ("AAPL", "AMZN", "GOOGL"),
             cache_root=tmp_path / "cache",
             as_of_utc=datetime(2026, 7, 6, 20, 1, tzinfo=UTC),
-            log_path=tmp_path / "quota.jsonl",
+            log_path=log_path,
             sdk=Sdk(context),
             sleep=lambda _: None,
         )
 
+    history = read_quota_history(log_path)
     assert refresh_calls == ["AAPL", "AMZN"]
     assert tuple(request["code"] for request in context.requests) == ("US.AAPL",)
+    assert history[-1]["phase"] == "post"
+    assert history[-1]["outcome"] == "unexpected"
+    assert history[-1]["snapshot_source"] == "post"
     assert context.closed is True
 
 

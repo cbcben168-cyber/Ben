@@ -64,3 +64,48 @@ def test_non_timeout_history_error_is_not_retried() -> None:
         )
 
     assert context.page_keys == [None]
+
+
+def test_permanent_error_with_timeout_text_is_not_retried() -> None:
+    context = Context(
+        [
+            (1, "permission denied: timeout policy is disabled", None),
+            (0, page("2024-01-02"), None),
+        ]
+    )
+
+    with pytest.raises(FutuDownloadError, match="permission denied"):
+        download_futu_daily(
+            "US.SPY",
+            date(2024, 1, 1),
+            date(2024, 1, 2),
+            context,
+            sleep=lambda _: None,
+        )
+
+    assert context.page_keys == [None]
+
+
+def test_second_page_timeout_retries_same_key_without_duplicate_rows() -> None:
+    page_2 = b"page-2"
+    context = Context(
+        [
+            (0, page("2024-01-02"), page_2),
+            (1, "provider timeout", None),
+            (0, page("2024-01-03"), None),
+        ]
+    )
+
+    data = download_futu_daily(
+        "US.SPY",
+        date(2024, 1, 1),
+        date(2024, 1, 3),
+        context,
+        sleep=lambda _: None,
+    )
+
+    assert context.page_keys == [None, page_2, page_2]
+    assert data["timestamp_utc"].dt.date.astype(str).tolist() == [
+        "2024-01-02",
+        "2024-01-03",
+    ]

@@ -22,6 +22,18 @@ class QuoteContext(Protocol):
 
 def _is_transient_history_timeout(detail: object) -> bool:
     text = str(detail).lower()
+    permanent_markers = (
+        "permission",
+        "denied",
+        "unauthorized",
+        "authentication",
+        "invalid",
+        "unsupported",
+        "权限",
+        "参数错误",
+    )
+    if any(marker in text for marker in permanent_markers):
+        return False
     return "timeout" in text or "timed out" in text or "超时" in text
 
 

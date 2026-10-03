@@ -1,0 +1,13 @@
+{
+  "version": "diagnostic_v2",
+  "mode": "diagnostic-shadow",
+  "orders_enabled": false,
+  "horizon_minutes": 30,
+  "additional_cost_bps": 2.0,
+  "max_quote_age_seconds": 10,
+  "max_signal_delay_seconds": 10,
+  "max_exit_delay_seconds": 10,
+  "poll_seconds": 5,
+  "promotion": "USER_CHOICE_AND_NEW_VALIDATION_REQUIRED",
+  "note": "Contract mirror only; runtime reads immutable locally generated lock_manifest.json and rejects source drift."
+}

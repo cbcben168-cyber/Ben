@@ -1,0 +1,1 @@
+{"symbol":"US.SPY","host_env":"FUTU_HOST","port_env":"FUTU_PORT","calendar":"XNYS","adjustment":"NONE","timestamp_semantics":"end","max_retries":5,"request_interval_seconds":3.1,"exclude_fraction_limit":0.01}

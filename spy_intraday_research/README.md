@@ -40,3 +40,7 @@ validate-data 生成质量/quarantine、1m/5m、native 5m和daily比较、manife
 ## Gamma 位置研究
 
 新增独立的SPY Gamma 0、Call Wall、Put Wall采集、模型位置、候选买卖点与每日诊断。它不改变现有冻结shadow，不发单；缺历史链不回填，周末报价不给有效信号。运行与限制见 [gamma_levels_runbook.md](docs/gamma_levels_runbook.md)。
+
+## 10-Min ORB + 3R
+
+用户固定规则的独立Train测试，前10分钟区间、10:30前首次收盘突破、下一5m开盘入场、0.25区间宽度止损与实际入场3R目标、每天一笔。执行口径、成本与结果边界见 [orb10_3r_runbook.md](docs/orb10_3r_runbook.md)。不改现有冻结forward，不发单，不扫描止盈止损。

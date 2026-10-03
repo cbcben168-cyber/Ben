@@ -1,7 +1,7 @@
-# SPY 日内研究：Phase 1
+# SPY 日内研究与诊断 Forward Test
 
 独立研究模块；仅连接 Futu quote context，不包含订单或交易账户接口。
-完整研究规格见 `docs/spec.md`。当前数据质量 gate 未通过，禁止据此启动 edge/OOS 研究。
+完整研究规格见 `docs/spec.md`。当前正式数据质量 gate 未通过；允许Train诊断和明确标记的diagnostic-shadow观察，不允许声称通过edge/OOS或发单。
 
 ## 环境与命令
 
@@ -25,8 +25,8 @@ validate-data 生成质量/quarantine、1m/5m、native 5m和daily比较、manife
 
 ## 已知限制
 
-- 当前只完成历史数据基础和两个日期的连接测试，未验证实时权限、最早历史日期和三年连续覆盖。
-- 数据 schema保留Futu原始列，UTC规范化列另加；成交量单位、corporate-action清单、daily预热、完整批量覆盖及跨频率差异资格认证未完成，因此Phase 1整体验收为未通过。
+- 已采集817个交易日，并实现四setup与统计/诊断forward链路；正式行情执行资格和成交量对账仍未通过。
+- 已提供企业行动清单、daily预热和连续覆盖；不同频率成交量的来源差异仍未解释，Phase 1正式数据资格尚未通过。
 - 命令以日期分区checkpoint恢复，暂未实现跨进程并发写锁；只支持单进程采集。
 - 网络SDK的连接/请求时间由SDK超时机制控制；权限/配额拒绝不重试，临时超时/频率错误最多5次。
 - 依赖NumPy 2.5.3与部分pandas timedelta代码产生弃用警告；当前测试通过，尚未做未来版本兼容承诺。
@@ -35,4 +35,4 @@ validate-data 生成质量/quarantine、1m/5m、native 5m和daily比较、manife
 
 当前证据及下一步见 docs/phase1_report.md。
 
-每日forward test复盘和用户优化选择规则见 `docs/daily_review_protocol.md`；日报和审批记录模板已提供。实际日报生成器与调度留待paper阶段接入，当前没有自动运行任务。
+每日forward test复盘和用户优化选择规则见 `docs/daily_review_protocol.md`；日报生成器已实现，系统自动启动任务尚未安装。当前运行方式、边界和命令见 `docs/forward_runbook.md`；实施证据见 `docs/forward_implementation_report.md`。

@@ -8,6 +8,14 @@ def schedule(start, end):
     cal = xc.get_calendar('XNYS')
     return cal.schedule.loc[start:end]
 
+def ohlcv_valid(frame):
+    numeric=frame[PRICE+['volume']].apply(pd.to_numeric,errors='coerce')
+    valid=numeric.notna().all(axis=1)&(numeric.abs()!=float('inf')).all(axis=1)
+    valid&=(numeric[PRICE]>0).all(axis=1)&(numeric.volume>=0)
+    valid&=(numeric.low<=numeric[['open','close']].min(axis=1))
+    valid&=(numeric.high>=numeric[['open','close']].max(axis=1))&(numeric.low<=numeric.high)
+    return valid
+
 def normalize(raw, semantics='start', minutes=1):
     frame = raw.copy()
     frame['ts_start_utc'] = pd.to_datetime(frame.time_key).dt.tz_localize(
@@ -21,25 +29,21 @@ def normalize(raw, semantics='start', minutes=1):
     keys = ['code', 'ts_start_utc']
     values = PRICE + ['volume'] + (['turnover'] if 'turnover' in frame else [])
     frame[values] = frame[values].apply(pd.to_numeric, errors='coerce')
-    for _, group in frame.groupby(keys):
-        if len(group[values].drop_duplicates()) > 1:
-            raise ValueError('CONFLICTING_DUPLICATE')
+    duplicates = frame[frame.duplicated(keys, keep=False)]
+    if not duplicates.empty and duplicates.groupby(keys)[values].nunique(dropna=False).gt(1).any().any():
+        raise ValueError('CONFLICTING_DUPLICATE')
     return frame.drop_duplicates(keys).sort_values('ts_start_utc').reset_index(drop=True)
 
 def quality(frame, start, end):
     rows, accepted = [], []
     calendar = schedule(start, end)
+    partitions = {day: chunk for day, chunk in frame.groupby('session_date')}
     for day, session in calendar.iterrows():
         date = day.strftime('%Y-%m-%d')
         expected = pd.date_range(session.open, session.close, freq='min', inclusive='left')
-        chunk = frame[frame.session_date == date].copy()
+        chunk = partitions.get(date, frame.iloc[:0]).copy()
         actual = pd.DatetimeIndex(chunk.ts_start_utc)
-        numeric = chunk[PRICE + ['volume']].apply(pd.to_numeric, errors='coerce')
-        finite = numeric.notna().all(axis=1) & (numeric.abs() != float('inf')).all(axis=1)
-        valid = finite & (numeric[PRICE] > 0).all(axis=1) & (numeric.volume >= 0)
-        valid &= (numeric.low <= numeric[['open', 'close']].min(axis=1))
-        valid &= (numeric.high >= numeric[['open', 'close']].max(axis=1))
-        valid &= numeric.low <= numeric.high
+        valid = ohlcv_valid(chunk)
         missing, extra = len(expected.difference(actual)), len(actual.difference(expected))
         reasons = []
         if missing: reasons.append('MISSING_MINUTES')
@@ -73,3 +77,19 @@ def aggregate5(frame):
             if 'turnover' in block: row['turnover'] = block.turnover.sum(min_count=5)
             rows.append(row)
     return pd.DataFrame(rows, columns=['code','session_date','ts_start_utc','ts_end_utc',*PRICE,'volume','turnover'])
+
+def aggregate5_fast(frame, partial=False):
+    """Opening-anchored vector aggregation; never silently accept partial blocks."""
+    if frame.empty: return aggregate5(frame)
+    frame = frame.sort_values('ts_start_utc').copy()
+    frame['bucket'] = frame.ts_start_utc.dt.floor('5min')
+    grouped = frame.groupby(['code','session_date','bucket'], sort=True)
+    counts = grouped.ts_start_utc.agg(['size','min','max'])
+    valid = (counts['size']==5) & ((counts['max']-counts['min'])==pd.Timedelta(minutes=4))
+    if not partial and not valid.all(): raise ValueError('INCOMPLETE_5M_BLOCK')
+    agg = dict(open=('open','first'),high=('high','max'),low=('low','min'),close=('close','last'),
+               volume=('volume','sum'),ts_end_utc=('ts_end_utc','last'))
+    result = grouped.agg(**agg)
+    if 'turnover' in frame: result['turnover'] = grouped.turnover.sum(min_count=5)
+    result = result.loc[valid].reset_index().rename(columns={'bucket':'ts_start_utc'})
+    return result

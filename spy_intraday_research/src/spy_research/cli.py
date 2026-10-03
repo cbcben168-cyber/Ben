@@ -102,6 +102,9 @@ def doctor(args, output):
     finally: reader.close()
 
 def main():
+    if len(sys.argv)>1 and sys.argv[1] in ['collect','prepare','register','study','evaluate','lock','freeze-diagnostic','paper','daily-review','replay']:
+        from .workflow import main as workflow
+        return workflow(sys.argv[1:])
     parser=argparse.ArgumentParser()
     parser.add_argument('command',choices=['doctor','ingest','validate-data'])
     parser.add_argument('--config',default=str(ROOT/'configs/research_v1.json'))

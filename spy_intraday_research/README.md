@@ -36,3 +36,7 @@ validate-data 生成质量/quarantine、1m/5m、native 5m和daily比较、manife
 当前证据及下一步见 docs/phase1_report.md。
 
 每日forward test复盘和用户优化选择规则见 `docs/daily_review_protocol.md`；日报生成器已实现，系统自动启动任务尚未安装。当前运行方式、边界和命令见 `docs/forward_runbook.md`；实施证据见 `docs/forward_implementation_report.md`。
+
+## Gamma 位置研究
+
+新增独立的SPY Gamma 0、Call Wall、Put Wall采集、模型位置、候选买卖点与每日诊断。它不改变现有冻结shadow，不发单；缺历史链不回填，周末报价不给有效信号。运行与限制见 [gamma_levels_runbook.md](docs/gamma_levels_runbook.md)。

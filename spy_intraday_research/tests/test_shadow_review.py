@@ -71,6 +71,10 @@ def test_replay_is_distinct_from_future_report(tmp_path):
 def test_processing_delay_requires_new_quote(tmp_path,monkeypatch):
     runner,bars,now=setup_session(tmp_path,monkeypatch)
     runner.lock['account_processing_delay']=True
+    # Windows monotonic clock may return equal ticks for the fast mocked detector.
+    # Supply a measurable processing interval rather than relying on wall speed.
+    ticks=iter([100.,100.1,200.,200.1])
+    monkeypatch.setattr(shadow.time,'monotonic',lambda:next(ticks))
     runner.step(bars,dict(timestamp=now,price=100.),now)
     assert runner.observations.empty
     later=now+pd.Timedelta(seconds=5)

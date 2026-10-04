@@ -5,12 +5,12 @@ build-backend = "setuptools.build_meta"
 name = "es-mes-research"
 version = "0.1.0"
 requires-python = ">=3.12,<3.13"
-dependencies = ["pandas==2.3.3", "numpy==2.5.3", "exchange-calendars==4.13.1", "futu-api==10.11.7108"]
+dependencies = ["pandas==2.3.3", "numpy==2.5.3", "exchange-calendars==4.13.1", "futu-api==10.11.7108", "fastapi==0.142.2", "uvicorn==0.54.0"]
 [project.optional-dependencies]
-dev = ["pytest==8.4.2"]
+dev = ["pytest==8.4.2", "httpx==0.28.1"]
 [tool.setuptools.packages.find]
 where = ["src"]
 [tool.setuptools.package-data]
-es_mes = ["dashboard.html"]
+es_mes = ["dashboard.html", "web/*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]

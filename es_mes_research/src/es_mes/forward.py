@@ -56,7 +56,7 @@ def signal(frame, day):
     row=hits.iloc[0];direction=1 if row.close>high else -1
     raw=high-.25*width if direction==1 else low+.25*width
     stop=(math.floor(raw/.25) if direction==1 else math.ceil(raw/.25))*.25
-    return dict(at=(hits.index[0]+pd.Timedelta(minutes=5)).isoformat(),direction=direction,or_high=high,or_low=low,stop=stop)
+    return dict(at=(hits.index[0]+pd.Timedelta(minutes=5)).isoformat(),direction=direction,or_high=high,or_low=low,stop=stop,signal_close=float(row.close))
 
 
 class Forward:
@@ -77,6 +77,9 @@ class Forward:
     def event(self,kind,**values):
         with self.lock:
             item=dict(received_at_utc=now().isoformat(),kind=kind,**values)
+            if self.config:
+                item.update(product=self.config['product'],contract=self.config['contract'],quantity=1,
+                            fee_usd=self.config['fee'],slippage_ticks=self.config['slip'],execution='SIMULATED_QUOTE_PROXY')
             self.events.append(item)
             self.events=self.events[-200:]
             folder=self.root/'artifacts/forward'/now().tz_convert('America/New_York').strftime('%Y-%m-%d')

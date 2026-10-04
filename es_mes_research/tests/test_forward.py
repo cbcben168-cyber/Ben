@@ -7,7 +7,8 @@ import pytest
 from es_mes import forward
 from es_mes.core import calendar
 from es_mes.forward import Forward,prepare,signal,fresh
-from es_mes.dashboard import App,handler,ThreadingHTTPServer
+from es_mes.dashboard import App,create_api
+from fastapi.testclient import TestClient
 
 
 @pytest.fixture
@@ -90,25 +91,20 @@ def test_recovery_blocks_restart(tmp_path):
 
 
 def test_local_web_security_and_allowlist(tmp_path):
-    app=App(tmp_path);server=ThreadingHTTPServer(('127.0.0.1',0),handler(app,0))
-    port=server.server_address[1];server.RequestHandlerClass=handler(app,port)
-    thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
-    base=f'http://127.0.0.1:{port}'
-    try:
-        with urlopen(base+'/status') as response:assert not json.load(response)['orders_enabled']
-        request=Request(base+'/action',data=b'{"action":"pause"}',headers={'Content-Type':'application/json'},method='POST')
-        with pytest.raises(HTTPError) as error:urlopen(request)
-        assert error.value.code==403
-        request.add_header('Origin',base);request.add_header('X-CSRF-Token',app.token)
-        with urlopen(request) as response:assert json.load(response)['ok']
-        assert app.forward.state['paused']
-        request=Request(base+'/action',data=b'{"action":"shell"}',headers={'Content-Type':'application/json','Origin':base,'X-CSRF-Token':app.token},method='POST')
-        with pytest.raises(HTTPError) as error:urlopen(request)
-        assert error.value.code==400
-        request=Request(base+'/status',headers={'Host':'evil.example'})
-        with pytest.raises(HTTPError) as error:urlopen(request)
-        assert error.value.code==403
-    finally:server.shutdown();server.server_close();thread.join()
+    api=create_api(tmp_path,8765)
+    with TestClient(api,base_url='http://127.0.0.1:8765') as client:
+        assert not client.get('/status').json()['orders_enabled']
+        assert client.post('/action',json={'action':'pause'}).status_code==403
+        token=client.get('/session').json()['token']
+        headers={'Origin':'http://127.0.0.1:8765','X-CSRF-Token':token}
+        assert client.post('/action',json={'action':'pause'},headers=headers).status_code==200
+        assert api.state.service.forward.state['paused']
+        assert client.post('/action',json={'action':'shell'},headers=headers).status_code==422
+        assert client.get('/status',headers={'Host':'evil.example'}).status_code==403
+        assert client.get('/session',headers={'Origin':'http://evil.example'}).status_code==403
+        assert client.post('/action',json={'action':'start','slip':1.5},headers=headers).status_code==422
+        assert client.get('/api/dashboard?date=../../secret').status_code==400
+        assert client.get('/assets/app.js').status_code==200
 
 
 def test_start_requires_real_permission(tmp_path):

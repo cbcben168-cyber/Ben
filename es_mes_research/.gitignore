@@ -8,3 +8,5 @@ state/
 logs/
 .env
 .env.*
+node_modules/
+build/

@@ -10,5 +10,7 @@ dependencies = ["pandas==2.3.3", "numpy==2.5.3", "exchange-calendars==4.13.1", "
 dev = ["pytest==8.4.2"]
 [tool.setuptools.packages.find]
 where = ["src"]
+[tool.setuptools.package-data]
+es_mes = ["dashboard.html"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]

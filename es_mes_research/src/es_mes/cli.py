@@ -18,7 +18,12 @@ def save(path,value):
     path.parent.mkdir(parents=True,exist_ok=True)
     temp=path.with_suffix(path.suffix+'.tmp')
     text=value if isinstance(value,str) else json.dumps(value,indent=2,allow_nan=False)
-    temp.write_text(text,encoding='utf-8');temp.replace(path)
+    temp.write_text(text,encoding='utf-8')
+    for attempt in range(4):
+        try:temp.replace(path);break
+        except PermissionError:
+            if attempt==3:raise
+            time.sleep(.05*(attempt+1))
 
 
 def selection(root):

@@ -1,0 +1,13 @@
+{
+  "name": "es-mes-dashboard",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node --test chart.test.mjs"
+  },
+  "dependencies": {
+    "vue": "3.5.39"
+  }
+}

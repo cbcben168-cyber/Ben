@@ -13,17 +13,17 @@ from datetime import timezone
 class Strategy(StrategyBase):
     def initialize(self):
         declare_strategy_type(AlgoStrategyType.SECURITY)
-        self.trigger_symbols()
+        # Declare this directly in initialize so the backtest wizard can
+        # discover it even when it does not execute helper methods first.
+        self.运行标的1 = declare_trig_symbol()
+        self.symbol = self.运行标的1
         self.custom_indicator()
         self.global_variables()
         self.emit({"event": "START", "version": "data-probe-v1",
                    "qualification": "NOT_VERIFIED", "orders_enabled": False})
 
     def trigger_symbols(self):
-        # Keep the documented running-symbol name so the backtest wizard
-        # can discover and bind it on step 1.
-        self.运行标的1 = declare_trig_symbol()
-        self.symbol = self.运行标的1
+        pass
 
     def custom_indicator(self):
         pass

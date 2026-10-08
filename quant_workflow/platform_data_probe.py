@@ -13,17 +13,16 @@ from datetime import timezone
 class Strategy(StrategyBase):
     def initialize(self):
         declare_strategy_type(AlgoStrategyType.SECURITY)
-        # Declare this directly in initialize so the backtest wizard can
-        # discover it even when it does not execute helper methods first.
-        self.运行标的1 = declare_trig_symbol()
-        self.symbol = self.运行标的1
+        self.trigger_symbols()
         self.custom_indicator()
         self.global_variables()
         self.emit({"event": "START", "version": "data-probe-v1",
                    "qualification": "NOT_VERIFIED", "orders_enabled": False})
 
     def trigger_symbols(self):
-        pass
+        # Futu Quant discovers backtest assets from this documented hook.
+        self.运行标的1 = declare_trig_symbol()
+        self.symbol = self.运行标的1
 
     def custom_indicator(self):
         pass

@@ -1,6 +1,9 @@
 import ast
 from datetime import datetime, timedelta, timezone
+import hashlib
+import json
 from pathlib import Path
+import re
 import runpy
 from types import SimpleNamespace
 
@@ -13,13 +16,13 @@ ET = timezone(timedelta(hours=-4))
 
 
 def parse_line(line):
-    parts = line.strip().split("|")
-    assert parts[0] == "SPY_FACTOR_V1"
-    result = {}
-    for part in parts[1:]:
-        key, value = part.split("=", 1)
-        result[key] = value
-    return result
+    prefix, payload = line.strip().split("|", 1)
+    assert prefix == "FUTU_FACTOR_V1"
+    result = json.loads(payload)
+    return {
+        key: ("TRUE" if value is True else "FALSE" if value is False else str(value))
+        for key, value in result.items()
+    }
 
 
 def platform(close_by_minute=None, ema_by_minute=None, symbol="US.SPY"):
@@ -76,7 +79,11 @@ def run_at(strategy, state, day, hour, minute):
 
 
 def records(capsys):
-    return [parse_line(line) for line in capsys.readouterr().out.splitlines() if line.startswith("SPY_FACTOR_V1|")]
+    return [
+        parse_line(line)
+        for line in capsys.readouterr().out.splitlines()
+        if line.startswith("FUTU_FACTOR_V1|")
+    ]
 
 
 def test_strategy_file_has_required_futu_shape_and_no_forbidden_api():
@@ -109,6 +116,27 @@ def test_strategy_file_has_required_futu_shape_and_no_forbidden_api():
         keywords = {item.arg: item.value for item in call.keywords}
         assert isinstance(keywords["select"], ast.Constant)
         assert keywords["select"].value == 2
+
+
+def test_strategy_emits_versioned_factor_contract_and_canonical_hash(capsys):
+    source = STRATEGY_PATH.read_text(encoding="utf-8")
+    match = re.search(r'self\.strategy_hash = "([0-9a-f]{64})"', source)
+    assert match
+    normalized = re.sub(
+        r'(self\.strategy_hash = ")[0-9a-f]{64}(".*)',
+        r'\g<1>' + ("0" * 64) + r'\g<2>',
+        source,
+        count=1,
+    )
+    assert match.group(1) == hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+    platform()
+    start = records(capsys)[0]
+    assert start["event_type"] == "RUN_START"
+    assert start["contract_version"] == "1.0"
+    assert start["factor_id"] == "SPY_F001_CLOSE_GT_EMA20"
+    assert start["strategy_hash"] == match.group(1)
+    assert start["orders_enabled"] == "FALSE"
 
 
 def test_0930_is_not_read_and_h3_waits_for_due_completed_bar(capsys):
@@ -236,3 +264,7 @@ def test_seven_day_validation_window_reaches_455_cumulative_outcomes(capsys):
     assert {item["horizon_bars"]: int(item["n"]) for item in final} == {
         "3": 455, "6": 455, "12": 455
     }
+    run_end = [item for item in result if item["event_type"] == "RUN_END"]
+    assert len(run_end) == 1
+    assert run_end[0]["status"] == "COMPLETE"
+    assert run_end[0]["signal_count"] == "455"

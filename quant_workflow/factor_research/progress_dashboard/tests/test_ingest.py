@@ -1,5 +1,7 @@
 from pathlib import Path
+import csv
 import hashlib
+import json
 import shutil
 
 import pytest
@@ -69,7 +71,7 @@ def test_valid_fixture_imports_stats_and_duplicate_is_idempotent(database, runlo
     assert row["stable_better_days"] == 0
     assert row["daily_stability"] == pytest.approx(0.0)
     assert row["rank"] is None
-    assert snapshot["summary"]["waiting_export"] == 0
+    assert snapshot["summary"]["waiting_export"] == 1
 
     detail = database.factor_detail("SPY_F001_CLOSE_GT_EMA20", horizon_minutes=15)
     assert detail is not None
@@ -78,12 +80,139 @@ def test_valid_fixture_imports_stats_and_duplicate_is_idempotent(database, runlo
     assert selected["monthly"][0]["pass_fail_diff_bps"] == pytest.approx(0.0)
 
 
+def test_c1_batch_import_expands_atomically_to_six_factor_runs(
+    database, batch_runlog_fixture
+):
+    importer = Importer(database, allow_fixtures=True)
+
+    first = importer.import_file(batch_runlog_fixture)
+    second = importer.import_file(batch_runlog_fixture)
+
+    assert first["status"] == "VALIDATED"
+    assert len(first["run_instance_ids"]) == 6
+    assert second["status"] == "DUPLICATE"
+    snapshot = database.dashboard_snapshot(planned_factor_count=6)
+    assert len(snapshot["factors"]) == 6
+    assert len(snapshot["runs"]) == 6
+    assert {run["signal_count"] for run in snapshot["runs"]} == {2}
+    assert {run["label_count"] for run in snapshot["runs"]} == {6}
+    assert snapshot["summary"]["registered_factors"] == 6
+    assert snapshot["summary"]["functional_backtest_done"] == 6
+    assert snapshot["summary"]["waiting_export"] == 0
+    assert snapshot["comparison"]["ranking_ready"] is False
+    assert "DATA_GATE_NOT_PASS" in snapshot["comparison"]["reason_codes"]
+    with database.connect() as connection:
+        source = connection.execute(
+            "SELECT classification, import_status FROM source_files"
+        ).fetchone()
+    assert source["classification"] == "FACTOR_BATCH"
+    assert source["import_status"] == "VALIDATED"
+
+
+def test_c1_batch_missing_factor_state_rejects_without_partial_import(
+    database, tmp_path, batch_runlog_fixture
+):
+    target = tmp_path / "RunLog_C1_missing_state.csv"
+    content = batch_runlog_fixture.read_text(encoding="utf-8")
+    target.write_text(
+        content.replace("f006_state", "missing_f006_state", 1), encoding="utf-8"
+    )
+
+    result = Importer(database, allow_fixtures=True).import_file(target)
+
+    assert result["status"] == "INVALID"
+    assert database.dashboard_snapshot()["runs"] == []
+
+
+def test_c1_batch_version_mismatch_rejects_all_six_runs(
+    database, tmp_path, batch_runlog_fixture
+):
+    target = tmp_path / "RunLog_C1_wrong_hash.csv"
+    registered_hash = parse_runlog(
+        batch_runlog_fixture, allow_fixtures=True
+    ).run["batch_runs"][0]["strategy_hash"]
+    target.write_text(
+        batch_runlog_fixture.read_text(encoding="utf-8").replace(
+            registered_hash, "a" * 64
+        ),
+        encoding="utf-8",
+    )
+
+    result = Importer(database, allow_fixtures=True).import_file(target)
+
+    assert result["status"] == "INVALID"
+    assert result["run_instance_ids"] == []
+    assert result["error"] == "VERSION_MISMATCH"
+    assert database.dashboard_snapshot()["runs"] == []
+
+
+def test_c1_batch_preserves_invalid_factor_measurement_as_missing_not_zero(
+    database, tmp_path, batch_runlog_fixture
+):
+    target = tmp_path / "RunLog_C1_invalid_f006.csv"
+    rows = list(csv.reader(batch_runlog_fixture.read_text(encoding="utf-8").splitlines()))
+    changed = False
+    for row in rows:
+        if len(row) < 2 or "FUTU_FACTOR_BATCH_V1|" not in row[1] or changed:
+            continue
+        marker, payload_text = row[1].split("|", 1)
+        payload = json.loads(payload_text)
+        if payload["event_type"] != "FACTOR_EVENT":
+            continue
+        payload["f006_state"] = "INVALID"
+        payload["f006_value"] = None
+        row[1] = marker + "|" + json.dumps(payload, separators=(",", ":"))
+        changed = True
+    with target.open("w", encoding="utf-8", newline="") as handle:
+        csv.writer(handle).writerows(rows)
+
+    result = Importer(database, allow_fixtures=True).import_file(target)
+
+    assert result["status"] == "VALIDATED"
+    detail = database.factor_detail("SPY_F006_STRONG_BULL_BODY")
+    assert detail is not None
+    assert detail["runs"][0]["signal_count"] == 1
+    assert detail["runs"][0]["label_count"] == 3
+    codes = {issue["issue_code"] for issue in database.dashboard_snapshot()["issues"]}
+    assert "INVALID_FACTOR_MEASUREMENTS" in codes
+
+
+def test_c1_batch_missing_run_end_imports_all_six_as_incomplete(
+    database, tmp_path, batch_runlog_fixture
+):
+    target = tmp_path / "RunLog_C1_incomplete.csv"
+    rows = list(csv.reader(batch_runlog_fixture.read_text(encoding="utf-8").splitlines()))
+    kept = []
+    for row in rows:
+        if len(row) >= 2 and "FUTU_FACTOR_BATCH_V1|" in row[1]:
+            payload = json.loads(row[1].split("|", 1)[1])
+            if payload["event_type"] == "RUN_END":
+                continue
+        kept.append(row)
+    with target.open("w", encoding="utf-8", newline="") as handle:
+        csv.writer(handle).writerows(kept)
+
+    result = Importer(database, allow_fixtures=True).import_file(target)
+
+    assert result["status"] == "INCOMPLETE"
+    snapshot = database.dashboard_snapshot()
+    assert len(snapshot["runs"]) == 6
+    assert {run["run_status"] for run in snapshot["runs"]} == {"INCOMPLETE"}
+    assert snapshot["comparison"]["ranking_ready"] is False
+
+
 def test_comparison_blocks_mismatched_ranges_then_ranks_matching_scope(
     database, runlog_fixture
 ):
     Importer(database, allow_fixtures=True).import_file(runlog_fixture)
     now = "2026-10-10T00:00:00Z"
     with database.connect() as connection:
+        connection.execute(
+            "DELETE FROM factor_versions WHERE factor_id<>'SPY_F001_CLOSE_GT_EMA20'"
+        )
+        connection.execute(
+            "DELETE FROM factors WHERE factor_id<>'SPY_F001_CLOSE_GT_EMA20'"
+        )
         connection.execute(
             "UPDATE factors SET data_gate='PASS' WHERE factor_id='SPY_F001_CLOSE_GT_EMA20'"
         )
@@ -282,7 +411,7 @@ def test_watcher_requires_stability_and_restart_backfills(database, tmp_path, ru
     snapshot = restarted.dashboard_snapshot()
     assert len(snapshot["runs"]) == 1
     assert snapshot["runs"][0]["run_status"] == "VALIDATED"
-    assert snapshot["summary"]["waiting_export"] == 0
+    assert snapshot["summary"]["waiting_export"] == 1
 
 
 def test_csv_parser_handles_quoted_json_with_commas(runlog_fixture):

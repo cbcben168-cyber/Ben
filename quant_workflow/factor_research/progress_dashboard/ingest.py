@@ -15,6 +15,7 @@ from .db import Database, utc_now
 
 
 MARKER = "FUTU_FACTOR_V1|"
+BATCH_MARKER = "FUTU_FACTOR_BATCH_V1|"
 LEGACY_MARKER = "SPY_FACTOR_V1|"
 LEGACY_STRATEGY_HASH = "137abf998ac16210d7185bcae3b6c96d77c0fe75344af33d3ac73a6675f28bc3"
 MAX_FILE_BYTES = 50 * 1024 * 1024
@@ -32,6 +33,30 @@ REQUIRED_COMMON = {
     "select",
     "timezone",
 }
+BATCH_REQUIRED_COMMON = {
+    "contract_version",
+    "event_type",
+    "batch_id",
+    "run_id",
+    "strategy_version",
+    "strategy_hash",
+    "parameter_version",
+    "symbol",
+    "timeframe",
+    "session",
+    "select",
+    "timezone",
+}
+BATCH_DEFINITION_HASH = "370c846144bf3e184642acd4a55c97976c75c377073a74f43aa001fef758be23"
+BATCH_FACTORS = (
+    ("SPY_F001_CLOSE_GT_EMA20", "f001", "F001-C1-BATCH-V1"),
+    ("SPY_F002_EMA20_RISING_3", "f002", "F002-C1-BATCH-V1"),
+    ("SPY_F003_CLOSE_CROSS_ABOVE_EMA20", "f003", "F003-C1-BATCH-V1"),
+    ("SPY_F004_CLOSE_BREAKS_PRIOR_5_HIGH", "f004", "F004-C1-BATCH-V1"),
+    ("SPY_F005_THREE_CLOSE_MOMENTUM", "f005", "F005-C1-BATCH-V1"),
+    ("SPY_F006_STRONG_BULL_BODY", "f006", "F006-C1-BATCH-V1"),
+)
+BATCH_FACTOR_IDS = ",".join(item[0] for item in BATCH_FACTORS)
 
 
 @dataclass
@@ -388,6 +413,435 @@ def _parse_legacy_runlog(text: str, encoding: str) -> ParseResult:
     )
 
 
+def _parse_batch_events(
+    events: list[dict[str, Any]],
+    *,
+    encoding: str,
+    rows_total: int,
+    rows_marked: int,
+    parsed_rows: int,
+    allow_fixtures: bool,
+) -> ParseResult:
+    starts = [item for item in events if item["event_type"] == "RUN_START"]
+    ends = [item for item in events if item["event_type"] == "RUN_END"]
+    if len(starts) != 1:
+        return ParseResult(
+            "FACTOR_BATCH",
+            "PARSE_FAILED",
+            encoding,
+            "FUTU_FACTOR_BATCH_V1",
+            rows_total,
+            rows_marked,
+            parsed_rows,
+            error=f"BATCH_RUN_START_COUNT:{len(starts)}",
+        )
+    start = starts[0]
+    if bool(start.get("fixture")) and not allow_fixtures:
+        return ParseResult(
+            "TEST_FIXTURE",
+            "INVALID",
+            encoding,
+            "FUTU_FACTOR_BATCH_V1",
+            rows_total,
+            rows_marked,
+            parsed_rows,
+            error="FIXTURE_NOT_ALLOWED_IN_PRODUCTION_DB",
+        )
+    if not re.fullmatch(r"[0-9a-f]{64}", str(start["strategy_hash"])):
+        return ParseResult(
+            "FACTOR_BATCH",
+            "PARSE_FAILED",
+            encoding,
+            "FUTU_FACTOR_BATCH_V1",
+            rows_total,
+            rows_marked,
+            parsed_rows,
+            error="INVALID_STRATEGY_HASH",
+        )
+    if start.get("factor_ids") != BATCH_FACTOR_IDS:
+        return ParseResult(
+            "FACTOR_BATCH",
+            "PARSE_FAILED",
+            encoding,
+            "FUTU_FACTOR_BATCH_V1",
+            rows_total,
+            rows_marked,
+            parsed_rows,
+            error="BATCH_FACTOR_CATALOG_MISMATCH",
+        )
+    if start.get("definition_hash") != BATCH_DEFINITION_HASH:
+        return ParseResult(
+            "FACTOR_BATCH",
+            "PARSE_FAILED",
+            encoding,
+            "FUTU_FACTOR_BATCH_V1",
+            rows_total,
+            rows_marked,
+            parsed_rows,
+            error="BATCH_DEFINITION_HASH_MISMATCH",
+        )
+
+    identity = {
+        key: start[key]
+        for key in (
+            "batch_id",
+            "run_id",
+            "strategy_version",
+            "strategy_hash",
+            "parameter_version",
+            "symbol",
+            "timeframe",
+            "session",
+            "select",
+            "timezone",
+        )
+    }
+    for event in events:
+        for key, expected in identity.items():
+            if event.get(key) != expected:
+                return ParseResult(
+                    "FACTOR_BATCH",
+                    "PARSE_FAILED",
+                    encoding,
+                    "FUTU_FACTOR_BATCH_V1",
+                    rows_total,
+                    rows_marked,
+                    parsed_rows,
+                    error=f"BATCH_IDENTITY_MISMATCH:{key}",
+                )
+
+    run_issues: list[dict[str, str]] = []
+    fatal = False
+    incomplete = False
+    if identity["symbol"] != "US.SPY" or identity["timeframe"] != "5m":
+        fatal = True
+        run_issues.append(
+            {
+                "code": "SYMBOL_TIMEFRAME_MISMATCH",
+                "severity": "ERROR",
+                "message": "C1 六因子批次只接受 US.SPY / 5m。",
+            }
+        )
+    if identity["session"] != "RTH" or int(identity["select"]) != 2:
+        fatal = True
+        run_issues.append(
+            {
+                "code": "SESSION_SELECT_MISMATCH",
+                "severity": "ERROR",
+                "message": "C1 六因子批次必须为 RTH 且 select=2。",
+            }
+        )
+
+    factor_events = [item for item in events if item["event_type"] == "FACTOR_EVENT"]
+    normalized_events: list[dict[str, Any]] = []
+    seen_signals: set[str] = set()
+    for event in factor_events:
+        try:
+            required = {
+                "signal_id",
+                "session_date_et",
+                "signal_time_et",
+                "signal_time_utc",
+                "signal_close",
+                "factor_ids",
+                "definition_hash",
+            }
+            for _, prefix, _ in BATCH_FACTORS:
+                required.add(prefix + "_state")
+            for horizon in (3, 6, 12):
+                suffix = str(horizon)
+                required.update(
+                    {
+                        "r" + suffix,
+                        "target_" + suffix + "_et",
+                        "target_" + suffix + "_utc",
+                        "target_" + suffix + "_close",
+                    }
+                )
+            _required(event, required)
+            missing_value_keys = [
+                prefix + "_value"
+                for _, prefix, _ in BATCH_FACTORS
+                if prefix + "_value" not in event
+            ]
+            if missing_value_keys:
+                raise ValueError("MISSING_FIELDS:" + ",".join(missing_value_keys))
+            if event["factor_ids"] != BATCH_FACTOR_IDS:
+                raise ValueError("EVENT_FACTOR_CATALOG_MISMATCH")
+            if event["definition_hash"] != BATCH_DEFINITION_HASH:
+                raise ValueError("EVENT_DEFINITION_HASH_MISMATCH")
+            signal_id = str(event["signal_id"])
+            if signal_id in seen_signals:
+                raise ValueError("DUPLICATE_SIGNAL_ID")
+            seen_signals.add(signal_id)
+            signal_et = _parse_time(event["signal_time_et"], "signal_time_et")
+            _parse_time(event["signal_time_utc"], "signal_time_utc")
+            if str(event["session_date_et"]) != signal_et.date().isoformat():
+                raise ValueError("SESSION_DATE_MISMATCH")
+            minute = signal_et.hour * 60 + signal_et.minute
+            if minute < 575 or minute > 895 or minute % 5:
+                raise ValueError("SIGNAL_OUTSIDE_RTH_GRID")
+            signal_close = float(event["signal_close"])
+            if signal_close <= 0:
+                raise ValueError("INVALID_SIGNAL_CLOSE")
+            states: dict[str, str] = {}
+            values: dict[str, float | None] = {}
+            for factor_id, prefix, _ in BATCH_FACTORS:
+                state = str(event[prefix + "_state"])
+                if state not in {"PASS", "FAIL", "INVALID"}:
+                    raise ValueError("INVALID_FACTOR_STATE:" + prefix)
+                states[factor_id] = state
+                raw_value = event[prefix + "_value"]
+                if raw_value is None:
+                    if state != "INVALID":
+                        raise ValueError("NULL_FACTOR_VALUE:" + prefix)
+                    values[factor_id] = None
+                else:
+                    number = float(raw_value)
+                    if number != number or number in {float("inf"), float("-inf")}:
+                        raise ValueError("NONFINITE_FACTOR_VALUE:" + prefix)
+                    values[factor_id] = number
+            labels: list[dict[str, Any]] = []
+            for horizon, minutes in ((3, 15), (6, 30), (12, 60)):
+                suffix = str(horizon)
+                target_et = _parse_time(event["target_" + suffix + "_et"], "target_et")
+                _parse_time(event["target_" + suffix + "_utc"], "target_utc")
+                if (target_et - signal_et).total_seconds() != minutes * 60:
+                    raise ValueError("TARGET_HORIZON_MISMATCH:H" + suffix)
+                target_close = float(event["target_" + suffix + "_close"])
+                forward_return = float(event["r" + suffix])
+                if target_close <= 0 or target_close != target_close:
+                    raise ValueError("INVALID_TARGET_CLOSE:H" + suffix)
+                if forward_return != forward_return or forward_return in {
+                    float("inf"),
+                    float("-inf"),
+                }:
+                    raise ValueError("NONFINITE_FORWARD_RETURN:H" + suffix)
+                recomputed = target_close / signal_close - 1.0
+                if abs(recomputed - forward_return) > 5e-10:
+                    raise ValueError("FORWARD_RETURN_MISMATCH:H" + suffix)
+                labels.append(
+                    {
+                        "signal_id": signal_id,
+                        "horizon_bars": horizon,
+                        "horizon_minutes": minutes,
+                        "target_time_et": str(event["target_" + suffix + "_et"]),
+                        "target_time_utc": str(event["target_" + suffix + "_utc"]),
+                        "target_close": target_close,
+                        "forward_return": forward_return,
+                    }
+                )
+            normalized_events.append(
+                {
+                    "signal_id": signal_id,
+                    "session_date_et": str(event["session_date_et"]),
+                    "signal_time_et": str(event["signal_time_et"]),
+                    "signal_time_utc": str(event["signal_time_utc"]),
+                    "signal_close": signal_close,
+                    "states": states,
+                    "values": values,
+                    "labels": labels,
+                }
+            )
+        except (TypeError, ValueError) as exc:
+            fatal = True
+            run_issues.append(
+                {"code": "INVALID_BATCH_EVENT", "severity": "ERROR", "message": str(exc)}
+            )
+
+    error_events = [item for item in events if item["event_type"] == "ERROR"]
+    if error_events:
+        incomplete = True
+        run_issues.append(
+            {
+                "code": "PLATFORM_ERROR_EVENTS",
+                "severity": "WARNING",
+                "message": f"批次日志包含 {len(error_events)} 条 ERROR 事件。",
+            }
+        )
+    if len(ends) != 1:
+        incomplete = True
+        run_issues.append(
+            {
+                "code": "MISSING_RUN_END",
+                "severity": "WARNING",
+                "message": "缺少唯一 RUN_END，不能标记 VALIDATED。",
+            }
+        )
+    else:
+        end = ends[0]
+        try:
+            _required(end, {"status", "signal_count", "factor_event_count", "error_count"})
+            if str(end["status"]) != "COMPLETE":
+                incomplete = True
+                run_issues.append(
+                    {
+                        "code": "RUN_END_INCOMPLETE",
+                        "severity": "WARNING",
+                        "message": "RUN_END 未声明 COMPLETE。",
+                    }
+                )
+            if str(end["status"]) == "COMPLETE" and int(end["signal_count"]) != len(
+                normalized_events
+            ):
+                raise ValueError("RUN_END_SIGNAL_COUNT_MISMATCH")
+            if int(end["factor_event_count"]) != len(normalized_events):
+                raise ValueError("RUN_END_EVENT_COUNT_MISMATCH")
+            if int(end["error_count"]) != len(error_events):
+                raise ValueError("RUN_END_ERROR_COUNT_MISMATCH")
+        except (TypeError, ValueError) as exc:
+            fatal = True
+            run_issues.append(
+                {"code": "INVALID_RUN_END", "severity": "ERROR", "message": str(exc)}
+            )
+
+    events_by_day: dict[str, int] = {}
+    for event in normalized_events:
+        day_text = event["session_date_et"]
+        events_by_day[day_text] = events_by_day.get(day_text, 0) + 1
+    day_ends = [item for item in events if item["event_type"] == "DAY_END"]
+    seen_day_ends: set[str] = set()
+    for day in day_ends:
+        try:
+            _required(
+                day,
+                {
+                    "session_date_et",
+                    "status",
+                    "signal_count",
+                    "factor_event_count",
+                    "pending_count",
+                    "error_count",
+                    "expected_events",
+                },
+            )
+            day_text = str(day["session_date_et"])
+            if day_text in seen_day_ends:
+                raise ValueError("DUPLICATE_DAY_END:" + day_text)
+            seen_day_ends.add(day_text)
+            actual_count = events_by_day.get(day_text, 0)
+            signal_count = int(day["signal_count"])
+            expected_count = int(day["expected_events"])
+            if day["status"] == "COMPLETE" and signal_count != actual_count:
+                raise ValueError("DAY_SIGNAL_COUNT_MISMATCH:" + day_text)
+            if int(day["factor_event_count"]) != actual_count:
+                raise ValueError("DAY_EVENT_COUNT_MISMATCH:" + day_text)
+            if day["status"] == "COMPLETE" and expected_count != actual_count:
+                raise ValueError("DAY_EXPECTED_COUNT_MISMATCH:" + day_text)
+            if day["status"] != "COMPLETE" and not (
+                actual_count <= signal_count <= expected_count
+            ):
+                raise ValueError("DAY_INCOMPLETE_COUNT_ORDER:" + day_text)
+            if int(day["pending_count"]) != 0 or int(day["error_count"]) != 0:
+                incomplete = True
+            if day["status"] != "COMPLETE":
+                incomplete = True
+                run_issues.append(
+                    {
+                        "code": "DAY_INCOMPLETE",
+                        "severity": "WARNING",
+                        "message": day_text + " 日批次数据不完整。",
+                    }
+                )
+        except (TypeError, ValueError) as exc:
+            fatal = True
+            run_issues.append(
+                {"code": "INVALID_DAY_END", "severity": "ERROR", "message": str(exc)}
+            )
+    if seen_day_ends != set(events_by_day):
+        fatal = True
+        run_issues.append(
+            {
+                "code": "DAY_END_COVERAGE_MISMATCH",
+                "severity": "ERROR",
+                "message": "DAY_END 日期集合与批次事件日期集合不一致。",
+            }
+        )
+    if not normalized_events:
+        incomplete = True
+        run_issues.append(
+            {"code": "NO_FACTOR_EVENTS", "severity": "WARNING", "message": "没有可导入的批次事件。"}
+        )
+
+    run_status = "INVALID" if fatal else "INCOMPLETE" if incomplete else "VALIDATED"
+    if fatal:
+        return ParseResult(
+            "FACTOR_BATCH",
+            "INVALID",
+            encoding,
+            "FUTU_FACTOR_BATCH_V1",
+            rows_total,
+            rows_marked,
+            parsed_rows,
+            error=run_issues[0]["message"] if run_issues else "INVALID_BATCH",
+        )
+    partition = str(start.get("study_partition", "UNKNOWN"))
+    verdicts = {
+        "FUNCTIONAL_VALIDATION": "FUNCTIONAL_VALIDATION_PASS",
+        "TRAIN": "TRAIN_DATA_VALIDATED",
+        "VALIDATION": "VALIDATION_DATA_VALIDATED",
+        "OOS": "OOS_DATA_VALIDATED",
+    }
+    research_verdict = verdicts.get(partition, "NOT_ASSESSED") if run_status == "VALIDATED" else "NOT_ASSESSED"
+    runs: list[dict[str, Any]] = []
+    for factor_id, prefix, factor_parameter_version in BATCH_FACTORS:
+        signals: list[dict[str, Any]] = []
+        labels: list[dict[str, Any]] = []
+        invalid_count = 0
+        for event in normalized_events:
+            state = event["states"][factor_id]
+            if state == "INVALID":
+                invalid_count += 1
+                continue
+            signals.append(
+                {
+                    "signal_id": event["signal_id"],
+                    "signal_time_et": event["signal_time_et"],
+                    "signal_time_utc": event["signal_time_utc"],
+                    "signal_close": event["signal_close"],
+                    "factor_value": state,
+                    "factor_numeric": event["values"][factor_id],
+                }
+            )
+            labels.extend(event["labels"])
+        factor_issues = list(run_issues)
+        if invalid_count:
+            factor_issues.append(
+                {
+                    "code": "INVALID_FACTOR_MEASUREMENTS",
+                    "severity": "WARNING",
+                    "message": f"{factor_id} 有 {invalid_count} 个无效测量，未纳入该因子统计。",
+                }
+            )
+        runs.append(
+            {
+                **identity,
+                "factor_id": factor_id,
+                "run_id": str(identity["batch_id"]) + ":" + prefix.upper(),
+                "parameter_version": factor_parameter_version,
+                "study_partition": partition,
+                "study_start_et": start.get("study_start_et"),
+                "study_end_et": start.get("study_end_et"),
+                "run_status": run_status,
+                "research_verdict": research_verdict,
+                "version_binding_status": "BATCH_DEFINITION_HASH",
+                "signals": signals,
+                "labels": labels,
+                "issues": factor_issues,
+            }
+        )
+    return ParseResult(
+        "TEST_FIXTURE" if bool(start.get("fixture")) else "FACTOR_BATCH",
+        run_status,
+        encoding,
+        "FUTU_FACTOR_BATCH_V1",
+        rows_total,
+        rows_marked,
+        parsed_rows,
+        run={"batch_runs": runs, "batch_id": identity["batch_id"]},
+    )
+
+
 def parse_runlog(path: Path, *, allow_fixtures: bool = False) -> ParseResult:
     try:
         text, encoding = decode_csv(path)
@@ -414,13 +868,16 @@ def parse_runlog(path: Path, *, allow_fixtures: bool = False) -> ParseResult:
             rows_marked += 1
             version = marker_match.group(0)[:-1]
             versions.add(version)
-            if version != "FUTU_FACTOR_V1":
+            if version not in {"FUTU_FACTOR_V1", "FUTU_FACTOR_BATCH_V1"}:
                 continue
             payload_text = combined[marker_match.end() :].lstrip()
             payload, _ = decoder.raw_decode(payload_text)
             if not isinstance(payload, dict):
                 raise ValueError("PAYLOAD_NOT_OBJECT")
-            _required(payload, REQUIRED_COMMON)
+            _required(
+                payload,
+                REQUIRED_COMMON if version == "FUTU_FACTOR_V1" else BATCH_REQUIRED_COMMON,
+            )
             events.append(payload)
             parsed_rows += 1
     except (csv.Error, json.JSONDecodeError, ValueError) as exc:
@@ -437,6 +894,15 @@ def parse_runlog(path: Path, *, allow_fixtures: bool = False) -> ParseResult:
 
     if not rows_marked:
         return ParseResult("IGNORED_NON_FACTOR", "IGNORED", encoding, None, rows_total, 0, 0)
+    if versions == {"FUTU_FACTOR_BATCH_V1"}:
+        return _parse_batch_events(
+            events,
+            encoding=encoding,
+            rows_total=rows_total,
+            rows_marked=rows_marked,
+            parsed_rows=parsed_rows,
+            allow_fixtures=allow_fixtures,
+        )
     if versions != {"FUTU_FACTOR_V1"}:
         return ParseResult(
             "UNSUPPORTED_FACTOR_VERSION",
@@ -744,6 +1210,25 @@ class Importer:
                     file_sha256=file_hash,
                 )
             return {"status": result.import_status, "file_sha256": file_hash, "error": result.error}
+        if "batch_runs" in result.run:
+            status, run_instance_ids = self.database.import_runs(
+                file_hash, result.run["batch_runs"]
+            )
+            error = None
+            if status == "INVALID":
+                with self.database.connect() as connection:
+                    source = connection.execute(
+                        "SELECT error_text FROM source_files WHERE file_sha256=?",
+                        (file_hash,),
+                    ).fetchone()
+                error = source["error_text"] if source else None
+            return {
+                "status": status,
+                "file_sha256": file_hash,
+                "batch_id": result.run["batch_id"],
+                "run_instance_ids": run_instance_ids,
+                "error": error,
+            }
         status, run_instance_id = self.database.import_run(file_hash, result.run)
         return {
             "status": status,

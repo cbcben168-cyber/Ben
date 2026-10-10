@@ -7,12 +7,18 @@ HORIZONS = (15, 30, 60)
 
 FACTOR_NAMES_ZH = {
     "SPY_F001_CLOSE_GT_EMA20": "收盘价高于 EMA20",
+    "SPY_F002_EMA20_RISING_3": "EMA20 三根周期上升",
+    "SPY_F003_CLOSE_CROSS_ABOVE_EMA20": "收盘价上穿 EMA20",
+    "SPY_F004_CLOSE_BREAKS_PRIOR_5_HIGH": "突破前五根高点",
+    "SPY_F005_THREE_CLOSE_MOMENTUM": "连续三根收盘走高",
+    "SPY_F006_STRONG_BULL_BODY": "强阳线实体",
 }
 
 STATUS_ZH = {
     "SPECIFIED": "已定义",
     "PLATFORM_VALIDATED": "功能验证完成",
     "HISTORICAL_RUN": "长期训练回测完成",
+    "CODE_READY": "代码已就绪",
     "VALIDATION": "Validation 完成",
     "OOS": "OOS 完成",
     "REJECTED": "已否决",
@@ -66,7 +72,7 @@ IMPORT_ERROR_ZH = {
     ),
     "UNSUPPORTED_MARKER_VERSION": (
         "CSV 使用了看板尚不支持的日志版本。",
-        "请用已登记的 FUTU_FACTOR_V1 合同重新导出，或先完成 C1 批次合同接入。",
+        "请使用已登记的 FUTU_FACTOR_V1 或 FUTU_FACTOR_BATCH_V1 合同重新导出。",
     ),
     "FIXTURE_NOT_ALLOWED_IN_PRODUCTION_DB": (
         "测试夹具不能导入正式研究数据库。",
@@ -112,8 +118,27 @@ def import_error_zh(error: Any) -> dict[str, str]:
     raw = str(error or "UNKNOWN_IMPORT_ERROR")
     if raw.startswith("RUN_START_COUNT:"):
         message, action = (
-            "CSV 必须且只能包含一个因子跑次；当前文件像是批量或残缺日志。",
-            "若这是 C1 六因子批次，请等待批次合同接入；不要拆掉完整性校验。",
+            "单因子合同必须且只能包含一个 RUN_START；当前文件像是拼接日志。",
+            "六因子回测请使用 FUTU_FACTOR_BATCH_V1，不要把多个独立跑次直接拼在一起。",
+        )
+    elif raw.startswith("BATCH_RUN_START_COUNT:"):
+        message, action = (
+            "六因子批次必须且只能包含一个 RUN_START。",
+            "请重新导出完整的单次 FUTU_BATCH_FACTORS_V1 回测日志。",
+        )
+    elif raw in {
+        "BATCH_FACTOR_CATALOG_MISMATCH",
+        "BATCH_DEFINITION_HASH_MISMATCH",
+        "BATCH_FACTOR_SET_MISMATCH",
+    }:
+        message, action = (
+            "CSV 中的六因子目录或定义哈希与冻结的 C1 合同不一致，已整批拒绝。",
+            "请使用仓库中的 SPY_SIX_FACTOR_BATCH_V1.py 原样重跑，不要手工改 CSV。",
+        )
+    elif raw == "PARTIAL_BATCH_STATE":
+        message, action = (
+            "数据库检测到同一批次只有部分逻辑跑次，已阻止不完整排行。",
+            "请保留数据库和源 CSV，交由 Codex 审核事务状态。",
         )
     elif raw.startswith("IDENTITY_MISMATCH:"):
         field = raw.partition(":")[2]

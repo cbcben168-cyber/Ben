@@ -28,9 +28,10 @@ def test_dashboard_page_health_and_initial_api(tmp_path):
         assert payload["factors"][0]["development_stage"] == "SPECIFIED"
         assert payload["factors"][0]["conclusion_zh"] == "未测试"
         assert payload["summary"]["planned_factors"] == 6
-        assert payload["summary"]["registered_factors"] == 1
+        assert payload["summary"]["registered_factors"] == 6
         assert payload["comparison"]["ranking_ready"] is False
-        assert "PLAN_CATALOG_INCOMPLETE" in payload["comparison"]["reason_codes"]
+        assert "PLAN_CATALOG_INCOMPLETE" not in payload["comparison"]["reason_codes"]
+        assert "MISSING_ELIGIBLE_RUN" in payload["comparison"]["reason_codes"]
         assert payload["service"]["status"] == "已暂停"
 
 
@@ -53,6 +54,32 @@ def test_fixture_upload_uses_test_database_only(tmp_path, runlog_fixture):
         source = client.get(f"/api/source-files/{result['file_sha256']}")
         assert source.status_code == 200
         assert b"FUTU_FACTOR_V1" in source.content
+
+
+def test_c1_batch_upload_updates_all_six_factors_atomically(
+    tmp_path, batch_runlog_fixture
+):
+    app = create_app(
+        database_path=tmp_path / "batch.sqlite3",
+        inbox_dir=tmp_path / "inbox",
+        enable_watcher=False,
+        allow_fixtures=True,
+    )
+    with TestClient(app) as client:
+        with batch_runlog_fixture.open("rb") as handle:
+            response = client.post(
+                "/api/import",
+                files={"file": (batch_runlog_fixture.name, handle, "text/csv")},
+            )
+        assert response.status_code == 200
+        result = response.json()
+        assert result["status"] == "VALIDATED"
+        assert len(result["run_instance_ids"]) == 6
+        dashboard = client.get("/api/dashboard?horizon_minutes=30").json()
+        assert len(dashboard["factors"]) == 6
+        assert len(dashboard["runs"]) == 6
+        assert dashboard["summary"]["functional_backtest_done"] == 6
+        assert dashboard["summary"]["waiting_export"] == 0
 
 
 def test_source_endpoint_rejects_path_like_identifier(tmp_path):

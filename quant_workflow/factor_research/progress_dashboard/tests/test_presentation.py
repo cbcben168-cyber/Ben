@@ -11,6 +11,11 @@ def test_chinese_status_mapping_and_unknown_fallback():
     assert status_zh("OOS_SUPPORTED") == "OOS 支持"
     assert status_zh("FUTURE_STATUS") == "FUTURE_STATUS"
     assert factor_name_zh("SPY_F001_CLOSE_GT_EMA20") == "收盘价高于 EMA20"
+    assert factor_name_zh("SPY_F002_EMA20_RISING_3") == "EMA20 三根周期上升"
+    assert factor_name_zh("SPY_F003_CLOSE_CROSS_ABOVE_EMA20") == "收盘价上穿 EMA20"
+    assert factor_name_zh("SPY_F004_CLOSE_BREAKS_PRIOR_5_HIGH") == "突破前五根高点"
+    assert factor_name_zh("SPY_F005_THREE_CLOSE_MOMENTUM") == "连续三根收盘走高"
+    assert factor_name_zh("SPY_F006_STRONG_BULL_BODY") == "强阳线实体"
     assert "待 C1" in factor_name_zh("SPY_F999_UNKNOWN")
 
 
@@ -32,6 +37,8 @@ def test_import_error_mapping_keeps_raw_error():
     mapped = import_error_zh("IDENTITY_MISMATCH:factor_id")
     assert "factor_id" in mapped["message_zh"]
     assert mapped["raw_error"] == "IDENTITY_MISMATCH:factor_id"
+    batch = import_error_zh("BATCH_DEFINITION_HASH_MISMATCH")
+    assert "整批拒绝" in batch["message_zh"]
     unknown = import_error_zh("NEW_ERROR")
     assert unknown["raw_error"] == "NEW_ERROR"
     assert "完整性" in unknown["message_zh"]

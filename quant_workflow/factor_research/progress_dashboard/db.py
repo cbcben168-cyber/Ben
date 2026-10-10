@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -13,6 +14,38 @@ from .stats import compute_statistics, histogram
 
 FACTOR_ID = "SPY_F001_CLOSE_GT_EMA20"
 HORIZONS = (15, 30, 60)
+BATCH_FACTOR_CATALOG = (
+    (
+        "SPY_F001_CLOSE_GT_EMA20",
+        "C[0] > EMA20[0]",
+        "F001-C1-BATCH-V1",
+    ),
+    (
+        "SPY_F002_EMA20_RISING_3",
+        "EMA20[0] > EMA20[3]",
+        "F002-C1-BATCH-V1",
+    ),
+    (
+        "SPY_F003_CLOSE_CROSS_ABOVE_EMA20",
+        "C[-1] <= EMA20[-1] and C[0] > EMA20[0]",
+        "F003-C1-BATCH-V1",
+    ),
+    (
+        "SPY_F004_CLOSE_BREAKS_PRIOR_5_HIGH",
+        "C[0] > max(H[-1],...,H[-5])",
+        "F004-C1-BATCH-V1",
+    ),
+    (
+        "SPY_F005_THREE_CLOSE_MOMENTUM",
+        "C[-2] < C[-1] < C[0]",
+        "F005-C1-BATCH-V1",
+    ),
+    (
+        "SPY_F006_STRONG_BULL_BODY",
+        "C[0] > O[0] and (C[0]-O[0])/(H[0]-L[0]) > 0.60",
+        "F006-C1-BATCH-V1",
+    ),
+)
 PARTITION_PRIORITY = {"FUNCTIONAL_VALIDATION": 1, "TRAIN": 2, "VALIDATION": 3, "OOS": 4}
 SUPPORTED_EDGE_STATUSES = {
     "VALIDATION_SUPPORTED",
@@ -57,6 +90,12 @@ class Database:
         self.train_strategy_path = (
             repo_root / "factor_research" / "spy_factor_v1" / "SPY_FACTOR_RESEARCH_TRAIN_V1.py"
         )
+        self.batch_strategy_path = (
+            repo_root
+            / "factor_research"
+            / "spy_factor_batch_v1"
+            / "SPY_SIX_FACTOR_BATCH_V1.py"
+        )
 
     def connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.path, timeout=10)
@@ -92,6 +131,7 @@ class Database:
         strategy_hash = canonical_strategy_hash(self.strategy_path)
         legacy_hash = normalized_source_hash(self.legacy_strategy_path)
         train_hash = canonical_strategy_hash(self.train_strategy_path)
+        batch_hash = canonical_strategy_hash(self.batch_strategy_path)
         factor_values = (
             FACTOR_ID,
             "close(select=2) > ema20(select=2)",
@@ -102,8 +142,8 @@ class Database:
             "INDETERMINATE",
             "NOT_TESTED",
             1,
-            "绝对 EMA 历史状态及正式平台因子回测尚未完成",
-            "在富途量化运行 F001，并手动导出带 FUTU_FACTOR_V1 标记的 RunLog CSV",
+            "六因子批量代码已就绪；尚未完成真实富途 S0 批量功能回测",
+            "在富途运行 SPY_SIX_FACTOR_BATCH_V1.py 并导出完整 RunLog CSV",
             now,
             now,
         )
@@ -117,6 +157,55 @@ class Database:
             """,
             factor_values,
         )
+        for factor_id, formula, _ in BATCH_FACTOR_CATALOG:
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO factors (
+                    factor_id, formula, symbol, bar_size, horizons_json,
+                    development_stage, data_gate, edge_status, code_present,
+                    blocking_reason, next_action, created_at_utc, updated_at_utc
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    factor_id,
+                    formula,
+                    "US.SPY",
+                    "5m",
+                    json.dumps([15, 30, 60]),
+                    "SPECIFIED",
+                    "INDETERMINATE",
+                    "NOT_TESTED",
+                    1,
+                    "六因子批量代码已就绪；尚未完成真实富途 S0 批量功能回测",
+                    "在富途运行 SPY_SIX_FACTOR_BATCH_V1.py 并导出完整 RunLog CSV",
+                    now,
+                    now,
+                ),
+            )
+            connection.execute(
+                """
+                UPDATE factors
+                SET code_present=1,
+                    blocking_reason=?,
+                    next_action=?,
+                    updated_at_utc=?
+                WHERE factor_id=?
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM research_runs r
+                      JOIN factor_versions v ON v.version_id=r.version_id
+                      WHERE v.factor_id=factors.factor_id
+                        AND v.strategy_version='FUTU_BATCH_FACTORS_V1'
+                        AND r.run_status='VALIDATED'
+                  )
+                """,
+                (
+                    "六因子批量代码已就绪；尚未完成真实富途 S0 批量功能回测",
+                    "在富途运行 SPY_SIX_FACTOR_BATCH_V1.py 并导出完整 RunLog CSV",
+                    now,
+                    factor_id,
+                ),
+            )
         connection.execute("UPDATE factor_versions SET active=0 WHERE factor_id=?", (FACTOR_ID,))
         versions = [
             (
@@ -144,6 +233,28 @@ class Database:
                 DO UPDATE SET active=excluded.active
                 """,
                 (FACTOR_ID, *version, now),
+            )
+        for factor_id, _, _ in BATCH_FACTOR_CATALOG:
+            connection.execute(
+                "UPDATE factor_versions SET active=0 WHERE factor_id=?", (factor_id,)
+            )
+        for factor_id, _, parameter_version in BATCH_FACTOR_CATALOG:
+            connection.execute(
+                """
+                INSERT INTO factor_versions (
+                    factor_id, strategy_version, strategy_hash, parameter_version,
+                    active, created_at_utc
+                ) VALUES (?, ?, ?, ?, 1, ?)
+                ON CONFLICT(factor_id, strategy_version, strategy_hash, parameter_version)
+                DO UPDATE SET active=excluded.active
+                """,
+                (
+                    factor_id,
+                    "FUTU_BATCH_FACTORS_V1",
+                    batch_hash,
+                    parameter_version,
+                    now,
+                ),
             )
         gates = [
             (
@@ -229,29 +340,37 @@ class Database:
             SELECT COUNT(*)
             FROM research_runs r
             JOIN factor_versions v ON v.version_id=r.version_id
-            WHERE v.factor_id=? AND r.run_status='VALIDATED'
+            WHERE v.factor_id=? AND v.strategy_version='FUTU_BATCH_FACTORS_V1'
+              AND r.run_status='VALIDATED'
             """,
             (FACTOR_ID,),
         ).fetchone()[0]
         if not validated_runs:
             self._upsert_issue(
                 connection,
-                issue_key="TODO:F001:WAITING_EXPORT",
+                issue_key="TODO:C1_BATCH:WAITING_EXPORT",
                 kind="TODO",
                 severity="INFO",
                 issue_code="WAITING_EXPORT",
-                message="F001 已定义，但尚无正式因子回测 CSV。",
-                next_action="运行 F001 后手动导出 RunLog_*.csv 到 Downloads。",
+                message="F001–F006 批量代码已定义，但尚无正式六因子批量回测 CSV。",
+                next_action="运行 SPY_SIX_FACTOR_BATCH_V1.py 后导出 RunLog_*.csv 到看板 inbox。",
                 factor_id=FACTOR_ID,
             )
         else:
             connection.execute(
                 """
                 UPDATE issues SET status='RESOLVED', resolved_at_utc=?, last_seen_utc=?
-                WHERE issue_key='TODO:F001:WAITING_EXPORT'
+                WHERE issue_key='TODO:C1_BATCH:WAITING_EXPORT'
                 """,
                 (now, now),
             )
+        connection.execute(
+            """
+            UPDATE issues SET status='RESOLVED', resolved_at_utc=?, last_seen_utc=?
+            WHERE issue_key='TODO:F001:WAITING_EXPORT' AND status='OPEN'
+            """,
+            (now, now),
+        )
         self._upsert_issue(
             connection,
             issue_key="TODO:QQQ:NOT_TESTED",
@@ -411,7 +530,109 @@ class Database:
             ),
         )
 
-    def import_run(self, file_sha256: str, run: dict[str, Any]) -> tuple[str, str]:
+    def import_runs(
+        self, file_sha256: str, runs: list[dict[str, Any]]
+    ) -> tuple[str, list[str]]:
+        expected_factor_ids = {item[0] for item in BATCH_FACTOR_CATALOG}
+        if len(runs) != len(expected_factor_ids) or {
+            run.get("factor_id") for run in runs
+        } != expected_factor_ids:
+            self.add_issue(
+                issue_key=f"BATCH:{file_sha256}:FACTOR_SET_MISMATCH",
+                kind="ANOMALY",
+                severity="ERROR",
+                issue_code="BATCH_FACTOR_SET_MISMATCH",
+                message="六因子批次没有完整包含冻结的 F001–F006 集合，整批拒绝。",
+                next_action="使用未修改的 SPY_SIX_FACTOR_BATCH_V1.py 重新运行并导出完整 CSV。",
+                file_sha256=file_sha256,
+            )
+            return "INVALID", []
+        run_instance_ids = [
+            hashlib.sha256(f"{file_sha256}|{run['run_id']}".encode("utf-8")).hexdigest()
+            for run in runs
+        ]
+        with self.connect() as connection:
+            existing = {
+                row["run_instance_id"]
+                for row in connection.execute(
+                    "SELECT run_instance_id FROM research_runs WHERE file_sha256=?",
+                    (file_sha256,),
+                ).fetchall()
+            }
+            expected = set(run_instance_ids)
+            if existing == expected:
+                return "DUPLICATE", run_instance_ids
+            if existing:
+                self._upsert_issue(
+                    connection,
+                    issue_key=f"BATCH:{file_sha256}:PARTIAL_STATE",
+                    kind="ANOMALY",
+                    severity="ERROR",
+                    issue_code="PARTIAL_BATCH_STATE",
+                    message="数据库中已存在该 CSV 的部分逻辑跑次；为防止不完整排行，整批停止。",
+                    next_action="保留数据库和原始 CSV，交由 Codex 审核事务状态，不要手工补行。",
+                    file_sha256=file_sha256,
+                )
+                connection.execute(
+                    "UPDATE source_files SET import_status='INVALID', error_text=? WHERE file_sha256=?",
+                    ("PARTIAL_BATCH_STATE", file_sha256),
+                )
+                return "INVALID", []
+            for run in runs:
+                version = connection.execute(
+                    """
+                    SELECT version_id FROM factor_versions
+                    WHERE factor_id=? AND strategy_version=? AND strategy_hash=?
+                      AND parameter_version=?
+                    """,
+                    (
+                        run["factor_id"],
+                        run["strategy_version"],
+                        run["strategy_hash"],
+                        run["parameter_version"],
+                    ),
+                ).fetchone()
+                if version is None:
+                    self._upsert_issue(
+                        connection,
+                        issue_key=f"BATCH:{file_sha256}:VERSION_MISMATCH",
+                        kind="ANOMALY",
+                        severity="ERROR",
+                        issue_code="VERSION_MISMATCH",
+                        message="批次中至少一个因子的版本、策略哈希或参数版本未登记，整批拒绝。",
+                        next_action="核对冻结的 C1 六因子文件与看板版本，不要部分导入。",
+                        factor_id=run["factor_id"],
+                        file_sha256=file_sha256,
+                    )
+                    connection.execute(
+                        "UPDATE source_files SET import_status='INVALID', error_text=? WHERE file_sha256=?",
+                        ("VERSION_MISMATCH", file_sha256),
+                    )
+                    return "INVALID", []
+            statuses: list[str] = []
+            imported_ids: list[str] = []
+            for run in runs:
+                status, run_instance_id = self.import_run(
+                    file_sha256, run, connection=connection
+                )
+                statuses.append(status)
+                imported_ids.append(run_instance_id)
+            status = (
+                "INVALID"
+                if "INVALID" in statuses
+                else "INCOMPLETE"
+                if "INCOMPLETE" in statuses
+                else "VALIDATED"
+            )
+            return status, imported_ids
+
+    def import_run(
+        self,
+        file_sha256: str,
+        run: dict[str, Any],
+        *,
+        connection: sqlite3.Connection | None = None,
+    ) -> tuple[str, str]:
         now = utc_now()
         run_instance_id = hashlib.sha256(
             f"{file_sha256}|{run['run_id']}".encode("utf-8")
@@ -431,7 +652,8 @@ class Database:
         signals = run["signals"]
         labels = run["labels"]
         completeness = min(1.0, len(labels) / (len(signals) * 3)) if signals else 0.0
-        with self.connect() as connection:
+        connection_context = self.connect() if connection is None else nullcontext(connection)
+        with connection_context as connection:
             version = connection.execute(
                 """
                 SELECT version_id FROM factor_versions
@@ -453,7 +675,7 @@ class Database:
                     severity="ERROR",
                     issue_code="VERSION_MISMATCH",
                     message="日志策略版本/hash/参数版本未登记，未导入研究结果。",
-                    next_action="核对 F001 文件版本，不要根据文件名推断或绕过版本门槛。",
+                    next_action="核对因子文件版本，不要根据文件名推断或绕过版本门槛。",
                     factor_id=run.get("factor_id"),
                     file_sha256=file_sha256,
                 )
@@ -588,13 +810,23 @@ class Database:
             if verdict == "FUNCTIONAL_VALIDATION_PASS":
                 stage = "PLATFORM_VALIDATED"
                 edge_status = "INSUFFICIENT_EVIDENCE"
-                blocking_reason = "仅完成功能验证；绝对 EMA 历史状态仍为 INDETERMINATE，未执行 TRAIN/VALIDATION/OOS"
-                next_action = "运行冻结的 F001 TRAIN 版本并导出 RunLog CSV；不得执行 VALIDATION 或 OOS"
+                blocking_reason = "仅完成六因子功能验证；未执行 TRAIN/VALIDATION/OOS，不构成 Edge"
+                next_action = "核对 S0 六因子事件与 F001 历史口径后，再运行冻结的 S1 TRAIN 区间"
             elif verdict == "TRAIN_DATA_VALIDATED":
                 stage = "HISTORICAL_RUN"
                 edge_status = "INSUFFICIENT_EVIDENCE"
                 blocking_reason = "TRAIN 已导入但 VALIDATION/OOS 尚未执行；重叠事件不能视为独立样本"
                 next_action = "完成预注册 TRAIN 统计审核后，另行批准是否进入 VALIDATION"
+            elif verdict == "VALIDATION_DATA_VALIDATED":
+                stage = "VALIDATION"
+                edge_status = "INSUFFICIENT_EVIDENCE"
+                blocking_reason = "Validation 数据已导入，但交易化规则和最终 OOS 尚未完成"
+                next_action = "冻结候选、成交与成本规则后，另行批准最终 OOS"
+            elif verdict == "OOS_DATA_VALIDATED":
+                stage = "OOS"
+                edge_status = "INSUFFICIENT_EVIDENCE"
+                blocking_reason = "OOS 数据已导入；仍需按预注册准则独立审核，不能自动宣称 Edge"
+                next_action = "审核 OOS、成本和稳健性证据后人工决定是否进入 Forward"
             else:
                 stage = "SPECIFIED"
                 edge_status = "NOT_TESTED"
@@ -615,20 +847,30 @@ class Database:
                     run["factor_id"],
                 ),
             )
-            if run["run_status"] == "VALIDATED":
+            if (
+                run["run_status"] == "VALIDATED"
+                and run.get("version_binding_status") == "BATCH_DEFINITION_HASH"
+            ):
                 connection.execute(
                     """
                     UPDATE issues SET status='RESOLVED', resolved_at_utc=?, last_seen_utc=?
-                    WHERE issue_key='TODO:F001:WAITING_EXPORT'
+                    WHERE issue_key='TODO:C1_BATCH:WAITING_EXPORT'
                     """,
                     (now, now),
                 )
             connection.execute(
                 """
-                UPDATE source_files SET classification='FACTOR_RUN', import_status=?,
+                    UPDATE source_files SET classification=?, import_status=?,
                     error_text=NULL, last_seen_utc=? WHERE file_sha256=?
-                """,
-                (run["run_status"], now, file_sha256),
+                    """,
+                (
+                    "FACTOR_BATCH"
+                    if run.get("version_binding_status") == "BATCH_DEFINITION_HASH"
+                    else "FACTOR_RUN",
+                    run["run_status"],
+                    now,
+                    file_sha256,
+                ),
             )
             connection.execute(
                 """

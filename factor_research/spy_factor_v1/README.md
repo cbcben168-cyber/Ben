@@ -1,5 +1,15 @@
 # SPY_FACTOR_RESEARCH_V1 使用说明
 
+## 版本保留
+
+- `SPY_FACTOR_RESEARCH_V1_LEGACY.py`：生成 2026-09-28 至 2026-10-06
+  真实功能验证日志的原始版本，只作归档，不再修改。
+- `SPY_FACTOR_RESEARCH_V1.py`：同一功能验证逻辑的结构化日志契约版本。
+- `SPY_FACTOR_RESEARCH_TRAIN_V1.py`：冻结 TRAIN 区间的新版本；不覆盖旧版，
+  因子定义、3/6/12 根观察窗口和未来收益公式保持不变。
+
+TRAIN 参数和统计验收见 `F001_TRAIN_PLAN.md`。
+
 ## 研究目标与边界
 
 本版本只研究一个条件：

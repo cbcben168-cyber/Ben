@@ -1,4 +1,5 @@
 from pathlib import Path
+import hashlib
 import shutil
 
 import pytest
@@ -105,6 +106,7 @@ def test_watcher_requires_stability_and_restart_backfills(database, tmp_path, ru
     snapshot = restarted.dashboard_snapshot()
     assert len(snapshot["runs"]) == 1
     assert snapshot["runs"][0]["run_status"] == "VALIDATED"
+    assert snapshot["summary"]["waiting_export"] == 0
 
 
 def test_csv_parser_handles_quoted_json_with_commas(runlog_fixture):
@@ -113,3 +115,41 @@ def test_csv_parser_handles_quoted_json_with_commas(runlog_fixture):
     assert result.rows_marked == 10
     assert result.parsed_rows == 10
     assert result.success_rate == 1.0
+
+
+def test_legacy_functional_run_imports_without_edge_claim_and_is_idempotent(
+    database, legacy_runlog_fixture
+):
+    original_hash = hashlib.sha256(legacy_runlog_fixture.read_bytes()).hexdigest()
+    importer = Importer(database)
+    first = importer.import_file(legacy_runlog_fixture)
+    second = importer.import_file(legacy_runlog_fixture)
+
+    assert first["status"] == "VALIDATED"
+    assert second["status"] == "DUPLICATE"
+    assert hashlib.sha256(legacy_runlog_fixture.read_bytes()).hexdigest() == original_hash
+
+    snapshot = database.dashboard_snapshot()
+    assert len(snapshot["runs"]) == 1
+    run = snapshot["runs"][0]
+    assert run["symbol"] == "US.SPY"
+    assert run["timeframe"] == "5m"
+    assert run["signal_count"] == 455
+    assert run["label_count"] == 1365
+    assert run["research_verdict"] == "FUNCTIONAL_VALIDATION_PASS"
+    assert run["version_binding_status"] == "LEGACY_MARKER_CONTRACT_ONLY"
+    factor = snapshot["factors"][0]
+    assert factor["development_stage"] == "PLATFORM_VALIDATED"
+    assert factor["edge_status"] == "INSUFFICIENT_EVIDENCE"
+    assert factor["latest_verdict"] == "FUNCTIONAL_VALIDATION_PASS"
+    assert "TRAIN" in factor["next_action"]
+
+
+def test_legacy_contract_mismatch_is_rejected(database, legacy_runlog_fixture):
+    altered = legacy_runlog_fixture.read_text(encoding="utf-8").replace(
+        "volume_enabled=False", "volume_enabled=True", 1
+    )
+    legacy_runlog_fixture.write_text(altered, encoding="utf-8")
+    result = Importer(database).import_file(legacy_runlog_fixture)
+    assert result["status"] == "INVALID"
+    assert database.dashboard_snapshot()["runs"][0]["run_status"] == "INVALID"

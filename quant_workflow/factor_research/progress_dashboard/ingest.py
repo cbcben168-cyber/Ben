@@ -15,6 +15,8 @@ from .db import Database, utc_now
 
 
 MARKER = "FUTU_FACTOR_V1|"
+LEGACY_MARKER = "SPY_FACTOR_V1|"
+LEGACY_STRATEGY_HASH = "137abf998ac16210d7185bcae3b6c96d77c0fe75344af33d3ac73a6675f28bc3"
 MAX_FILE_BYTES = 50 * 1024 * 1024
 REQUIRED_COMMON = {
     "contract_version",
@@ -87,11 +89,313 @@ def _required(payload: dict[str, Any], fields: set[str]) -> None:
         raise ValueError("MISSING_FIELDS:" + ",".join(missing))
 
 
+def _legacy_fields(combined: str) -> dict[str, str]:
+    payload = combined.split(LEGACY_MARKER, 1)[1]
+    fields: dict[str, str] = {}
+    for part in payload.split("|"):
+        if "=" not in part:
+            raise ValueError("LEGACY_FIELD_WITHOUT_EQUALS")
+        key, value = part.split("=", 1)
+        if not key or key in fields:
+            raise ValueError("LEGACY_DUPLICATE_OR_EMPTY_FIELD")
+        fields[key] = value.strip()
+    return fields
+
+
+def _parse_legacy_runlog(text: str, encoding: str) -> ParseResult:
+    rows_total = 0
+    rows_marked = 0
+    records: list[dict[str, str]] = []
+    try:
+        for row in csv.reader(io.StringIO(text)):
+            rows_total += 1
+            combined = ",".join(row)
+            if LEGACY_MARKER not in combined:
+                continue
+            rows_marked += 1
+            records.append(_legacy_fields(combined))
+    except (csv.Error, ValueError) as exc:
+        return ParseResult(
+            "LEGACY_F001_RUN",
+            "PARSE_FAILED",
+            encoding,
+            "SPY_FACTOR_V1",
+            rows_total,
+            rows_marked,
+            len(records),
+            error=str(exc),
+        )
+
+    starts = [item for item in records if item.get("record") == "START"]
+    if len(starts) != 1:
+        return ParseResult(
+            "LEGACY_F001_RUN",
+            "PARSE_FAILED",
+            encoding,
+            "SPY_FACTOR_V1",
+            rows_total,
+            rows_marked,
+            len(records),
+            error=f"LEGACY_START_COUNT:{len(starts)}",
+        )
+    start = starts[0]
+    expected_start = {
+        "version": "1",
+        "run_phase": "FUNCTIONAL_VALIDATION",
+        "date_start_et": "2026-09-28",
+        "date_end_et": "2026-10-06",
+        "bar_type": "K_5M",
+        "select": "2",
+        "session": "RTH",
+        "factor": "CLOSE_GT_EMA20",
+        "horizons_bars": "3,6,12",
+        "orders_enabled": "False",
+        "volume_enabled": "False",
+        "edge_claim": "PROHIBITED",
+    }
+    mismatches = [
+        key for key, expected in expected_start.items() if start.get(key) != expected
+    ]
+    fatal = bool(mismatches)
+    issues: list[dict[str, str]] = []
+    if mismatches:
+        issues.append(
+            {
+                "code": "LEGACY_START_CONTRACT_MISMATCH",
+                "severity": "ERROR",
+                "message": "旧版日志起始契约不匹配：" + ",".join(mismatches),
+            }
+        )
+
+    signals: list[dict[str, Any]] = []
+    signal_map: dict[str, dict[str, Any]] = {}
+    for event in (item for item in records if item.get("record") == "EVENT"):
+        try:
+            _required(
+                event,
+                {
+                    "event_id",
+                    "session_date_et",
+                    "trigger_et",
+                    "trigger_utc",
+                    "symbol",
+                    "bar_type",
+                    "select",
+                    "session",
+                    "close",
+                    "ema20",
+                    "factor_state",
+                    "horizons_bars",
+                },
+            )
+            signal_id = event["event_id"]
+            if signal_id in signal_map:
+                raise ValueError("DUPLICATE_SIGNAL_ID")
+            if (
+                event["symbol"] != "US.SPY"
+                or event["bar_type"] != "K_5M"
+                or event["select"] != "2"
+                or event["session"] != "RTH"
+                or event["horizons_bars"] != "3,6,12"
+            ):
+                raise ValueError("LEGACY_SIGNAL_IDENTITY_MISMATCH")
+            signal_time = _parse_time(event["trigger_et"], "trigger_et")
+            _parse_time(event["trigger_utc"], "trigger_utc")
+            minute = signal_time.hour * 60 + signal_time.minute
+            if minute < 575 or minute > 895 or minute % 5:
+                raise ValueError("SIGNAL_OUTSIDE_RTH_GRID")
+            signal_close = float(event["close"])
+            ema20 = float(event["ema20"])
+            expected_state = "PASS" if signal_close > ema20 else "FAIL"
+            if signal_close <= 0 or ema20 <= 0 or event["factor_state"] != expected_state:
+                raise ValueError("LEGACY_FACTOR_RECALCULATION_MISMATCH")
+            signal = {
+                "signal_id": signal_id,
+                "signal_time_et": event["trigger_et"],
+                "signal_time_utc": event["trigger_utc"],
+                "signal_close": signal_close,
+                "factor_value": event["factor_state"],
+                "factor_numeric": ema20,
+            }
+            signals.append(signal)
+            signal_map[signal_id] = signal
+        except (TypeError, ValueError) as exc:
+            fatal = True
+            issues.append(
+                {"code": "INVALID_LEGACY_SIGNAL", "severity": "ERROR", "message": str(exc)}
+            )
+
+    labels: list[dict[str, Any]] = []
+    seen_labels: set[tuple[str, int]] = set()
+    horizon_map = {3: 15, 6: 30, 12: 60}
+    for outcome in (item for item in records if item.get("record") == "OUTCOME"):
+        try:
+            _required(
+                outcome,
+                {
+                    "event_id",
+                    "signal_et",
+                    "signal_utc",
+                    "outcome_et",
+                    "outcome_utc",
+                    "symbol",
+                    "bar_type",
+                    "select",
+                    "session",
+                    "factor_state",
+                    "horizon_bars",
+                    "horizon_minutes",
+                    "signal_close",
+                    "future_close",
+                    "return",
+                },
+            )
+            signal_id = outcome["event_id"]
+            if signal_id not in signal_map:
+                raise ValueError("LABEL_WITHOUT_SIGNAL")
+            horizon = int(outcome["horizon_bars"])
+            horizon_minutes = int(outcome["horizon_minutes"])
+            if horizon_map.get(horizon) != horizon_minutes:
+                raise ValueError("HORIZON_MAPPING_MISMATCH")
+            key = (signal_id, horizon)
+            if key in seen_labels:
+                raise ValueError("DUPLICATE_LABEL")
+            seen_labels.add(key)
+            signal = signal_map[signal_id]
+            if (
+                outcome["symbol"] != "US.SPY"
+                or outcome["bar_type"] != "K_5M"
+                or outcome["select"] != "2"
+                or outcome["session"] != "RTH"
+                or outcome["factor_state"] != signal["factor_value"]
+                or outcome["signal_et"] != signal["signal_time_et"]
+                or outcome["signal_utc"] != signal["signal_time_utc"]
+            ):
+                raise ValueError("LEGACY_LABEL_IDENTITY_MISMATCH")
+            target_et = _parse_time(outcome["outcome_et"], "outcome_et")
+            signal_et = _parse_time(outcome["signal_et"], "signal_et")
+            _parse_time(outcome["outcome_utc"], "outcome_utc")
+            if (target_et - signal_et).total_seconds() != horizon_minutes * 60:
+                raise ValueError("LEGACY_HORIZON_TIME_MISMATCH")
+            signal_close = float(outcome["signal_close"])
+            target_close = float(outcome["future_close"])
+            forward_return = float(outcome["return"])
+            if abs(signal_close - float(signal["signal_close"])) > 5e-10:
+                raise ValueError("LEGACY_SIGNAL_CLOSE_MISMATCH")
+            recomputed = target_close / signal_close - 1.0
+            if abs(recomputed - forward_return) > 5e-10:
+                raise ValueError("FORWARD_RETURN_MISMATCH")
+            labels.append(
+                {
+                    "signal_id": signal_id,
+                    "horizon_bars": horizon,
+                    "horizon_minutes": horizon_minutes,
+                    "target_time_et": outcome["outcome_et"],
+                    "target_time_utc": outcome["outcome_utc"],
+                    "target_close": target_close,
+                    "forward_return": forward_return,
+                }
+            )
+        except (TypeError, ValueError) as exc:
+            fatal = True
+            issues.append(
+                {"code": "INVALID_LEGACY_LABEL", "severity": "ERROR", "message": str(exc)}
+            )
+
+    expected_dates = {
+        "2026-09-28",
+        "2026-09-29",
+        "2026-09-30",
+        "2026-10-01",
+        "2026-10-02",
+        "2026-10-05",
+        "2026-10-06",
+    }
+    days = [item for item in records if item.get("record") == "DAY_STATUS"]
+    actual_dates = {item.get("session_date_et") for item in days}
+    complete_days = all(
+        item.get("status") == "COMPLETE"
+        and item.get("event_count") == "65"
+        and item.get("outcomes_h3") == "65"
+        and item.get("outcomes_h6") == "65"
+        and item.get("outcomes_h12") == "65"
+        and item.get("pending_count") == "0"
+        and item.get("error_count") == "0"
+        for item in days
+    )
+    error_records = [item for item in records if item.get("record") == "ERROR"]
+    complete = (
+        not fatal
+        and len(signals) == 455
+        and len(labels) == 1365
+        and len(days) == 7
+        and actual_dates == expected_dates
+        and complete_days
+        and not error_records
+        and all(
+            sum(item["horizon_bars"] == horizon for item in labels) == 455
+            for horizon in (3, 6, 12)
+        )
+    )
+    if not complete:
+        issues.append(
+            {
+                "code": "LEGACY_ALTERNATIVE_COMPLETION_FAILED",
+                "severity": "ERROR",
+                "message": "旧版日志未满足冻结的 7 日、455 信号、每周期 455 标签完整性规则。",
+            }
+        )
+    issues.append(
+        {
+            "code": "LEGACY_SOURCE_HASH_NOT_EMBEDDED",
+            "severity": "INFO",
+            "message": "日志只声明 version=1；代码 hash 来自归档源文件，日志本身未嵌入 hash。",
+            "next_action": "保留原始 CSV SHA256 与归档源文件；后续运行使用 FUTU_FACTOR_V1 嵌入 hash。",
+        }
+    )
+    run_status = "VALIDATED" if complete else "INVALID"
+    run = {
+        "factor_id": "SPY_F001_CLOSE_GT_EMA20",
+        "run_id": "SPY_F001_20260928_20261006_FV1_LEGACY",
+        "strategy_version": "SPY_FACTOR_RESEARCH_V1_LEGACY",
+        "strategy_hash": LEGACY_STRATEGY_HASH,
+        "parameter_version": "F001-FUNCTIONAL-20260928-20261006",
+        "symbol": "US.SPY",
+        "timeframe": "5m",
+        "session": "RTH",
+        "select": 2,
+        "timezone": "America/New_York",
+        "study_partition": "FUNCTIONAL_VALIDATION",
+        "study_start_et": "2026-09-28",
+        "study_end_et": "2026-10-06",
+        "run_status": run_status,
+        "research_verdict": "FUNCTIONAL_VALIDATION_PASS" if complete else "FUNCTIONAL_VALIDATION_FAILED",
+        "version_binding_status": "LEGACY_MARKER_CONTRACT_ONLY",
+        "signals": signals,
+        "labels": labels,
+        "issues": issues,
+    }
+    return ParseResult(
+        "LEGACY_F001_RUN",
+        run_status,
+        encoding,
+        "SPY_FACTOR_V1",
+        rows_total,
+        rows_marked,
+        len(records),
+        run=run,
+        error=None if complete else "LEGACY_ALTERNATIVE_COMPLETION_FAILED",
+    )
+
+
 def parse_runlog(path: Path, *, allow_fixtures: bool = False) -> ParseResult:
     try:
         text, encoding = decode_csv(path)
     except (OSError, ValueError) as exc:
         return ParseResult("FACTOR_RUN", "PARSE_FAILED", "UNKNOWN", None, 0, 0, 0, error=str(exc))
+
+    if LEGACY_MARKER in text and MARKER not in text:
+        return _parse_legacy_runlog(text, encoding)
 
     events: list[dict[str, Any]] = []
     versions: set[str] = set()
@@ -357,12 +661,21 @@ def parse_runlog(path: Path, *, allow_fixtures: bool = False) -> ParseResult:
             )
 
     run_status = "INVALID" if fatal else "INCOMPLETE" if incomplete else "VALIDATED"
+    partition = str(start.get("study_partition", "UNKNOWN"))
+    if run_status == "VALIDATED" and partition == "FUNCTIONAL_VALIDATION":
+        research_verdict = "FUNCTIONAL_VALIDATION_PASS"
+    elif run_status == "VALIDATED" and partition == "TRAIN":
+        research_verdict = "TRAIN_DATA_VALIDATED"
+    else:
+        research_verdict = "NOT_ASSESSED"
     run = {
         **identity,
-        "study_partition": str(start.get("study_partition", "UNKNOWN")),
+        "study_partition": partition,
         "study_start_et": start.get("study_start_et"),
         "study_end_et": start.get("study_end_et"),
         "run_status": run_status,
+        "research_verdict": research_verdict,
+        "version_binding_status": "EMBEDDED_HASH",
         "signals": signals,
         "labels": labels,
         "issues": run_issues,

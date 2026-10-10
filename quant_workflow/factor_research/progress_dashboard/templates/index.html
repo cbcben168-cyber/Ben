@@ -33,9 +33,9 @@
     th { color:#566174; font-size:12px; background:#fafbfc; position:sticky; top:0; }
     tr.clickable:hover { background:#f5f8ff; cursor:pointer; }
     .pill { display:inline-block; border-radius:999px; padding:2px 8px; font-size:12px; font-weight:600; background:#eef2f7; }
-    .PASS,.VALIDATED,.COMPLETE,.RESOLVED { color:#08734d; background:#e5f5ee; }
+    .PASS,.VALIDATED,.COMPLETE,.RESOLVED,.FUNCTIONAL_VALIDATION_PASS { color:#08734d; background:#e5f5ee; }
     .FAIL,.INVALID,.PARSE_FAILED,.ERROR,.REJECTED { color:#a92e2a; background:#fdeceb; }
-    .INDETERMINATE,.INCOMPLETE,.WARNING { color:#925408; background:#fff1d9; }
+    .INDETERMINATE,.INCOMPLETE,.WARNING,.INSUFFICIENT_EVIDENCE { color:#925408; background:#fff1d9; }
     .NOT_TESTED,.SPECIFIED,.WAITING_EXPORT,.IGNORED { color:#4f5c70; background:#edf1f6; }
     .gates { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:10px; }
     .gate { border:1px solid var(--line); border-left:4px solid #95a0b2; padding:12px; border-radius:7px; }
@@ -79,7 +79,7 @@
       </div>
     </div>
     <div class="table-wrap"><table><thead><tr>
-      <th>factor_id</th><th>公式</th><th>标的/周期</th><th>版本/hash</th><th>阶段</th><th>data_gate</th><th>有效跑次</th><th>OOS</th><th>阻断/下一步</th>
+      <th>factor_id</th><th>公式</th><th>标的/周期</th><th>版本/hash</th><th>阶段</th><th>功能验收</th><th>data_gate</th><th>有效跑次</th><th>Edge/OOS</th><th>阻断/下一步</th>
     </tr></thead><tbody id="factorRows"></tbody></table></div>
   </section>
 
@@ -91,7 +91,7 @@
   <section class="panel">
     <div class="panel-head"><div><h2>回测记录</h2><span class="muted">每个文件版本和跑次独立留档；重复覆盖不合并样本</span></div></div>
     <div class="table-wrap"><table><thead><tr>
-      <th>run_id</th><th>factor</th><th>状态</th><th>版本</th><th>设置区间</th><th>实际区间</th><th>信号/标签</th><th>完整度</th><th>导入时间</th><th>原始文件</th>
+      <th>run_id</th><th>factor</th><th>状态</th><th>研究结论</th><th>版本绑定</th><th>版本</th><th>设置区间</th><th>实际区间</th><th>信号/标签</th><th>完整度</th><th>导入时间</th><th>原始文件</th>
     </tr></thead><tbody id="runRows"></tbody></table></div>
   </section>
 
@@ -168,16 +168,16 @@
     document.getElementById('factorRows').innerHTML=rows.length?rows.map(x=>`<tr class="clickable" data-factor="${esc(x.factor_id)}">
       <td><b>${esc(x.factor_id)}</b><br><span class="muted">${esc(x.horizons_json)} 分钟</span></td><td>${esc(x.formula)}</td><td>${esc(x.symbol)} / ${esc(x.bar_size)}</td>
       <td>${esc(x.strategy_version)}<br><span title="${esc(x.strategy_hash)}">${shortHash(x.strategy_hash)} · ${esc(x.parameter_version)}</span></td>
-      <td>${pill(x.development_stage)}</td><td>${pill(x.data_gate)}</td><td>${esc(x.valid_run_count)} / ${esc(x.run_count)}</td><td>${pill(x.edge_status)}</td>
-      <td style="white-space:normal;min-width:260px">${esc(x.blocking_reason)}<br><b>下一步：</b>${esc(x.next_action)}</td></tr>`).join(''):'<tr><td colspan="9" class="empty">没有匹配因子</td></tr>';
+      <td>${pill(x.development_stage)}</td><td>${pill(x.latest_verdict||'PENDING')}</td><td>${pill(x.data_gate)}</td><td>${esc(x.valid_run_count)} / ${esc(x.run_count)}</td><td>${pill(x.edge_status)}</td>
+      <td style="white-space:normal;min-width:260px">${esc(x.blocking_reason)}<br><b>下一步：</b>${esc(x.next_action)}</td></tr>`).join(''):'<tr><td colspan="10" class="empty">没有匹配因子</td></tr>';
     document.querySelectorAll('[data-factor]').forEach(row=>row.addEventListener('click',()=>openDetail(row.dataset.factor)));
   }
   function renderRuns(rows){
     document.getElementById('runRows').innerHTML=rows.length?rows.map(x=>`<tr><td title="${esc(x.run_instance_id)}">${esc(x.declared_run_id)}<br><span class="muted">${shortHash(x.run_instance_id)}</span></td>
-      <td>${esc(x.factor_id)}</td><td>${pill(x.run_status)}</td><td>${esc(x.strategy_version)}<br>${shortHash(x.strategy_hash)}</td>
+      <td>${esc(x.factor_id)}</td><td>${pill(x.run_status)}</td><td>${pill(x.research_verdict)}</td><td>${pill(x.version_binding_status)}</td><td>${esc(x.strategy_version)}<br>${shortHash(x.strategy_hash)}</td>
       <td>${esc(x.settings_start_et)} → ${esc(x.settings_end_et)}</td><td>${esc(x.actual_start_et)} → ${esc(x.actual_end_et)}</td>
       <td>${esc(x.signal_count)} / ${esc(x.label_count)}</td><td>${pct(x.completeness)}</td><td>${displayTime(x.imported_at_utc)}</td>
-      <td><a href="/api/source-files/${esc(x.file_sha256)}">${shortHash(x.file_sha256)}</a></td></tr>`).join(''):'<tr><td colspan="10" class="empty">尚无正式因子回测记录</td></tr>';
+      <td><a href="/api/source-files/${esc(x.file_sha256)}">${shortHash(x.file_sha256)}</a></td></tr>`).join(''):'<tr><td colspan="12" class="empty">尚无正式因子回测记录</td></tr>';
   }
   function renderGates(rows){
     document.getElementById('gates').innerHTML=rows.map(x=>`<div class="gate ${x.status==='PASS'?'pass':x.status==='FAIL'?'fail':'wait'}"><div class="gate-title"><span>${esc(x.dimension)} · ${esc(x.symbol)} ${esc(x.bar_size)}</span>${pill(x.status)}</div><div class="muted">${esc(x.evidence_version)}</div><div>${esc(x.scope_note)}</div></div>`).join('');

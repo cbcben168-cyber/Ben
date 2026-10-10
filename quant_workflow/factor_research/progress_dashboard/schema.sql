@@ -76,6 +76,8 @@ CREATE TABLE IF NOT EXISTS research_runs (
     version_id INTEGER NOT NULL REFERENCES factor_versions(version_id),
     file_sha256 TEXT NOT NULL REFERENCES source_files(file_sha256),
     run_status TEXT NOT NULL,
+    research_verdict TEXT NOT NULL DEFAULT 'NOT_ASSESSED',
+    version_binding_status TEXT NOT NULL DEFAULT 'EMBEDDED_HASH',
     study_partition TEXT NOT NULL,
     settings_start_et TEXT,
     settings_end_et TEXT,

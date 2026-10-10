@@ -31,6 +31,11 @@ def canonical_strategy_hash(path: Path) -> str:
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
+def normalized_source_hash(path: Path) -> str:
+    source = path.read_text(encoding="utf-8").replace("\r\n", "\n")
+    return hashlib.sha256(source.encode("utf-8")).hexdigest()
+
+
 class Database:
     def __init__(self, path: Path, strategy_path: Path | None = None):
         self.path = Path(path)
@@ -38,6 +43,12 @@ class Database:
         repo_root = Path(__file__).resolve().parents[3]
         self.strategy_path = strategy_path or (
             repo_root / "factor_research" / "spy_factor_v1" / "SPY_FACTOR_RESEARCH_V1.py"
+        )
+        self.legacy_strategy_path = (
+            repo_root / "factor_research" / "spy_factor_v1" / "SPY_FACTOR_RESEARCH_V1_LEGACY.py"
+        )
+        self.train_strategy_path = (
+            repo_root / "factor_research" / "spy_factor_v1" / "SPY_FACTOR_RESEARCH_TRAIN_V1.py"
         )
 
     def connect(self) -> sqlite3.Connection:
@@ -52,11 +63,28 @@ class Database:
         schema = (Path(__file__).parent / "schema.sql").read_text(encoding="utf-8")
         with self.connect() as connection:
             connection.executescript(schema)
+            self._migrate(connection)
             self._seed(connection)
+
+    @staticmethod
+    def _migrate(connection: sqlite3.Connection) -> None:
+        columns = {
+            row["name"] for row in connection.execute("PRAGMA table_info(research_runs)").fetchall()
+        }
+        if "research_verdict" not in columns:
+            connection.execute(
+                "ALTER TABLE research_runs ADD COLUMN research_verdict TEXT NOT NULL DEFAULT 'NOT_ASSESSED'"
+            )
+        if "version_binding_status" not in columns:
+            connection.execute(
+                "ALTER TABLE research_runs ADD COLUMN version_binding_status TEXT NOT NULL DEFAULT 'EMBEDDED_HASH'"
+            )
 
     def _seed(self, connection: sqlite3.Connection) -> None:
         now = utc_now()
         strategy_hash = canonical_strategy_hash(self.strategy_path)
+        legacy_hash = normalized_source_hash(self.legacy_strategy_path)
+        train_hash = canonical_strategy_hash(self.train_strategy_path)
         factor_values = (
             FACTOR_ID,
             "close(select=2) > ema20(select=2)",
@@ -82,15 +110,34 @@ class Database:
             """,
             factor_values,
         )
-        connection.execute(
-            """
-            INSERT OR IGNORE INTO factor_versions (
-                factor_id, strategy_version, strategy_hash, parameter_version,
-                active, created_at_utc
-            ) VALUES (?, ?, ?, ?, 1, ?)
-            """,
-            (FACTOR_ID, "SPY_FACTOR_RESEARCH_V1.1", strategy_hash, "F001-P1", now),
-        )
+        connection.execute("UPDATE factor_versions SET active=0 WHERE factor_id=?", (FACTOR_ID,))
+        versions = [
+            (
+                "SPY_FACTOR_RESEARCH_V1_LEGACY",
+                legacy_hash,
+                "F001-FUNCTIONAL-20260928-20261006",
+                0,
+            ),
+            ("SPY_FACTOR_RESEARCH_V1.1", strategy_hash, "F001-P1", 0),
+            (
+                "SPY_FACTOR_RESEARCH_TRAIN_V1",
+                train_hash,
+                "F001-TRAIN-20251001-20260630",
+                1,
+            ),
+        ]
+        for version in versions:
+            connection.execute(
+                """
+                INSERT INTO factor_versions (
+                    factor_id, strategy_version, strategy_hash, parameter_version,
+                    active, created_at_utc
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(factor_id, strategy_version, strategy_hash, parameter_version)
+                DO UPDATE SET active=excluded.active
+                """,
+                (FACTOR_ID, *version, now),
+            )
         gates = [
             (
                 "GATE5B_TIMING_SPY_5M_SELECT2",
@@ -170,16 +217,34 @@ class Database:
                     now,
                 ),
             )
-        self._upsert_issue(
-            connection,
-            issue_key="TODO:F001:WAITING_EXPORT",
-            kind="TODO",
-            severity="INFO",
-            issue_code="WAITING_EXPORT",
-            message="F001 已定义，但尚无正式因子回测 CSV。",
-            next_action="运行 F001 后手动导出 RunLog_*.csv 到 Downloads。",
-            factor_id=FACTOR_ID,
-        )
+        validated_runs = connection.execute(
+            """
+            SELECT COUNT(*)
+            FROM research_runs r
+            JOIN factor_versions v ON v.version_id=r.version_id
+            WHERE v.factor_id=? AND r.run_status='VALIDATED'
+            """,
+            (FACTOR_ID,),
+        ).fetchone()[0]
+        if not validated_runs:
+            self._upsert_issue(
+                connection,
+                issue_key="TODO:F001:WAITING_EXPORT",
+                kind="TODO",
+                severity="INFO",
+                issue_code="WAITING_EXPORT",
+                message="F001 已定义，但尚无正式因子回测 CSV。",
+                next_action="运行 F001 后手动导出 RunLog_*.csv 到 Downloads。",
+                factor_id=FACTOR_ID,
+            )
+        else:
+            connection.execute(
+                """
+                UPDATE issues SET status='RESOLVED', resolved_at_utc=?, last_seen_utc=?
+                WHERE issue_key='TODO:F001:WAITING_EXPORT'
+                """,
+                (now, now),
+            )
         self._upsert_issue(
             connection,
             issue_key="TODO:QQQ:NOT_TESTED",
@@ -364,7 +429,7 @@ class Database:
                 """
                 SELECT version_id FROM factor_versions
                 WHERE factor_id = ? AND strategy_version = ? AND strategy_hash = ?
-                  AND parameter_version = ? AND active = 1
+                  AND parameter_version = ?
                 """,
                 (
                     run["factor_id"],
@@ -407,11 +472,12 @@ class Database:
                 """
                 INSERT INTO research_runs (
                     run_instance_id, declared_run_id, version_id, file_sha256,
-                    run_status, study_partition, settings_start_et, settings_end_et,
+                    run_status, research_verdict, version_binding_status,
+                    study_partition, settings_start_et, settings_end_et,
                     actual_start_et, actual_end_et, timezone, session, symbol,
                     timeframe, select_value, signal_count, label_count,
                     completeness, coverage_key, imported_at_utc
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     run_instance_id,
@@ -419,6 +485,8 @@ class Database:
                     version["version_id"],
                     file_sha256,
                     run["run_status"],
+                    run.get("research_verdict", "NOT_ASSESSED"),
+                    run.get("version_binding_status", "EMBEDDED_HASH"),
                     run["study_partition"],
                     run.get("study_start_et"),
                     run.get("study_end_et"),
@@ -509,13 +577,36 @@ class Database:
                     run_instance_id=run_instance_id,
                     file_sha256=file_sha256,
                 )
-            stage = "PLATFORM_VALIDATED" if run["run_status"] == "VALIDATED" else "SPECIFIED"
+            verdict = run.get("research_verdict", "NOT_ASSESSED")
+            if verdict == "FUNCTIONAL_VALIDATION_PASS":
+                stage = "PLATFORM_VALIDATED"
+                edge_status = "INSUFFICIENT_EVIDENCE"
+                blocking_reason = "仅完成功能验证；绝对 EMA 历史状态仍为 INDETERMINATE，未执行 TRAIN/VALIDATION/OOS"
+                next_action = "运行冻结的 F001 TRAIN 版本并导出 RunLog CSV；不得执行 VALIDATION 或 OOS"
+            elif verdict == "TRAIN_DATA_VALIDATED":
+                stage = "HISTORICAL_RUN"
+                edge_status = "INSUFFICIENT_EVIDENCE"
+                blocking_reason = "TRAIN 已导入但 VALIDATION/OOS 尚未执行；重叠事件不能视为独立样本"
+                next_action = "完成预注册 TRAIN 统计审核后，另行批准是否进入 VALIDATION"
+            else:
+                stage = "SPECIFIED"
+                edge_status = "NOT_TESTED"
+                blocking_reason = "日志尚未通过完整性验证"
+                next_action = "处理导入异常并重新导出完整日志"
             connection.execute(
                 """
-                UPDATE factors SET development_stage=?, updated_at_utc=?
+                UPDATE factors SET development_stage=?, edge_status=?, blocking_reason=?,
+                    next_action=?, updated_at_utc=?
                 WHERE factor_id=?
                 """,
-                (stage, now, run["factor_id"]),
+                (
+                    stage,
+                    edge_status,
+                    blocking_reason,
+                    next_action,
+                    now,
+                    run["factor_id"],
+                ),
             )
             if run["run_status"] == "VALIDATED":
                 connection.execute(
@@ -561,7 +652,11 @@ class Database:
                          WHERE v.factor_id=f.factor_id AND r.run_status='VALIDATED') AS valid_run_count,
                         (SELECT MAX(r.imported_at_utc) FROM research_runs r
                          JOIN factor_versions v ON v.version_id=r.version_id
-                         WHERE v.factor_id=f.factor_id) AS latest_run_utc
+                         WHERE v.factor_id=f.factor_id) AS latest_run_utc,
+                        (SELECT r.research_verdict FROM research_runs r
+                         JOIN factor_versions v ON v.version_id=r.version_id
+                         WHERE v.factor_id=f.factor_id
+                         ORDER BY r.imported_at_utc DESC LIMIT 1) AS latest_verdict
                     FROM factors f
                     LEFT JOIN factor_versions fv ON fv.factor_id=f.factor_id AND fv.active=1
                     ORDER BY f.factor_id

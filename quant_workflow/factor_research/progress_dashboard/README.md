@@ -16,7 +16,8 @@ http://127.0.0.1:8766/
 
 1. 将 `factor_research/spy_factor_v1/SPY_FACTOR_RESEARCH_V1.py` 完整复制到富途量化编辑器。
 2. 手动运行历史回测并导出 `RunLog_*.csv` 到 Downloads。
-3. 看板只接受 `FUTU_FACTOR_V1|{JSON}` 日志；旧探针会显示为“忽略/非因子日志”。
+3. 看板接受 `FUTU_FACTOR_V1|{JSON}`，并仅对冻结的
+   `SPY_FACTOR_V1` F001 功能日志提供严格兼容；其他旧探针仍显示为忽略。
 4. 在网页查看 F001、每次运行、15/30/60 分钟统计、数据门槛和异常。
 
 也可使用网页的“手动选择 CSV”按钮。上传文件保存在本地 `data/inbox/`，不会发送到云端。
@@ -24,6 +25,8 @@ http://127.0.0.1:8766/
 ## 状态边界
 
 - `VALIDATED` 只代表日志契约、完整性和确定性统计通过，不代表存在可交易 Edge。
+- F001 旧版七日日志显示 `FUNCTIONAL_VALIDATION_PASS`，同时保持
+  `INSUFFICIENT_EVIDENCE`，绝不等同于 `EDGE_PASS`。
 - forward return 是 close-to-close 条件收益，不是实际成交 PnL。
 - OOS 未完成时，系统不会自动升级为 `OOS_SUPPORTED`。
 - 相同参数和覆盖区间的重复跑次分别存档，但不会合并为独立样本。

@@ -144,6 +144,21 @@ def batch_runlog_fixture(tmp_path):
 
 
 @pytest.fixture
+def raw_batch_runlog_fixture(tmp_path, batch_runlog_fixture):
+    rows = list(csv.reader(batch_runlog_fixture.read_text(encoding="utf-8").splitlines()))
+    messages = [row[1] for row in rows[1:]]
+    lines = ["2026/07/10 12:00:00 (北京时间),INFO,系统,启动"]
+    lines.extend(
+        "2026/10/06 22:%02d:00 (北京时间),INFO,打印消息,%s" % (index * 5, message)
+        for index, message in enumerate(messages)
+    )
+    lines.append("2026/10/10 11:59:59 (北京时间),INFO,系统,停止回测")
+    path = tmp_path / "RunLog_TEST_C1_BATCH_RAW_FUTU.csv"
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8-sig")
+    return path
+
+
+@pytest.fixture
 def legacy_runlog_fixture(tmp_path):
     path = tmp_path / "RunLog_TEST_LEGACY_F001.csv"
     et = timezone(timedelta(hours=-4))

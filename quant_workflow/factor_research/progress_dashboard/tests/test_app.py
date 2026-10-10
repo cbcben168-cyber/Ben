@@ -18,6 +18,7 @@ def test_dashboard_page_health_and_initial_api(tmp_path):
         assert "Futu 因子研究看板" in page.text
         assert "因子表现比较" in page.text
         assert "高级资料" in page.text
+        assert "系统日志生命周期" in page.text
         assert 'data-horizon="15"' in page.text
         assert 'data-horizon="30"' in page.text
         assert 'data-horizon="60"' in page.text

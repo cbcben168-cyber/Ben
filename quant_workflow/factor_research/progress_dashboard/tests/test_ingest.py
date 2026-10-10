@@ -109,6 +109,40 @@ def test_c1_batch_import_expands_atomically_to_six_factor_runs(
     assert source["import_status"] == "VALIDATED"
 
 
+def test_raw_futu_batch_preserves_json_hash_lifecycle_and_dedupes(
+    database, raw_batch_runlog_fixture
+):
+    importer = Importer(database, allow_fixtures=True)
+    expected_hash = hashlib.sha256(raw_batch_runlog_fixture.read_bytes()).hexdigest()
+
+    first = importer.import_file(raw_batch_runlog_fixture)
+    second = importer.import_file(raw_batch_runlog_fixture)
+
+    assert first["status"] == "VALIDATED"
+    assert first["file_sha256"] == expected_hash
+    assert len(first["run_instance_ids"]) == 6
+    assert second == {"status": "DUPLICATE", "file_sha256": expected_hash}
+    snapshot = database.dashboard_snapshot(planned_factor_count=6)
+    assert len(snapshot["runs"]) == 6
+    assert {run["signal_count"] for run in snapshot["runs"]} == {2}
+    assert {run["label_count"] for run in snapshot["runs"]} == {6}
+    with database.connect() as connection:
+        source = connection.execute(
+            """
+            SELECT file_sha256, rows_total, rows_marked, parse_success_rate,
+                   system_log_start_local, system_log_end_local
+            FROM source_files WHERE file_sha256=?
+            """,
+            (expected_hash,),
+        ).fetchone()
+    assert source["file_sha256"] == expected_hash
+    assert source["rows_total"] == 7
+    assert source["rows_marked"] == 5
+    assert source["parse_success_rate"] == pytest.approx(1.0)
+    assert source["system_log_start_local"] == "2026-07-10T12:00:00"
+    assert source["system_log_end_local"] == "2026-10-10T11:59:59"
+
+
 def test_c1_batch_missing_factor_state_rejects_without_partial_import(
     database, tmp_path, batch_runlog_fixture
 ):

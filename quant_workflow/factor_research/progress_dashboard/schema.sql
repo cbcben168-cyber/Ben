@@ -56,7 +56,9 @@ CREATE TABLE IF NOT EXISTS source_files (
     rows_total INTEGER NOT NULL DEFAULT 0,
     rows_marked INTEGER NOT NULL DEFAULT 0,
     parse_success_rate REAL,
-    error_text TEXT
+    error_text TEXT,
+    system_log_start_local TEXT,
+    system_log_end_local TEXT
 );
 
 CREATE TABLE IF NOT EXISTS file_observations (

@@ -114,16 +114,27 @@ class Database:
 
     @staticmethod
     def _migrate(connection: sqlite3.Connection) -> None:
-        columns = {
+        run_columns = {
             row["name"] for row in connection.execute("PRAGMA table_info(research_runs)").fetchall()
         }
-        if "research_verdict" not in columns:
+        if "research_verdict" not in run_columns:
             connection.execute(
                 "ALTER TABLE research_runs ADD COLUMN research_verdict TEXT NOT NULL DEFAULT 'NOT_ASSESSED'"
             )
-        if "version_binding_status" not in columns:
+        if "version_binding_status" not in run_columns:
             connection.execute(
                 "ALTER TABLE research_runs ADD COLUMN version_binding_status TEXT NOT NULL DEFAULT 'EMBEDDED_HASH'"
+            )
+        source_columns = {
+            row["name"] for row in connection.execute("PRAGMA table_info(source_files)").fetchall()
+        }
+        if "system_log_start_local" not in source_columns:
+            connection.execute(
+                "ALTER TABLE source_files ADD COLUMN system_log_start_local TEXT"
+            )
+        if "system_log_end_local" not in source_columns:
+            connection.execute(
+                "ALTER TABLE source_files ADD COLUMN system_log_end_local TEXT"
             )
 
     def _seed(self, connection: sqlite3.Connection) -> None:
@@ -469,6 +480,8 @@ class Database:
             "parse_success_rate",
             "error_text",
             "canonical_path",
+            "system_log_start_local",
+            "system_log_end_local",
         }
         unknown = set(fields) - allowed
         if unknown:
@@ -1154,7 +1167,8 @@ class Database:
                 connection.execute(
                     """
                     SELECT r.*, v.factor_id, v.strategy_version, v.strategy_hash,
-                        v.parameter_version, s.canonical_path, s.marker_version
+                        v.parameter_version, s.canonical_path, s.marker_version,
+                        s.system_log_start_local, s.system_log_end_local
                     FROM research_runs r
                     JOIN factor_versions v ON v.version_id=r.version_id
                     JOIN source_files s ON s.file_sha256=r.file_sha256

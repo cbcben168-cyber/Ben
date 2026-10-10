@@ -57,6 +57,8 @@ BATCH_FACTORS = (
     ("SPY_F006_STRONG_BULL_BODY", "f006", "F006-C1-BATCH-V1"),
 )
 BATCH_FACTOR_IDS = ",".join(item[0] for item in BATCH_FACTORS)
+FACTOR_MARKER_RE = re.compile(r"FUTU_FACTOR_[A-Z0-9_]+\|")
+SYSTEM_LOG_TIME_RE = re.compile(r"^(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2})")
 
 
 @dataclass
@@ -70,6 +72,8 @@ class ParseResult:
     parsed_rows: int
     run: dict[str, Any] | None = None
     error: str | None = None
+    system_log_start_local: str | None = None
+    system_log_end_local: str | None = None
 
     @property
     def success_rate(self) -> float | None:
@@ -96,6 +100,51 @@ def decode_csv(path: Path) -> tuple[str, str]:
         except UnicodeDecodeError:
             continue
     raise ValueError("UNSUPPORTED_ENCODING")
+
+
+def _system_log_lifecycle(text: str) -> tuple[str | None, str | None]:
+    timestamps: list[datetime] = []
+    for line in text.splitlines():
+        match = SYSTEM_LOG_TIME_RE.match(line)
+        if match:
+            try:
+                timestamps.append(datetime.strptime(match.group(1), "%Y/%m/%d %H:%M:%S"))
+            except ValueError:
+                continue
+    if not timestamps:
+        return None, None
+    return min(timestamps).isoformat(), max(timestamps).isoformat()
+
+
+def _attach_system_log_lifecycle(result: ParseResult, text: str) -> ParseResult:
+    result.system_log_start_local, result.system_log_end_local = _system_log_lifecycle(text)
+    return result
+
+
+def _decode_factor_marker_line(
+    line: str, decoder: json.JSONDecoder
+) -> tuple[str, dict[str, Any]] | None:
+    marker_match = FACTOR_MARKER_RE.search(line)
+    if not marker_match:
+        return None
+
+    version = marker_match.group(0)[:-1]
+    payload_text = line[marker_match.end() :].lstrip()
+    try:
+        payload, _ = decoder.raw_decode(payload_text)
+    except json.JSONDecodeError:
+        row = next(csv.reader([line]))
+        combined = ",".join(row)
+        csv_marker_match = FACTOR_MARKER_RE.search(combined)
+        if not csv_marker_match:
+            raise ValueError("MARKER_LOST_DURING_CSV_FALLBACK")
+        version = csv_marker_match.group(0)[:-1]
+        payload_text = combined[csv_marker_match.end() :].lstrip()
+        payload, _ = decoder.raw_decode(payload_text)
+
+    if not isinstance(payload, dict):
+        raise ValueError("PAYLOAD_NOT_OBJECT")
+    return version, payload
 
 
 def _parse_time(value: Any, field: str) -> datetime:
@@ -849,7 +898,7 @@ def parse_runlog(path: Path, *, allow_fixtures: bool = False) -> ParseResult:
         return ParseResult("FACTOR_RUN", "PARSE_FAILED", "UNKNOWN", None, 0, 0, 0, error=str(exc))
 
     if LEGACY_MARKER in text and MARKER not in text:
-        return _parse_legacy_runlog(text, encoding)
+        return _attach_system_log_lifecycle(_parse_legacy_runlog(text, encoding), text)
 
     events: list[dict[str, Any]] = []
     versions: set[str] = set()
@@ -858,22 +907,16 @@ def parse_runlog(path: Path, *, allow_fixtures: bool = False) -> ParseResult:
     parsed_rows = 0
     decoder = json.JSONDecoder()
     try:
-        reader = csv.reader(io.StringIO(text))
-        for row in reader:
+        for line in text.splitlines():
             rows_total += 1
-            combined = ",".join(row)
-            marker_match = re.search(r"FUTU_FACTOR_[A-Z0-9_]+\|", combined)
-            if not marker_match:
+            decoded = _decode_factor_marker_line(line, decoder)
+            if decoded is None:
                 continue
             rows_marked += 1
-            version = marker_match.group(0)[:-1]
+            version, payload = decoded
             versions.add(version)
             if version not in {"FUTU_FACTOR_V1", "FUTU_FACTOR_BATCH_V1"}:
                 continue
-            payload_text = combined[marker_match.end() :].lstrip()
-            payload, _ = decoder.raw_decode(payload_text)
-            if not isinstance(payload, dict):
-                raise ValueError("PAYLOAD_NOT_OBJECT")
             _required(
                 payload,
                 REQUIRED_COMMON if version == "FUTU_FACTOR_V1" else BATCH_REQUIRED_COMMON,
@@ -881,27 +924,36 @@ def parse_runlog(path: Path, *, allow_fixtures: bool = False) -> ParseResult:
             events.append(payload)
             parsed_rows += 1
     except (csv.Error, json.JSONDecodeError, ValueError) as exc:
-        return ParseResult(
-            "FACTOR_RUN",
-            "PARSE_FAILED",
-            encoding,
-            next(iter(versions), None),
-            rows_total,
-            rows_marked,
-            parsed_rows,
-            error=str(exc),
+        return _attach_system_log_lifecycle(
+            ParseResult(
+                "FACTOR_RUN",
+                "PARSE_FAILED",
+                encoding,
+                next(iter(versions), None),
+                rows_total,
+                rows_marked,
+                parsed_rows,
+                error=str(exc),
+            ),
+            text,
         )
 
     if not rows_marked:
-        return ParseResult("IGNORED_NON_FACTOR", "IGNORED", encoding, None, rows_total, 0, 0)
+        return _attach_system_log_lifecycle(
+            ParseResult("IGNORED_NON_FACTOR", "IGNORED", encoding, None, rows_total, 0, 0),
+            text,
+        )
     if versions == {"FUTU_FACTOR_BATCH_V1"}:
-        return _parse_batch_events(
-            events,
-            encoding=encoding,
-            rows_total=rows_total,
-            rows_marked=rows_marked,
-            parsed_rows=parsed_rows,
-            allow_fixtures=allow_fixtures,
+        return _attach_system_log_lifecycle(
+            _parse_batch_events(
+                events,
+                encoding=encoding,
+                rows_total=rows_total,
+                rows_marked=rows_marked,
+                parsed_rows=parsed_rows,
+                allow_fixtures=allow_fixtures,
+            ),
+            text,
         )
     if versions != {"FUTU_FACTOR_V1"}:
         return ParseResult(
@@ -1146,15 +1198,18 @@ def parse_runlog(path: Path, *, allow_fixtures: bool = False) -> ParseResult:
         "labels": labels,
         "issues": run_issues,
     }
-    return ParseResult(
-        "TEST_FIXTURE" if bool(start.get("fixture")) else "FACTOR_RUN",
-        run_status,
-        encoding,
-        "FUTU_FACTOR_V1",
-        rows_total,
-        rows_marked,
-        parsed_rows,
-        run=run,
+    return _attach_system_log_lifecycle(
+        ParseResult(
+            "TEST_FIXTURE" if bool(start.get("fixture")) else "FACTOR_RUN",
+            run_status,
+            encoding,
+            "FUTU_FACTOR_V1",
+            rows_total,
+            rows_marked,
+            parsed_rows,
+            run=run,
+        ),
+        text,
     )
 
 
@@ -1197,6 +1252,8 @@ class Importer:
             rows_marked=result.rows_marked,
             parse_success_rate=result.success_rate,
             error_text=result.error,
+            system_log_start_local=result.system_log_start_local,
+            system_log_end_local=result.system_log_end_local,
         )
         if result.run is None:
             if result.import_status not in {"IGNORED"}:

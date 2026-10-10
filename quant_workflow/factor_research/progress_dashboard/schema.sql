@@ -136,6 +136,24 @@ CREATE TABLE IF NOT EXISTS run_statistics (
     PRIMARY KEY (run_instance_id, horizon_minutes, cohort)
 );
 
+CREATE TABLE IF NOT EXISTS run_analyses (
+    run_instance_id TEXT NOT NULL REFERENCES research_runs(run_instance_id) ON DELETE CASCADE,
+    horizon_minutes INTEGER NOT NULL,
+    analysis_version TEXT NOT NULL,
+    analysis_json TEXT NOT NULL,
+    created_at_utc TEXT NOT NULL,
+    PRIMARY KEY (run_instance_id, horizon_minutes, analysis_version)
+);
+
+CREATE TABLE IF NOT EXISTS run_audits (
+    run_instance_id TEXT NOT NULL REFERENCES research_runs(run_instance_id) ON DELETE CASCADE,
+    audit_type TEXT NOT NULL,
+    status TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    created_at_utc TEXT NOT NULL,
+    PRIMARY KEY (run_instance_id, audit_type)
+);
+
 CREATE TABLE IF NOT EXISTS issues (
     issue_id INTEGER PRIMARY KEY AUTOINCREMENT,
     issue_key TEXT NOT NULL UNIQUE,
@@ -163,3 +181,4 @@ CREATE INDEX IF NOT EXISTS idx_runs_factor_version ON research_runs(version_id, 
 CREATE INDEX IF NOT EXISTS idx_runs_coverage ON research_runs(coverage_key);
 CREATE INDEX IF NOT EXISTS idx_issues_status ON issues(status, last_seen_utc DESC);
 CREATE INDEX IF NOT EXISTS idx_observations_path ON file_observations(normalized_path, last_seen_utc DESC);
+CREATE INDEX IF NOT EXISTS idx_analyses_run ON run_analyses(run_instance_id, horizon_minutes);

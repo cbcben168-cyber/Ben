@@ -109,6 +109,71 @@ def test_c1_batch_import_expands_atomically_to_six_factor_runs(
     assert source["import_status"] == "VALIDATED"
 
 
+def test_train_batch_preserves_s0_and_imports_187_days_atomically(
+    database, batch_runlog_fixture, train_batch_runlog_fixture
+):
+    importer = Importer(database, allow_fixtures=True)
+    assert importer.import_file(batch_runlog_fixture)["status"] == "VALIDATED"
+    source_hash = hashlib.sha256(train_batch_runlog_fixture.read_bytes()).hexdigest()
+
+    first = importer.import_file(train_batch_runlog_fixture)
+    second = importer.import_file(train_batch_runlog_fixture)
+
+    assert first["status"] == "VALIDATED"
+    assert first["file_sha256"] == source_hash
+    assert len(first["run_instance_ids"]) == 6
+    assert second == {"status": "DUPLICATE", "file_sha256": source_hash}
+    assert hashlib.sha256(train_batch_runlog_fixture.read_bytes()).hexdigest() == source_hash
+
+    snapshot = database.dashboard_snapshot(planned_factor_count=6)
+    assert len(snapshot["runs"]) == 12
+    train_runs = [run for run in snapshot["runs"] if run["study_partition"] == "TRAIN"]
+    assert len(train_runs) == 6
+    assert {run["signal_count"] for run in train_runs} == {12083}
+    assert {run["label_count"] for run in train_runs} == {36249}
+    assert {run["research_verdict"] for run in train_runs} == {"TRAIN_DATA_VALIDATED"}
+    assert snapshot["summary"]["functional_backtest_done"] == 6
+    assert snapshot["summary"]["long_train_done"] == 6
+    assert snapshot["summary"]["validation_done"] == 0
+    assert snapshot["summary"]["oos_done"] == 0
+    assert snapshot["comparison"]["ranking_ready"] is False
+    assert {row["study_partition"] for row in snapshot["comparison"]["rows"]} == {"TRAIN"}
+    assert "DATA_GATE_NOT_PASS" in snapshot["comparison"]["reason_codes"]
+
+    detail = database.factor_detail("SPY_F001_CLOSE_GT_EMA20", horizon_minutes=15)
+    train_detail = next(run for run in detail["runs"] if run["study_partition"] == "TRAIN")
+    selected = train_detail["selected_window"]
+    assert selected["coverage_trading_days"] == 187
+    assert selected["warmup_audit"]["status"] == "COMPLETE"
+    assert selected["train_analysis"]["trading_day_clusters"] == 187
+    assert len(selected["train_analysis"]["non_overlap_phases"]) == 3
+    assert selected["train_analysis"]["cluster_bootstrap"]["replicates_requested"] == 5000
+    with database.connect() as connection:
+        assert connection.execute("SELECT COUNT(*) FROM run_analyses").fetchone()[0] == 18
+        assert connection.execute("SELECT COUNT(*) FROM run_audits").fetchone()[0] == 6
+
+
+def test_train_batch_missing_event_is_rejected_without_partial_import(
+    database, tmp_path, train_batch_runlog_fixture
+):
+    lines = train_batch_runlog_fixture.read_text(encoding="utf-8").splitlines()
+    removed = False
+    kept = []
+    for line in lines:
+        if not removed and "FACTOR_EVENT" in line and "FUTU_FACTOR_BATCH_V1|" in line:
+            removed = True
+            continue
+        kept.append(line)
+    assert removed
+    target = tmp_path / "RunLog_TEST_C1_BATCH_TRAIN_MISSING.csv"
+    target.write_text("\n".join(kept) + "\n", encoding="utf-8")
+
+    result = Importer(database, allow_fixtures=True).import_file(target)
+
+    assert result["status"] == "INVALID"
+    assert database.dashboard_snapshot()["runs"] == []
+
+
 def test_raw_futu_batch_preserves_json_hash_lifecycle_and_dedupes(
     database, raw_batch_runlog_fixture
 ):

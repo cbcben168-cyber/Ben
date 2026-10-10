@@ -140,6 +140,25 @@ def import_error_zh(error: Any) -> dict[str, str]:
             "数据库检测到同一批次只有部分逻辑跑次，已阻止不完整排行。",
             "请保留数据库和源 CSV，交由 Codex 审核事务状态。",
         )
+    elif raw.startswith(("TRAIN_CONTRACT_MISMATCH:", "BATCH_PARTITION_VERSION_MISMATCH")):
+        message, action = (
+            "TRAIN 日期、版本或预注册参数与冻结合同不一致，已整批拒绝。",
+            "请使用 SPY_SIX_FACTOR_BATCH_TRAIN_V1.py 原样运行，并核对富途参数表。",
+        )
+    elif raw.startswith(
+        (
+            "TRAIN_SESSION_",
+            "TRAIN_EVENT_",
+            "TRAIN_LABEL_",
+            "TRAIN_INTRADAY_",
+            "TRAIN_WARMUP_",
+            "INVALID_TRAIN_WARMUP_",
+        )
+    ):
+        message, action = (
+            "TRAIN 日志未达到187个交易日、12,083个事件、36,249个标签或预热审计要求。",
+            "不要拼接或修改CSV；保留原文件并检查回测起点、提前收市日和日志是否被截断。",
+        )
     elif raw.startswith("IDENTITY_MISMATCH:"):
         field = raw.partition(":")[2]
         message, action = (

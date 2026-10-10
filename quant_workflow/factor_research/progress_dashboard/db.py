@@ -9,7 +9,7 @@ import re
 import sqlite3
 from typing import Any
 
-from .stats import compute_statistics, histogram
+from .stats import compute_statistics, compute_train_analysis, histogram
 
 
 FACTOR_ID = "SPY_F001_CLOSE_GT_EMA20"
@@ -46,6 +46,10 @@ BATCH_FACTOR_CATALOG = (
         "F006-C1-BATCH-V1",
     ),
 )
+TRAIN_FACTOR_PARAMETER_VERSIONS = {
+    factor_id: parameter_version.replace("-V1", "-TRAIN-V1")
+    for factor_id, _, parameter_version in BATCH_FACTOR_CATALOG
+}
 PARTITION_PRIORITY = {"FUNCTIONAL_VALIDATION": 1, "TRAIN": 2, "VALIDATION": 3, "OOS": 4}
 SUPPORTED_EDGE_STATUSES = {
     "VALIDATION_SUPPORTED",
@@ -96,6 +100,12 @@ class Database:
             / "spy_factor_batch_v1"
             / "SPY_SIX_FACTOR_BATCH_V1.py"
         )
+        self.batch_train_strategy_path = (
+            repo_root
+            / "factor_research"
+            / "spy_factor_batch_v1"
+            / "SPY_SIX_FACTOR_BATCH_TRAIN_V1.py"
+        )
 
     def connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.path, timeout=10)
@@ -143,6 +153,7 @@ class Database:
         legacy_hash = normalized_source_hash(self.legacy_strategy_path)
         train_hash = canonical_strategy_hash(self.train_strategy_path)
         batch_hash = canonical_strategy_hash(self.batch_strategy_path)
+        batch_train_hash = canonical_strategy_hash(self.batch_train_strategy_path)
         factor_values = (
             FACTOR_ID,
             "close(select=2) > ema20(select=2)",
@@ -206,7 +217,9 @@ class Database:
                       FROM research_runs r
                       JOIN factor_versions v ON v.version_id=r.version_id
                       WHERE v.factor_id=factors.factor_id
-                        AND v.strategy_version='FUTU_BATCH_FACTORS_V1'
+                        AND v.strategy_version IN (
+                            'FUTU_BATCH_FACTORS_V1', 'FUTU_BATCH_FACTORS_TRAIN_V1'
+                        )
                         AND r.run_status='VALIDATED'
                   )
                 """,
@@ -255,7 +268,7 @@ class Database:
                 INSERT INTO factor_versions (
                     factor_id, strategy_version, strategy_hash, parameter_version,
                     active, created_at_utc
-                ) VALUES (?, ?, ?, ?, 1, ?)
+                ) VALUES (?, ?, ?, ?, 0, ?)
                 ON CONFLICT(factor_id, strategy_version, strategy_hash, parameter_version)
                 DO UPDATE SET active=excluded.active
                 """,
@@ -264,6 +277,24 @@ class Database:
                     "FUTU_BATCH_FACTORS_V1",
                     batch_hash,
                     parameter_version,
+                    now,
+                ),
+            )
+        for factor_id, _, _ in BATCH_FACTOR_CATALOG:
+            connection.execute(
+                """
+                INSERT INTO factor_versions (
+                    factor_id, strategy_version, strategy_hash, parameter_version,
+                    active, created_at_utc
+                ) VALUES (?, ?, ?, ?, 1, ?)
+                ON CONFLICT(factor_id, strategy_version, strategy_hash, parameter_version)
+                DO UPDATE SET active=excluded.active
+                """,
+                (
+                    factor_id,
+                    "FUTU_BATCH_FACTORS_TRAIN_V1",
+                    batch_train_hash,
+                    TRAIN_FACTOR_PARAMETER_VERSIONS[factor_id],
                     now,
                 ),
             )
@@ -793,6 +824,42 @@ class Database:
                     """,
                     (run_instance_id, *row.values()),
                 )
+            if run["study_partition"] == "TRAIN" and run["run_status"] == "VALIDATED":
+                for analysis in compute_train_analysis(
+                    signals,
+                    labels,
+                    seed_key=run_instance_id,
+                ):
+                    connection.execute(
+                        """
+                        INSERT INTO run_analyses (
+                            run_instance_id, horizon_minutes, analysis_version,
+                            analysis_json, created_at_utc
+                        ) VALUES (?, ?, ?, ?, ?)
+                        """,
+                        (
+                            run_instance_id,
+                            int(analysis["horizon_minutes"]),
+                            analysis["analysis_version"],
+                            json.dumps(analysis, ensure_ascii=False, sort_keys=True),
+                            now,
+                        ),
+                    )
+            warmup_audit = run.get("warmup_audit")
+            if warmup_audit:
+                connection.execute(
+                    """
+                    INSERT INTO run_audits (
+                        run_instance_id, audit_type, status, payload_json, created_at_utc
+                    ) VALUES (?, 'EMA20_WARMUP', ?, ?, ?)
+                    """,
+                    (
+                        run_instance_id,
+                        str(warmup_audit.get("status", "UNKNOWN")),
+                        json.dumps(warmup_audit, ensure_ascii=False, sort_keys=True),
+                        now,
+                    ),
+                )
             for issue in run.get("issues", []):
                 self._upsert_issue(
                     connection,
@@ -901,7 +968,12 @@ class Database:
         return [dict(row) for row in rows]
 
     def _run_window_metrics(
-        self, connection: sqlite3.Connection, run_instance_id: str, horizon_minutes: int
+        self,
+        connection: sqlite3.Connection,
+        run_instance_id: str,
+        horizon_minutes: int,
+        *,
+        include_analysis: bool = False,
     ) -> dict[str, Any]:
         statistics = self._rows(
             connection.execute(
@@ -991,6 +1063,24 @@ class Database:
                 month["pass_fail_diff_bps"] = (
                     month["pass_mean_return"] - month["fail_mean_return"]
                 ) * 10000
+        analysis_row = None
+        audit_row = None
+        if include_analysis:
+            analysis_row = connection.execute(
+                """
+                SELECT analysis_json FROM run_analyses
+                WHERE run_instance_id=? AND horizon_minutes=?
+                ORDER BY created_at_utc DESC LIMIT 1
+                """,
+                (run_instance_id, horizon_minutes),
+            ).fetchone()
+            audit_row = connection.execute(
+                """
+                SELECT status, payload_json FROM run_audits
+                WHERE run_instance_id=? AND audit_type='EMA20_WARMUP'
+                """,
+                (run_instance_id,),
+            ).fetchone()
         pass_mean = passed.get("mean_return")
         fail_mean = failed.get("mean_return")
         eligible_days = int(stability["eligible_days"] or 0)
@@ -1016,6 +1106,15 @@ class Database:
             "stable_eligible_days": eligible_days,
             "daily_stability": better_days / eligible_days if eligible_days else None,
             "monthly": list(months.values()),
+            "train_analysis": json.loads(analysis_row["analysis_json"]) if analysis_row else None,
+            "warmup_audit": (
+                {
+                    "status": audit_row["status"],
+                    "payload": json.loads(audit_row["payload_json"]),
+                }
+                if audit_row
+                else None
+            ),
         }
 
     def _comparison_snapshot(
@@ -1094,6 +1193,8 @@ class Database:
                         "stable_eligible_days": 0,
                         "daily_stability": None,
                         "monthly": [],
+                        "train_analysis": None,
+                        "warmup_audit": None,
                     }
                 )
             rows.append(row)
@@ -1303,7 +1404,10 @@ class Database:
                         distributions[f"{horizon}_{cohort}"] = histogram(values)
                 run["distributions"] = distributions
                 run["selected_window"] = self._run_window_metrics(
-                    connection, run["run_instance_id"], horizon_minutes
+                    connection,
+                    run["run_instance_id"],
+                    horizon_minutes,
+                    include_analysis=True,
                 )
         return {
             "factor": factor,

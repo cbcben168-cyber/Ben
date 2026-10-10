@@ -42,3 +42,9 @@ def test_import_error_mapping_keeps_raw_error():
     unknown = import_error_zh("NEW_ERROR")
     assert unknown["raw_error"] == "NEW_ERROR"
     assert "完整性" in unknown["message_zh"]
+
+
+def test_train_import_error_mapping_is_actionable():
+    mapped = import_error_zh("TRAIN_EVENT_COUNT_MISMATCH")
+    assert "12,083" in mapped["message_zh"]
+    assert "不要拼接" in mapped["next_action_zh"]

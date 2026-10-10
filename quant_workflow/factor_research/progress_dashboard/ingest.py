@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import csv
+from collections import defaultdict
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 import hashlib
 import io
 import json
@@ -57,8 +58,57 @@ BATCH_FACTORS = (
     ("SPY_F006_STRONG_BULL_BODY", "f006", "F006-C1-BATCH-V1"),
 )
 BATCH_FACTOR_IDS = ",".join(item[0] for item in BATCH_FACTORS)
+BATCH_CONFIGS = {
+    "FUTU_BATCH_FACTORS_V1": {
+        "partition": "FUNCTIONAL_VALIDATION",
+        "batch_parameter_version": "C1-SIX-FACTOR-S0-V1",
+        "factor_parameter_versions": {
+            factor_id: parameter_version
+            for factor_id, _, parameter_version in BATCH_FACTORS
+        },
+    },
+    "FUTU_BATCH_FACTORS_TRAIN_V1": {
+        "partition": "TRAIN",
+        "batch_parameter_version": "C1-SIX-FACTOR-TRAIN-20251001-20260630-V1",
+        "factor_parameter_versions": {
+            factor_id: parameter_version.replace("-V1", "-TRAIN-V1")
+            for factor_id, _, parameter_version in BATCH_FACTORS
+        },
+    },
+}
+TRAIN_START = "2025-10-01"
+TRAIN_END = "2026-06-30"
+TRAIN_SYSTEM_START = "2025-07-01"
+TRAIN_SENSITIVITY_START = "2025-09-02"
+TRAIN_EXPECTED_SESSIONS = 187
+TRAIN_EXPECTED_EVENTS = 12083
+TRAIN_EXPECTED_LABELS = 36249
+TRAIN_EXPECTED_WARMUP_BARS = 4956
+TRAIN_EARLY_CLOSE_DAYS = {"2025-11-28", "2025-12-24"}
+TRAIN_HOLIDAYS = {
+    "2025-11-27",
+    "2025-12-25",
+    "2026-01-01",
+    "2026-01-19",
+    "2026-02-16",
+    "2026-04-03",
+    "2026-05-25",
+    "2026-06-19",
+}
 FACTOR_MARKER_RE = re.compile(r"FUTU_FACTOR_[A-Z0-9_]+\|")
 SYSTEM_LOG_TIME_RE = re.compile(r"^(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2})")
+
+
+def expected_train_sessions() -> set[str]:
+    current = datetime.strptime(TRAIN_START, "%Y-%m-%d").date()
+    end = datetime.strptime(TRAIN_END, "%Y-%m-%d").date()
+    sessions: set[str] = set()
+    while current <= end:
+        text = current.isoformat()
+        if current.weekday() < 5 and text not in TRAIN_HOLIDAYS:
+            sessions.add(text)
+        current += timedelta(days=1)
+    return sessions
 
 
 @dataclass
@@ -507,6 +557,32 @@ def _parse_batch_events(
             parsed_rows,
             error="INVALID_STRATEGY_HASH",
         )
+    config = BATCH_CONFIGS.get(str(start.get("strategy_version")))
+    if config is None:
+        return ParseResult(
+            "FACTOR_BATCH",
+            "PARSE_FAILED",
+            encoding,
+            "FUTU_FACTOR_BATCH_V1",
+            rows_total,
+            rows_marked,
+            parsed_rows,
+            error="UNSUPPORTED_BATCH_STRATEGY_VERSION",
+        )
+    if (
+        start.get("study_partition") != config["partition"]
+        or start.get("parameter_version") != config["batch_parameter_version"]
+    ):
+        return ParseResult(
+            "FACTOR_BATCH",
+            "PARSE_FAILED",
+            encoding,
+            "FUTU_FACTOR_BATCH_V1",
+            rows_total,
+            rows_marked,
+            parsed_rows,
+            error="BATCH_PARTITION_VERSION_MISMATCH",
+        )
     if start.get("factor_ids") != BATCH_FACTOR_IDS:
         return ParseResult(
             "FACTOR_BATCH",
@@ -529,6 +605,33 @@ def _parse_batch_events(
             parsed_rows,
             error="BATCH_DEFINITION_HASH_MISMATCH",
         )
+    if config["partition"] == "TRAIN":
+        train_fields = {
+            "system_start_target_et": TRAIN_SYSTEM_START,
+            "sensitivity_start_et": TRAIN_SENSITIVITY_START,
+            "study_start_et": TRAIN_START,
+            "study_end_et": TRAIN_END,
+            "expected_sessions": TRAIN_EXPECTED_SESSIONS,
+            "expected_factor_events": TRAIN_EXPECTED_EVENTS,
+            "expected_labels": TRAIN_EXPECTED_LABELS,
+            "expected_warmup_bars": TRAIN_EXPECTED_WARMUP_BARS,
+            "early_close_dates_et": ",".join(sorted(TRAIN_EARLY_CLOSE_DAYS)),
+            "warmup_audit": "DUAL_RECURSIVE_EMA20_V1",
+        }
+        mismatches = [
+            key for key, expected in train_fields.items() if start.get(key) != expected
+        ]
+        if mismatches:
+            return ParseResult(
+                "FACTOR_BATCH",
+                "PARSE_FAILED",
+                encoding,
+                "FUTU_FACTOR_BATCH_V1",
+                rows_total,
+                rows_marked,
+                parsed_rows,
+                error="TRAIN_CONTRACT_MISMATCH:" + ",".join(mismatches),
+            )
 
     identity = {
         key: start[key]
@@ -584,6 +687,8 @@ def _parse_batch_events(
     factor_events = [item for item in events if item["event_type"] == "FACTOR_EVENT"]
     normalized_events: list[dict[str, Any]] = []
     seen_signals: set[str] = set()
+    observed_platform_system = {"f001": 0, "f002": 0, "f003": 0}
+    observed_system_sensitivity = {"f001": 0, "f002": 0, "f003": 0}
     for event in factor_events:
         try:
             required = {
@@ -650,6 +755,65 @@ def _parse_batch_events(
                     if number != number or number in {float("inf"), float("-inf")}:
                         raise ValueError("NONFINITE_FACTOR_VALUE:" + prefix)
                     values[factor_id] = number
+            if config["partition"] == "TRAIN":
+                diagnostic_fields = {
+                    "ema20_platform_0",
+                    "ema20_platform_1",
+                    "ema20_platform_3",
+                    "ema20_system_start_0",
+                    "ema20_sensitivity_start_0",
+                    "close_1",
+                }
+                for number in (1, 2, 3):
+                    prefix = f"f{number:03d}"
+                    diagnostic_fields.add(prefix + "_system_state")
+                    diagnostic_fields.add(prefix + "_sensitivity_state")
+                _required(event, diagnostic_fields)
+                diagnostics = {
+                    key: float(event[key])
+                    for key in (
+                        "ema20_platform_0",
+                        "ema20_platform_1",
+                        "ema20_platform_3",
+                        "ema20_system_start_0",
+                        "ema20_sensitivity_start_0",
+                        "close_1",
+                    )
+                }
+                if any(
+                    value != value or value in {float("inf"), float("-inf")}
+                    for value in diagnostics.values()
+                ):
+                    raise ValueError("NONFINITE_WARMUP_DIAGNOSTIC")
+                expected_platform_states = {
+                    "f001": "PASS" if signal_close > diagnostics["ema20_platform_0"] else "FAIL",
+                    "f002": (
+                        "PASS"
+                        if diagnostics["ema20_platform_0"] > diagnostics["ema20_platform_3"]
+                        else "FAIL"
+                    ),
+                    "f003": (
+                        "PASS"
+                        if diagnostics["close_1"] <= diagnostics["ema20_platform_1"]
+                        and signal_close > diagnostics["ema20_platform_0"]
+                        else "FAIL"
+                    ),
+                }
+                for number in (1, 2, 3):
+                    prefix = f"f{number:03d}"
+                    system_state = str(event[prefix + "_system_state"])
+                    sensitivity_state = str(event[prefix + "_sensitivity_state"])
+                    if system_state not in {"PASS", "FAIL"} or sensitivity_state not in {
+                        "PASS",
+                        "FAIL",
+                    }:
+                        raise ValueError("INVALID_WARMUP_STATE:" + prefix)
+                    if str(event[prefix + "_state"]) != expected_platform_states[prefix]:
+                        raise ValueError("PLATFORM_STATE_RECOMPUTE_MISMATCH:" + prefix)
+                    if str(event[prefix + "_state"]) != system_state:
+                        observed_platform_system[prefix] += 1
+                    if system_state != sensitivity_state:
+                        observed_system_sensitivity[prefix] += 1
             labels: list[dict[str, Any]] = []
             for horizon, minutes in ((3, 15), (6, 30), (12, 60)):
                 suffix = str(horizon)
@@ -708,6 +872,57 @@ def _parse_batch_events(
                 "message": f"批次日志包含 {len(error_events)} 条 ERROR 事件。",
             }
         )
+    warmup_audit: dict[str, Any] | None = None
+    if config["partition"] == "TRAIN":
+        warmup_events = [item for item in events if item["event_type"] == "WARMUP_AUDIT"]
+        if len(warmup_events) != 1:
+            fatal = True
+            run_issues.append(
+                {
+                    "code": "TRAIN_WARMUP_AUDIT_COUNT",
+                    "severity": "ERROR",
+                    "message": f"TRAIN 必须且只能包含一条 WARMUP_AUDIT，实际为 {len(warmup_events)}。",
+                }
+            )
+        else:
+            warmup_audit = warmup_events[0]
+            try:
+                _required(
+                    warmup_audit,
+                    {
+                        "status",
+                        "system_start_target_et",
+                        "first_observation_et",
+                        "study_start_et",
+                        "sensitivity_start_et",
+                        "warmup_bars_before_train",
+                        "expected_warmup_bars",
+                        "platform_ema20",
+                        "system_start_ema20",
+                        "sensitivity_start_ema20",
+                    },
+                )
+                if warmup_audit["status"] != "COMPLETE":
+                    raise ValueError("TRAIN_WARMUP_NOT_COMPLETE")
+                if warmup_audit["system_start_target_et"] != TRAIN_SYSTEM_START:
+                    raise ValueError("TRAIN_SYSTEM_START_MISMATCH")
+                if not str(warmup_audit["first_observation_et"]).startswith(
+                    TRAIN_SYSTEM_START + "T09:35"
+                ):
+                    raise ValueError("TRAIN_FIRST_OBSERVATION_MISMATCH")
+                if warmup_audit["study_start_et"] != TRAIN_START:
+                    raise ValueError("TRAIN_STATISTICS_START_MISMATCH")
+                if warmup_audit["sensitivity_start_et"] != TRAIN_SENSITIVITY_START:
+                    raise ValueError("TRAIN_SENSITIVITY_START_MISMATCH")
+                if int(warmup_audit["warmup_bars_before_train"]) != TRAIN_EXPECTED_WARMUP_BARS:
+                    raise ValueError("TRAIN_WARMUP_BAR_COUNT_MISMATCH")
+                if int(warmup_audit["expected_warmup_bars"]) != TRAIN_EXPECTED_WARMUP_BARS:
+                    raise ValueError("TRAIN_EXPECTED_WARMUP_BAR_COUNT_MISMATCH")
+            except (TypeError, ValueError) as exc:
+                fatal = True
+                run_issues.append(
+                    {"code": "INVALID_TRAIN_WARMUP_AUDIT", "severity": "ERROR", "message": str(exc)}
+                )
     if len(ends) != 1:
         incomplete = True
         run_issues.append(
@@ -738,6 +953,48 @@ def _parse_batch_events(
                 raise ValueError("RUN_END_EVENT_COUNT_MISMATCH")
             if int(end["error_count"]) != len(error_events):
                 raise ValueError("RUN_END_ERROR_COUNT_MISMATCH")
+            if config["partition"] == "TRAIN":
+                _required(
+                    end,
+                    {
+                        "expected_sessions",
+                        "expected_factor_events",
+                        "label_count",
+                        "expected_labels",
+                        "warmup_audit_status",
+                        "f001_platform_system_mismatches",
+                        "f002_platform_system_mismatches",
+                        "f003_platform_system_mismatches",
+                        "f001_system_sensitivity_mismatches",
+                        "f002_system_sensitivity_mismatches",
+                        "f003_system_sensitivity_mismatches",
+                    },
+                )
+                if int(end["completed_days"]) != TRAIN_EXPECTED_SESSIONS:
+                    raise ValueError("TRAIN_SESSION_COUNT_MISMATCH")
+                if int(end["expected_sessions"]) != TRAIN_EXPECTED_SESSIONS:
+                    raise ValueError("TRAIN_EXPECTED_SESSION_COUNT_MISMATCH")
+                if len(normalized_events) != TRAIN_EXPECTED_EVENTS:
+                    raise ValueError("TRAIN_EVENT_COUNT_MISMATCH")
+                if int(end["expected_factor_events"]) != TRAIN_EXPECTED_EVENTS:
+                    raise ValueError("TRAIN_EXPECTED_EVENT_COUNT_MISMATCH")
+                if int(end["label_count"]) != TRAIN_EXPECTED_LABELS:
+                    raise ValueError("TRAIN_LABEL_COUNT_MISMATCH")
+                if int(end["expected_labels"]) != TRAIN_EXPECTED_LABELS:
+                    raise ValueError("TRAIN_EXPECTED_LABEL_COUNT_MISMATCH")
+                if end["warmup_audit_status"] != "COMPLETE":
+                    raise ValueError("TRAIN_RUN_END_WARMUP_INCOMPLETE")
+                for prefix in ("f001", "f002", "f003"):
+                    if int(end[prefix + "_platform_system_mismatches"]) != observed_platform_system[prefix]:
+                        raise ValueError("TRAIN_PLATFORM_SYSTEM_MISMATCH_COUNT:" + prefix)
+                    if int(end[prefix + "_system_sensitivity_mismatches"]) != observed_system_sensitivity[prefix]:
+                        raise ValueError("TRAIN_SYSTEM_SENSITIVITY_MISMATCH_COUNT:" + prefix)
+                if warmup_audit is not None:
+                    warmup_audit = dict(warmup_audit)
+                    warmup_audit["platform_system_mismatches"] = dict(observed_platform_system)
+                    warmup_audit["system_sensitivity_mismatches"] = dict(
+                        observed_system_sensitivity
+                    )
         except (TypeError, ValueError) as exc:
             fatal = True
             run_issues.append(
@@ -806,10 +1063,63 @@ def _parse_batch_events(
                 "message": "DAY_END 日期集合与批次事件日期集合不一致。",
             }
         )
+    if config["partition"] == "TRAIN":
+        expected_sessions = expected_train_sessions()
+        if len(expected_sessions) != TRAIN_EXPECTED_SESSIONS:
+            raise RuntimeError("internal TRAIN calendar does not contain 187 sessions")
+        if set(events_by_day) != expected_sessions or seen_day_ends != expected_sessions:
+            fatal = True
+            run_issues.append(
+                {
+                    "code": "TRAIN_SESSION_CALENDAR_MISMATCH",
+                    "severity": "ERROR",
+                    "message": "TRAIN 日期集合与冻结的 187 个 XNYS 交易日不一致。",
+                }
+            )
+        events_per_day: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for event in normalized_events:
+            events_per_day[event["session_date_et"]].append(event)
+        for day_text in sorted(events_per_day):
+            expected_count = 29 if day_text in TRAIN_EARLY_CLOSE_DAYS else 65
+            signal_end = 11 * 60 + 55 if day_text in TRAIN_EARLY_CLOSE_DAYS else 14 * 60 + 55
+            expected_minutes = set(range(9 * 60 + 35, signal_end + 1, 5))
+            actual_minutes = {
+                datetime.fromisoformat(item["signal_time_et"]).hour * 60
+                + datetime.fromisoformat(item["signal_time_et"]).minute
+                for item in events_per_day[day_text]
+            }
+            if len(events_per_day[day_text]) != expected_count or actual_minutes != expected_minutes:
+                fatal = True
+                run_issues.append(
+                    {
+                        "code": "TRAIN_INTRADAY_GRID_MISMATCH",
+                        "severity": "ERROR",
+                        "message": day_text + " 的信号网格或事件数不符合冻结口径。",
+                    }
+                )
+                break
     if not normalized_events:
         incomplete = True
         run_issues.append(
             {"code": "NO_FACTOR_EVENTS", "severity": "WARNING", "message": "没有可导入的批次事件。"}
+        )
+    if config["partition"] == "TRAIN" and any(observed_platform_system.values()):
+        run_issues.append(
+            {
+                "code": "EMA20_PLATFORM_WARMUP_STATE_DIFFERENCE",
+                "severity": "WARNING",
+                "message": "富途平台EMA与从系统起点递推的EMA导致F001–F003状态差异，需独立核对。",
+                "next_action": "保持Data Gate未通过；核对差异事件，必要时执行成对系统起点诊断。",
+            }
+        )
+    if config["partition"] == "TRAIN" and any(observed_system_sensitivity.values()):
+        run_issues.append(
+            {
+                "code": "EMA20_START_SENSITIVITY_STATE_DIFFERENCE",
+                "severity": "WARNING",
+                "message": "长预热与短预热递推EMA导致F001–F003状态差异，结果对起点敏感。",
+                "next_action": "不得升级Edge；保留差异记录并进行独立预热核对。",
+            }
         )
 
     run_status = "INVALID" if fatal else "INCOMPLETE" if incomplete else "VALIDATED"
@@ -833,7 +1143,8 @@ def _parse_batch_events(
     }
     research_verdict = verdicts.get(partition, "NOT_ASSESSED") if run_status == "VALIDATED" else "NOT_ASSESSED"
     runs: list[dict[str, Any]] = []
-    for factor_id, prefix, factor_parameter_version in BATCH_FACTORS:
+    for factor_id, prefix, _ in BATCH_FACTORS:
+        factor_parameter_version = config["factor_parameter_versions"][factor_id]
         signals: list[dict[str, Any]] = []
         labels: list[dict[str, Any]] = []
         invalid_count = 0
@@ -877,6 +1188,7 @@ def _parse_batch_events(
                 "signals": signals,
                 "labels": labels,
                 "issues": factor_issues,
+                "warmup_audit": warmup_audit,
             }
         )
     return ParseResult(

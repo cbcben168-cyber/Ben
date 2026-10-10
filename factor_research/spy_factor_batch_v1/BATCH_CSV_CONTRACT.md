@@ -16,9 +16,11 @@ FUTU_FACTOR_BATCH_V1|{JSON object}
 
 - `contract_version=2.0`
 - `batch_id`、`run_id`
-- `strategy_version=FUTU_BATCH_FACTORS_V1`
+- S0：`strategy_version=FUTU_BATCH_FACTORS_V1`
+- TRAIN：`strategy_version=FUTU_BATCH_FACTORS_TRAIN_V1`
 - `strategy_hash`：规范化策略源码 SHA256
-- `parameter_version=C1-SIX-FACTOR-S0-V1`
+- S0：`parameter_version=C1-SIX-FACTOR-S0-V1`
+- TRAIN：`parameter_version=C1-SIX-FACTOR-TRAIN-20251001-20260630-V1`
 - `symbol=US.SPY`、`timeframe=5m`、`session=RTH`、`select=2`
 - `timezone=America/New_York`
 
@@ -58,6 +60,12 @@ F004 的历史高点严格使用 `select=3..7`，即连续的 RTH 历史 K 线�
 ### `RUN_END`
 
 必须且只能有一条且状态为 `COMPLETE`，否则批次不能进入有效比较。
+
+### TRAIN专用预热审计
+
+TRAIN必须包含一条 `WARMUP_AUDIT`，声明实际首个观察、正式统计前K线数、平台EMA20、从系统起点递推的EMA20及短预热敏感性EMA20。每个TRAIN事件同时保存三组F001–F003状态；`RUN_END`的差异计数必须能由事件逐条复算。
+
+TRAIN还必须严格匹配187个冻结交易日、12,083个共享事件和36,249条共享未来收益标签。`2025-11-28`及`2025-12-24`各29个事件，其余185日各65个事件。日期、日内网格或任一计数不一致时整批拒绝。
 
 ### `ERROR`
 

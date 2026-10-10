@@ -209,25 +209,34 @@
   async function openDetail(factorId){
     const response=await fetch(`/api/factors/${encodeURIComponent(factorId)}?horizon_minutes=${selectedHorizon}`);
     if(!response.ok) return;
-    const data=await response.json(), row=latest.comparison.rows.find(x=>x.factor_id===factorId);
+    const data=await response.json(), comparisonRow=latest.comparison.rows.find(x=>x.factor_id===factorId);
+    const selectedRun=data.runs.find(x=>x.run_instance_id===comparisonRow?.run_instance_id);
+    const row=selectedRun?.selected_window||comparisonRow;
     document.getElementById('detailTitle').textContent=`${factorId} · ${data.factor.display_name_zh}`;
     document.getElementById('detailSub').textContent=`预测时间 ${selectedHorizon} 分钟 · ${data.factor.symbol} ${data.factor.bar_size}`;
     if(!row||isNil(row.pass_mean_return)){
       document.getElementById('detailBody').innerHTML='<div class="empty">尚未测试：没有可展示的真实收益数据。</div>';
     }else{
       const months=row.monthly.length?row.monthly.map(x=>`<div class="month"><b>${esc(x.month)}</b><br>成立 ${pct(x.pass_mean_return)}<br>不成立 ${pct(x.fail_mean_return)}<br>差异 ${bp(x.pass_fail_diff_bps)}</div>`).join(''):'<span class="muted">尚无逐月数据</span>';
+      const analysis=row.train_analysis;
+      const bootstrap=analysis?.cluster_bootstrap;
+      const phases=analysis?.non_overlap_phases?.length?analysis.non_overlap_phases.map(x=>`相位 ${x.phase+1}: ${bp(x.pass_fail_diff_bps)}`).join('；'):'尚无 TRAIN 非重叠窗口结果';
+      const robustness=analysis?`<div class="explain"><b>TRAIN 稳健性</b><br>交易日聚类 bootstrap ${bootstrap.replicates_valid}/${bootstrap.replicates_requested} 次，95%区间 ${bp(bootstrap.ci_low_bps)} 至 ${bp(bootstrap.ci_high_bps)}。<br>全部非重叠相位：${phases}<br>这些结果只属于 TRAIN，不能替代 Validation 或 OOS。</div>`:'<div class="muted">尚无 TRAIN 稳健性分析</div>';
+      const warmup=row.warmup_audit?.payload;
+      const warmupText=warmup?`状态 ${esc(row.warmup_audit.status)}；实际首个观察 ${esc(warmup.first_observation_et)}；正式统计前 ${esc(warmup.warmup_bars_before_train)} 根5分钟K线；平台与系统起点EMA差 ${esc(warmup.platform_minus_system_start||'0')}`:'尚无预热审计';
       const limits=data.limitations.map(x=>`<li>${esc(x)}</li>`).join('');
       document.getElementById('detailBody').innerHTML=`<div class="detail-grid"><div>
         <div class="explain"><b>这个因子在研究什么</b><br>${esc(data.factor.formula)}：比较条件成立与不成立时，未来 ${selectedHorizon} 分钟收益是否存在稳定差异。</div>
         <h3>横向收益比较</h3>${metricBars(row)}<div><b>两组差异：</b>${bp(row.pass_fail_diff_bps)}；<b>成立组相对基准：</b>${bp(row.pass_edge_vs_baseline_bps)}</div>
-        <h3>逐月表现</h3><div class="month-grid">${months}</div></div><div>
+        <h3>逐月表现</h3><div class="month-grid">${months}</div><h3>稳健性分析</h3>${robustness}</div><div>
         <div class="explain"><b>实际测了多少</b><br>${row.coverage_trading_days} 个交易日，成立 ${row.pass_n} 个样本，不成立 ${row.fail_n} 个样本。<br>
         成立组上涨概率 ${rate(row.positive_rate)}；按日优于不成立组 ${row.stable_better_days}/${row.stable_eligible_days} 天。</div>
         <h3>验证阶段</h3><div class="stage-flow">${validationFlow(data.runs)}</div>
         <h3>市场环境</h3><div>${esc(data.market_environment_note)}</div>
         <h3>统计限制</h3><ul>${limits}</ul>
+        <h3>EMA20预热核对</h3><div>${warmupText}</div>
         <h3>下一步</h3><div>${esc(data.factor.next_action)}</div></div></div>
-        <details><summary>该因子的高级资料</summary><pre>${esc(JSON.stringify({factor_id:data.factor.factor_id,strategy_hash:data.factor.strategy_hash,parameter_version:data.factor.parameter_version,comparison_scope:row.comparison_scope},null,2))}</pre></details>`;
+        <details><summary>该因子的高级资料</summary><pre>${esc(JSON.stringify({factor_id:data.factor.factor_id,strategy_hash:data.factor.strategy_hash,parameter_version:data.factor.parameter_version,comparison_scope:row.comparison_scope,warmup_audit:row.warmup_audit,train_analysis:row.train_analysis},null,2))}</pre></details>`;
     }
     document.getElementById('factorDetail').classList.add('open');
     document.getElementById('factorDetail').scrollIntoView({behavior:'smooth'});

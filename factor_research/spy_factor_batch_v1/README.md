@@ -4,6 +4,12 @@
 
 `SPY_SIX_FACTOR_BATCH_V1.py`
 
+长期TRAIN使用独立文件：
+
+`SPY_SIX_FACTOR_BATCH_TRAIN_V1.py`
+
+完整中文参数和验收步骤见 `C1_TRAIN_RUNBOOK.md`。TRAIN系统起点为2025/07/01，正式统计仍严格从2025/10/01开始；富途界面使用已实测的1分钟行情驱动，代码读取已完成5分钟K线 `select=2`。
+
 该文件一次读取每根已完成的 SPY 5 分钟 K 线，同时计算冻结的 F001–F006，并在未来第 3、6、12 根 K 线完成后输出一条紧凑事件。它不访问账户、持仓或订单接口，不读取 Volume，也不把 close-to-close 未来收益解释为成交利润。
 
 ## S0 功能回归参数

@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Futu 因子研究看板</title>
+  <style>
+    :root { --ink:#172033; --muted:#687386; --line:#e2e7ef; --soft:#f6f8fb; --blue:#245fcc; --green:#087b56; --red:#b93832; --amber:#9a5a08; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:#fff; color:var(--ink); font:14px/1.55 "Segoe UI","Microsoft YaHei",sans-serif; }
+    header { border-bottom:1px solid var(--line); padding:20px 28px 15px; position:sticky; top:0; z-index:3; background:rgba(255,255,255,.96); }
+    h1 { margin:0; font-size:24px; } h2 { margin:0; font-size:18px; } h3 { margin:18px 0 8px; font-size:15px; }
+    .sub,.muted { color:var(--muted); }
+    .statusline { display:flex; flex-wrap:wrap; gap:16px; margin-top:9px; font-size:13px; }
+    .dot { display:inline-block; width:8px; height:8px; margin-right:6px; border-radius:50%; background:var(--amber); }
+    .dot.live { background:var(--green); }
+    main { max-width:1480px; margin:auto; padding:20px 28px 48px; }
+    .cards { display:grid; grid-template-columns:repeat(7,minmax(120px,1fr)); gap:10px; }
+    .card,.panel,.action-box { border:1px solid var(--line); border-radius:10px; background:#fff; }
+    .card { padding:13px 14px; } .card .value { font-size:25px; font-weight:750; margin-top:4px; }
+    .action-grid { display:grid; grid-template-columns:1fr 1.4fr; gap:12px; margin-top:12px; }
+    .action-box { padding:14px 16px; background:var(--soft); }
+    .action-box b { display:block; margin-bottom:4px; }
+    .panel { margin-top:16px; overflow:hidden; }
+    .panel-head { padding:14px 16px; display:flex; gap:14px; justify-content:space-between; align-items:center; border-bottom:1px solid var(--line); }
+    .panel-body { padding:15px 16px; }
+    .toolbar { display:flex; flex-wrap:wrap; gap:7px; }
+    button,input { border:1px solid #cbd3df; background:#fff; border-radius:7px; padding:7px 10px; color:var(--ink); }
+    button { cursor:pointer; } button.active,button.primary { color:#fff; background:var(--blue); border-color:var(--blue); }
+    .notice { padding:11px 13px; margin:12px 16px 0; border-radius:8px; background:#fff7e7; border:1px solid #ecd39e; color:#704309; }
+    .notice.ready { background:#eaf7f1; border-color:#b8dfcf; color:#075f42; }
+    .table-wrap { overflow:auto; }
+    table { width:100%; border-collapse:collapse; min-width:1180px; }
+    th,td { padding:9px 10px; border-bottom:1px solid #edf0f4; text-align:left; vertical-align:top; white-space:nowrap; }
+    th { background:#fafbfc; color:#566174; font-size:12px; position:sticky; top:0; }
+    tr.clickable:hover { background:#f5f8ff; cursor:pointer; }
+    .pill { display:inline-block; border-radius:999px; padding:2px 8px; background:#edf1f6; font-size:12px; font-weight:650; }
+    .pill.good { color:#08734d; background:#e5f5ee; } .pill.bad { color:#a92e2a; background:#fdeceb; }
+    .pill.wait { color:#925408; background:#fff1d9; }
+    .empty { padding:24px; text-align:center; color:var(--muted); }
+    .detail { display:none; } .detail.open { display:block; }
+    .detail-grid { display:grid; grid-template-columns:1.2fr 1fr; gap:14px; }
+    .explain { background:var(--soft); border-radius:8px; padding:13px; }
+    .metric-line { display:grid; grid-template-columns:120px 1fr 92px; gap:10px; align-items:center; margin:9px 0; }
+    .bar-track { height:12px; background:#edf1f5; border-radius:99px; overflow:hidden; }
+    .bar-fill { display:block; height:100%; border-radius:99px; background:var(--blue); }
+    .bar-fill.green { background:var(--green); } .bar-fill.gray { background:#8894a6; }
+    .stage-flow { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+    .stage { padding:7px 10px; border-radius:7px; background:#edf1f6; color:#5d6879; }
+    .stage.done { background:#e5f5ee; color:#08734d; font-weight:650; }
+    .month-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(165px,1fr)); gap:8px; }
+    .month { border:1px solid var(--line); border-radius:8px; padding:10px; }
+    details { border-top:1px solid var(--line); margin-top:16px; padding:12px 16px; }
+    summary { cursor:pointer; font-weight:700; }
+    .advanced-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:12px; }
+    .issue { border-bottom:1px solid #edf0f4; padding:8px 0; }
+    a { color:var(--blue); text-decoration:none; }
+    @media(max-width:1000px){ .cards{grid-template-columns:repeat(4,1fr)} .detail-grid,.advanced-grid{grid-template-columns:1fr} }
+    @media(max-width:700px){ header,main{padding-left:14px;padding-right:14px}.cards{grid-template-columns:repeat(2,1fr)}.action-grid{grid-template-columns:1fr} }
+  </style>
+</head>
+<body>
+<header>
+  <h1>Futu 因子研究看板</h1>
+  <div class="sub">用真实验收记录回答：项目做到哪一步、哪些因子值得继续研究</div>
+  <div class="statusline">
+    <span><i id="watchDot" class="dot"></i><b id="watchStatus">连接中</b></span>
+    <span>最后刷新：<b id="refreshTime">—</b></span>
+    <span>最后数据：<b id="dataTime">—</b></span>
+  </div>
+</header>
+<main>
+  <section>
+    <div id="cards" class="cards"></div>
+    <div class="action-grid">
+      <div class="action-box"><b>当前阶段</b><span id="currentStage">正在读取验收记录…</span></div>
+      <div class="action-box"><b>现在应该做什么</b><span id="nextAction">正在读取待办…</span></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <div><h2>因子表现比较</h2><span class="muted">收益用百分比；组间差异用 bp。高历史均值不等于找到 Edge。</span></div>
+      <div class="toolbar" aria-label="预测时间">
+        <button data-horizon="15" class="active">15 分钟</button>
+        <button data-horizon="30">30 分钟</button>
+        <button data-horizon="60">60 分钟</button>
+      </div>
+    </div>
+    <div id="rankingNotice" class="notice">正在检查比较资格…</div>
+    <div class="table-wrap"><table><thead><tr>
+      <th>排名</th><th>因子</th><th>成立时平均收益</th><th>不成立时平均收益</th><th>两组差异</th><th>无条件基准</th>
+      <th>样本</th><th>覆盖交易日</th><th>上涨概率</th><th>按日稳定性</th><th>验证进度</th><th>目前结论</th>
+    </tr></thead><tbody id="comparisonRows"></tbody></table></div>
+  </section>
+
+  <section id="factorDetail" class="panel detail">
+    <div class="panel-head"><div><h2 id="detailTitle">因子详情</h2><span id="detailSub" class="muted"></span></div><button id="closeDetail">关闭</button></div>
+    <div id="detailBody" class="panel-body"></div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><div><h2>尚未完成的因子</h2><span class="muted">没有真实结果时只显示“未测试”，不会用 0 代替。</span></div></div>
+    <div id="untestedFactors" class="panel-body"></div>
+  </section>
+
+  <details>
+    <summary>高级资料：运行记录、哈希、导入审计与原始错误</summary>
+    <div class="advanced-grid">
+      <div>
+        <h3>手动导入 CSV</h3>
+        <input id="fileInput" type="file" accept=".csv"> <button id="uploadButton" class="primary">导入</button>
+        <div id="uploadResult" class="muted" style="margin-top:8px"></div>
+        <h3>异常与待办</h3><div id="issues"></div>
+      </div>
+      <div><h3>导入审计</h3><div id="imports"></div></div>
+    </div>
+    <div class="table-wrap"><table><thead><tr>
+      <th>Run ID</th><th>Factor</th><th>状态</th><th>研究结论</th><th>Strategy Hash</th><th>Parameter Version</th><th>CSV SHA256</th><th>原始日志</th>
+    </tr></thead><tbody id="runRows"></tbody></table></div>
+  </details>
+</main>
+<script>
+  let latest=null, selectedHorizon=15;
+  const esc=value=>String(value??'—').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const isNil=value=>value===null||value===undefined;
+  const pct=value=>isNil(value)?'未测试':`${(Number(value)*100).toFixed(4)}%`;
+  const rate=value=>isNil(value)?'未测试':`${(Number(value)*100).toFixed(1)}%`;
+  const bp=value=>isNil(value)?'未测试':`${Number(value)>=0?'+':''}${Number(value).toFixed(2)} bp`;
+  const displayTime=value=>value?new Date(value).toLocaleString('zh-CN',{hour12:false}):'—';
+  const shortHash=value=>value?`${String(value).slice(0,10)}…`:'—';
+  const tone=value=>['PASS','VALIDATED','COMPLETE','RESOLVED'].includes(value)?'good':['FAIL','INVALID','ERROR','REJECTED'].includes(value)?'bad':'wait';
+  const pill=(label,raw)=>`<span class="pill ${tone(raw)}" title="${esc(raw)}">${esc(label)}</span>`;
+
+  function projectStage(summary){
+    if(summary.oos_done) return '已有因子完成 OOS；仍需按因子查看独立验证结论。';
+    if(summary.validation_done) return '已有因子完成 Validation，尚未完成 OOS。';
+    if(summary.long_train_done) return '已有因子完成长期 TRAIN，下一阶段是独立 Validation。';
+    if(summary.functional_backtest_done) return '功能回测已接通，但长期 TRAIN、Validation 和 OOS 尚未完成。';
+    return '因子仍处于定义或开发阶段，尚无有效回测证据。';
+  }
+
+  async function loadDashboard(){
+    try{
+      const response=await fetch(`/api/dashboard?horizon_minutes=${selectedHorizon}`,{cache:'no-store'});
+      if(!response.ok) throw new Error(`HTTP ${response.status}`);
+      latest=await response.json(); render(latest);
+    }catch(error){
+      document.getElementById('watchStatus').textContent=`连接失败：${error.message}`;
+      document.getElementById('watchDot').classList.remove('live');
+    }
+  }
+
+  function render(data){
+    const s=data.summary, service=data.service;
+    document.getElementById('watchStatus').textContent=service.last_error?`监控异常：${service.last_error}`:service.status;
+    document.getElementById('watchDot').classList.toggle('live',service.watching&&!service.last_error);
+    document.getElementById('refreshTime').textContent=new Date().toLocaleString('zh-CN',{hour12:false});
+    document.getElementById('dataTime').textContent=displayTime(s.latest_data_utc);
+    const cards=[
+      [`${s.registered_factors}/${s.planned_factors}`,'已登记 / 计划因子'],[s.code_written,'已开发'],[s.functional_backtest_done,'功能回测'],
+      [s.long_train_done,'长期 TRAIN'],[s.validation_done,'Validation'],[s.oos_done,'OOS'],[s.evidence_supported,'有证据的有效因子']
+    ];
+    document.getElementById('cards').innerHTML=cards.map(([value,label])=>`<div class="card"><div class="muted">${esc(label)}</div><div class="value">${esc(value)}</div></div>`).join('');
+    document.getElementById('currentStage').textContent=projectStage(s);
+    document.getElementById('nextAction').textContent=s.next_action;
+    renderComparison(data.comparison,data.factors); renderUntested(data.factors); renderAdvanced(data);
+  }
+
+  function renderComparison(comparison,factors){
+    const notice=document.getElementById('rankingNotice');
+    if(comparison.ranking_ready){
+      notice.className='notice ready'; notice.textContent=`比较资格通过：按 ${comparison.horizon_minutes} 分钟 PASS−FAIL 差异正式排序。`;
+    }else{
+      notice.className='notice'; notice.textContent=`排行未开放：${comparison.reason_messages_zh.join('；')}。现有数据仅展示，不形成名次。`;
+    }
+    const factorById=Object.fromEntries(factors.map(x=>[x.factor_id,x]));
+    const rows=comparison.rows;
+    document.getElementById('comparisonRows').innerHTML=rows.length?rows.map(row=>{
+      const factor=factorById[row.factor_id]||{};
+      const progress=['FUNCTIONAL_VALIDATION','TRAIN','VALIDATION','OOS'].map(part=>row.completed_partitions.includes(part)?`<b>${part} ✓</b>`:`${part} —`).join('<br>');
+      const stability=row.stable_eligible_days?`${row.stable_better_days}/${row.stable_eligible_days} 天（${rate(row.daily_stability)}）`:'未测试';
+      return `<tr class="clickable" data-factor="${esc(row.factor_id)}"><td>${row.rank??'—'}</td>
+        <td><b>${esc(row.factor_id)}</b><br>${esc(row.display_name_zh)}<br><span class="muted">${esc(row.formula)}</span></td>
+        <td>${pct(row.pass_mean_return)}</td><td>${pct(row.fail_mean_return)}</td><td>${bp(row.pass_fail_diff_bps)}</td><td>${pct(row.baseline_mean_return)}</td>
+        <td>成立 ${esc(row.pass_n)} / 不成立 ${esc(row.fail_n)}</td><td>${row.coverage_trading_days||'未测试'}</td><td>${rate(row.positive_rate)}</td><td>${stability}</td>
+        <td>${progress}</td><td>${pill(row.conclusion_zh,factor.edge_status)}</td></tr>`;
+    }).join(''):'<tr><td colspan="12" class="empty">尚未登记任何因子</td></tr>';
+    document.querySelectorAll('[data-factor]').forEach(row=>row.addEventListener('click',()=>openDetail(row.dataset.factor)));
+  }
+
+  function renderUntested(factors){
+    const rows=factors.filter(x=>!x.valid_run_count);
+    document.getElementById('untestedFactors').innerHTML=rows.length?rows.map(x=>`<div class="issue"><b>${esc(x.factor_id)} · ${esc(x.display_name_zh)}</b> ${pill('未测试','NOT_TESTED')}<br><span class="muted">下一步：${esc(x.next_action)}</span></div>`).join(''):'<span class="muted">当前已登记因子都有至少一次有效功能回测；这不代表已通过 TRAIN、Validation 或 OOS。</span>';
+  }
+
+  function validationFlow(runs){
+    const done=new Set(runs.filter(x=>x.run_status==='VALIDATED').map(x=>x.study_partition));
+    return ['FUNCTIONAL_VALIDATION','TRAIN','VALIDATION','OOS'].map(x=>`<span class="stage ${done.has(x)?'done':''}">${esc(x)} ${done.has(x)?'✓':'—'}</span>`).join('');
+  }
+
+  function metricBars(row){
+    const values=[row.pass_mean_return,row.fail_mean_return,row.baseline_mean_return].filter(x=>!isNil(x)).map(x=>Math.abs(Number(x)));
+    const max=Math.max(...values,0.000001);
+    const line=(label,value,cls='')=>`<div class="metric-line"><span>${label}</span><span class="bar-track"><i class="bar-fill ${cls}" style="width:${isNil(value)?0:Math.max(2,Math.abs(Number(value))/max*100)}%"></i></span><b>${pct(value)}</b></div>`;
+    return line('因子成立',row.pass_mean_return,'green')+line('因子不成立',row.fail_mean_return)+line('市场基准',row.baseline_mean_return,'gray');
+  }
+
+  async function openDetail(factorId){
+    const response=await fetch(`/api/factors/${encodeURIComponent(factorId)}?horizon_minutes=${selectedHorizon}`);
+    if(!response.ok) return;
+    const data=await response.json(), comparisonRow=latest.comparison.rows.find(x=>x.factor_id===factorId);
+    const selectedRun=data.runs.find(x=>x.run_instance_id===comparisonRow?.run_instance_id);
+    const row=selectedRun?.selected_window||comparisonRow;
+    document.getElementById('detailTitle').textContent=`${factorId} · ${data.factor.display_name_zh}`;
+    document.getElementById('detailSub').textContent=`预测时间 ${selectedHorizon} 分钟 · ${data.factor.symbol} ${data.factor.bar_size}`;
+    if(!row||isNil(row.pass_mean_return)){
+      document.getElementById('detailBody').innerHTML='<div class="empty">尚未测试：没有可展示的真实收益数据。</div>';
+    }else{
+      const months=row.monthly.length?row.monthly.map(x=>`<div class="month"><b>${esc(x.month)}</b><br>成立 ${pct(x.pass_mean_return)}<br>不成立 ${pct(x.fail_mean_return)}<br>差异 ${bp(x.pass_fail_diff_bps)}</div>`).join(''):'<span class="muted">尚无逐月数据</span>';
+      const analysis=row.train_analysis;
+      const bootstrap=analysis?.cluster_bootstrap;
+      const phases=analysis?.non_overlap_phases?.length?analysis.non_overlap_phases.map(x=>`相位 ${x.phase+1}: ${bp(x.pass_fail_diff_bps)}`).join('；'):'尚无 TRAIN 非重叠窗口结果';
+      const robustness=analysis?`<div class="explain"><b>TRAIN 稳健性</b><br>交易日聚类 bootstrap ${bootstrap.replicates_valid}/${bootstrap.replicates_requested} 次，95%区间 ${bp(bootstrap.ci_low_bps)} 至 ${bp(bootstrap.ci_high_bps)}。<br>全部非重叠相位：${phases}<br>这些结果只属于 TRAIN，不能替代 Validation 或 OOS。</div>`:'<div class="muted">尚无 TRAIN 稳健性分析</div>';
+      const warmup=row.warmup_audit?.payload;
+      const warmupText=warmup?`状态 ${esc(row.warmup_audit.status)}；实际首个观察 ${esc(warmup.first_observation_et)}；正式统计前 ${esc(warmup.warmup_bars_before_train)} 根5分钟K线；平台与系统起点EMA差 ${esc(warmup.platform_minus_system_start||'0')}`:'尚无预热审计';
+      const limits=data.limitations.map(x=>`<li>${esc(x)}</li>`).join('');
+      document.getElementById('detailBody').innerHTML=`<div class="detail-grid"><div>
+        <div class="explain"><b>这个因子在研究什么</b><br>${esc(data.factor.formula)}：比较条件成立与不成立时，未来 ${selectedHorizon} 分钟收益是否存在稳定差异。</div>
+        <h3>横向收益比较</h3>${metricBars(row)}<div><b>两组差异：</b>${bp(row.pass_fail_diff_bps)}；<b>成立组相对基准：</b>${bp(row.pass_edge_vs_baseline_bps)}</div>
+        <h3>逐月表现</h3><div class="month-grid">${months}</div><h3>稳健性分析</h3>${robustness}</div><div>
+        <div class="explain"><b>实际测了多少</b><br>${row.coverage_trading_days} 个交易日，成立 ${row.pass_n} 个样本，不成立 ${row.fail_n} 个样本。<br>
+        成立组上涨概率 ${rate(row.positive_rate)}；按日优于不成立组 ${row.stable_better_days}/${row.stable_eligible_days} 天。</div>
+        <h3>验证阶段</h3><div class="stage-flow">${validationFlow(data.runs)}</div>
+        <h3>市场环境</h3><div>${esc(data.market_environment_note)}</div>
+        <h3>统计限制</h3><ul>${limits}</ul>
+        <h3>EMA20预热核对</h3><div>${warmupText}</div>
+        <h3>下一步</h3><div>${esc(data.factor.next_action)}</div></div></div>
+        <details><summary>该因子的高级资料</summary><pre>${esc(JSON.stringify({factor_id:data.factor.factor_id,strategy_hash:data.factor.strategy_hash,parameter_version:data.factor.parameter_version,comparison_scope:row.comparison_scope,warmup_audit:row.warmup_audit,train_analysis:row.train_analysis},null,2))}</pre></details>`;
+    }
+    document.getElementById('factorDetail').classList.add('open');
+    document.getElementById('factorDetail').scrollIntoView({behavior:'smooth'});
+  }
+
+  function renderAdvanced(data){
+    document.getElementById('issues').innerHTML=data.issues.length?data.issues.map(x=>`<div class="issue">${pill(x.severity_zh,x.severity)} ${pill(x.status_zh,x.status)} <b>${esc(x.issue_code)}</b><br>${esc(x.message)}<br><span class="muted">处理方法：${esc(x.next_action)}</span></div>`).join(''):'<span class="muted">没有异常或待办</span>';
+    document.getElementById('imports').innerHTML=data.imports.length?data.imports.slice(0,20).map(x=>`<div class="issue"><b>${esc((x.canonical_path||'').split(/[\\/]/).pop())}</b> · ${esc(x.import_status)}<br><span class="muted">${shortHash(x.file_sha256)} · ${displayTime(x.last_seen_utc)}${x.system_log_start_local&&x.system_log_end_local?` · 系统日志生命周期：${esc(x.system_log_start_local)} 至 ${esc(x.system_log_end_local)}`:''}${x.error_text?` · 原始错误：${esc(x.error_text)}`:''}</span></div>`).join(''):'<span class="muted">尚无导入记录</span>';
+    document.getElementById('runRows').innerHTML=data.runs.length?data.runs.map(x=>`<tr><td title="${esc(x.run_instance_id)}">${esc(x.declared_run_id)}</td><td>${esc(x.factor_id)}</td><td>${pill(x.run_status_zh,x.run_status)}</td><td>${pill(x.research_verdict_zh,x.research_verdict)}</td><td title="${esc(x.strategy_hash)}">${shortHash(x.strategy_hash)}</td><td>${esc(x.parameter_version)}</td><td title="${esc(x.file_sha256)}">${shortHash(x.file_sha256)}</td><td><a href="/api/source-files/${esc(x.file_sha256)}">下载 CSV</a></td></tr>`).join(''):'<tr><td colspan="8" class="empty">尚无运行记录</td></tr>';
+  }
+
+  async function uploadFile(){
+    const input=document.getElementById('fileInput'), target=document.getElementById('uploadResult');
+    if(!input.files.length){ target.textContent='请先选择 CSV 文件。'; return; }
+    const body=new FormData(); body.append('file',input.files[0]); target.textContent='正在导入…';
+    try{
+      const response=await fetch('/api/import',{method:'POST',body}), data=await response.json();
+      if(response.ok&&data.error_info){ target.textContent=`导入失败：${data.error_info.message_zh} 处理方法：${data.error_info.next_action_zh}`; }
+      else if(response.ok){ target.textContent=`导入结果：${data.status}`; }
+      else{ target.textContent=`导入失败：${data.detail||response.status}`; }
+      await loadDashboard();
+    }catch(error){ target.textContent=`导入失败：${error.message}`; }
+  }
+
+  document.querySelectorAll('[data-horizon]').forEach(button=>button.addEventListener('click',()=>{
+    selectedHorizon=Number(button.dataset.horizon);
+    document.querySelectorAll('[data-horizon]').forEach(x=>x.classList.toggle('active',x===button));
+    document.getElementById('factorDetail').classList.remove('open'); loadDashboard();
+  }));
+  document.getElementById('closeDetail').addEventListener('click',()=>document.getElementById('factorDetail').classList.remove('open'));
+  document.getElementById('uploadButton').addEventListener('click',uploadFile);
+  loadDashboard(); setInterval(loadDashboard,2000);
+</script>
+</body>
+</html>

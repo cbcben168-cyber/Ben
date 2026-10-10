@@ -5,21 +5,7 @@ class Strategy(StrategyBase):
         self.trigger_symbols()
         self.custom_indicator()
         self.global_variables()
-        self.emit_factor("RUN_START", {
-            "record": "START",
-            "study_partition": "FUNCTIONAL_VALIDATION",
-            "study_start_et": "2026-09-28",
-            "study_end_et": "2026-10-06",
-            "signal_start_et": "09:35",
-            "signal_end_et": "14:55",
-            "horizons_bars": "3,6,12",
-            "formula": "close(select=2)>ema20(select=2)",
-            "price_use": "NON_EXECUTABLE_CLOSE_TO_CLOSE",
-            "orders_enabled": False,
-            "volume_enabled": False,
-            "fixture": False,
-            "edge_claim": "PROHIBITED"
-        })
+        print("SPY_FACTOR_V1|record=START|version=1|run_phase=FUNCTIONAL_VALIDATION|date_start_et=2026-09-28|date_end_et=2026-10-06|signal_start_et=09:35|signal_end_et=14:55|bar_type=K_5M|select=2|session=RTH|factor=CLOSE_GT_EMA20|horizons_bars=3,6,12|price_use=NON_EXECUTABLE_CLOSE_TO_CLOSE|orders_enabled=False|volume_enabled=False|edge_claim=PROHIBITED")
 
     def trigger_symbols(self):
         self.trig_symbol_1 = declare_trig_symbol()
@@ -28,11 +14,6 @@ class Strategy(StrategyBase):
         pass
 
     def global_variables(self):
-        self.factor_id = "SPY_F001_CLOSE_GT_EMA20"
-        self.run_id = "SPY_F001_20260928_20261006_FV1"
-        self.strategy_version = "SPY_FACTOR_RESEARCH_V1.1"
-        self.strategy_hash = "20b794ad9bb14dc307d8be3d83a9b8a6a6050656d4e1d386e1a441e1c416d177"
-        self.parameter_version = "F001-P1"
         self.study_start = 20260928
         self.study_end = 20261006
         self.signal_start_minute_et = 9 * 60 + 35
@@ -46,45 +27,6 @@ class Strategy(StrategyBase):
         self.total_returns = self.empty_returns()
         self.day_event_count = 0
         self.day_error_count = 0
-        self.completed_day_count = 0
-        self.incomplete_day_count = 0
-        self.total_error_count = 0
-
-    def json_value(self, value):
-        if value is True:
-            return "true"
-        if value is False:
-            return "false"
-        if value is None:
-            return "null"
-        if isinstance(value, (int, float)):
-            return str(value)
-        text = str(value)
-        text = text.replace("\\", "\\\\").replace("\"", "\\\"")
-        text = text.replace("\r", "\\r").replace("\n", "\\n")
-        return "\"" + text + "\""
-
-    def emit_factor(self, event_type, fields):
-        payload = {
-            "contract_version": "1.0",
-            "event_type": event_type,
-            "factor_id": self.factor_id,
-            "run_id": self.run_id,
-            "strategy_version": self.strategy_version,
-            "strategy_hash": self.strategy_hash,
-            "parameter_version": self.parameter_version,
-            "symbol": "US.SPY",
-            "timeframe": "5m",
-            "bar_type": "K_5M",
-            "select": 2,
-            "session": "RTH",
-            "timezone": "America/New_York"
-        }
-        payload.update(fields)
-        parts = []
-        for key in payload:
-            parts.append(self.json_value(key) + ":" + self.json_value(payload[key]))
-        print("FUTU_FACTOR_V1|{" + ",".join(parts) + "}")
 
     def empty_returns(self):
         return {
@@ -114,15 +56,14 @@ class Strategy(StrategyBase):
 
     def emit_error(self, day_et, trigger_et, code, detail):
         self.day_error_count += 1
-        self.total_error_count += 1
-        self.emit_factor("ERROR", {
-            "record": "ERROR",
-            "session_date_et": day_et,
-            "trigger_et": trigger_et,
-            "code": code,
-            "detail": detail,
-            "edge_claim": "PROHIBITED"
-        })
+        print(
+            "SPY_FACTOR_V1|record=ERROR|version=1|run_phase=FUNCTIONAL_VALIDATION"
+            + "|session_date_et=" + day_et
+            + "|trigger_et=" + trigger_et
+            + "|code=" + code
+            + "|detail=" + detail
+            + "|edge_claim=PROHIBITED"
+        )
 
     def begin_day(self, day_number, day_et, trigger_et):
         if self.current_day_et != "" and len(self.pending) > 0:
@@ -168,33 +109,24 @@ class Strategy(StrategyBase):
             elif item["due_minute_et"] == minute_et:
                 result = close_value / item["signal_close"] - 1.0
                 self.append_return(item["horizon_bars"], item["factor_state"], result)
-                self.emit_factor("LABEL_MATURED", {
-                    "record": "OUTCOME",
-                    "signal_id": item["event_id"],
-                    "event_id": item["event_id"],
-                    "session_date_et": self.current_day_et,
-                    "signal_time_et": item["signal_et"],
-                    "signal_et": item["signal_et"],
-                    "signal_time_utc": item["signal_utc"],
-                    "signal_utc": item["signal_utc"],
-                    "target_time_et": trigger_et,
-                    "outcome_et": trigger_et,
-                    "target_time_utc": trigger_utc,
-                    "outcome_utc": trigger_utc,
-                    "factor_value": item["factor_state"],
-                    "factor_state": item["factor_state"],
-                    "horizon": item["horizon_bars"],
-                    "horizon_bars": item["horizon_bars"],
-                    "horizon_minutes": item["horizon_bars"] * 5,
-                    "signal_close": self.number_text(item["signal_close"]),
-                    "target_close": self.number_text(close_value),
-                    "future_close": self.number_text(close_value),
-                    "forward_return": self.number_text(result),
-                    "return": self.number_text(result),
-                    "price_use": "NON_EXECUTABLE_CLOSE_TO_CLOSE",
-                    "overlap_warning": True,
-                    "edge_claim": "PROHIBITED"
-                })
+                print(
+                    "SPY_FACTOR_V1|record=OUTCOME|version=1|run_phase=FUNCTIONAL_VALIDATION"
+                    + "|event_id=" + item["event_id"]
+                    + "|session_date_et=" + self.current_day_et
+                    + "|signal_et=" + item["signal_et"]
+                    + "|signal_utc=" + item["signal_utc"]
+                    + "|outcome_et=" + trigger_et
+                    + "|outcome_utc=" + trigger_utc
+                    + "|symbol=US.SPY|bar_type=K_5M|select=2|session=RTH"
+                    + "|factor_state=" + item["factor_state"]
+                    + "|horizon_bars=" + str(item["horizon_bars"])
+                    + "|horizon_minutes=" + str(item["horizon_bars"] * 5)
+                    + "|signal_close=" + self.number_text(item["signal_close"])
+                    + "|future_close=" + self.number_text(close_value)
+                    + "|return=" + self.number_text(result)
+                    + "|price_use=NON_EXECUTABLE_CLOSE_TO_CLOSE"
+                    + "|overlap_warning=TRUE|edge_claim=PROHIBITED"
+                )
             else:
                 remaining.append(item)
         self.pending = remaining
@@ -224,25 +156,20 @@ class Strategy(StrategyBase):
         clock_hhmm = (minute_et // 60) * 100 + minute_et % 60
         event_id = self.current_day_et.replace("-", "") + "_" + ("%04d" % clock_hhmm)
         self.day_event_count += 1
-        self.emit_factor("SIGNAL", {
-            "record": "EVENT",
-            "signal_id": event_id,
-            "event_id": event_id,
-            "session_date_et": self.current_day_et,
-            "signal_time_et": trigger_et,
-            "trigger_et": trigger_et,
-            "signal_time_utc": trigger_utc,
-            "trigger_utc": trigger_utc,
-            "signal_close": self.number_text(close_value),
-            "close": self.number_text(close_value),
-            "ema20": self.number_text(ema20_value),
-            "factor_value": factor_state,
-            "factor_state": factor_state,
-            "horizons_bars": "3,6,12",
-            "price_use": "NON_EXECUTABLE_CLOSE_TO_CLOSE",
-            "overlap_warning": True,
-            "edge_claim": "PROHIBITED"
-        })
+        print(
+            "SPY_FACTOR_V1|record=EVENT|version=1|run_phase=FUNCTIONAL_VALIDATION"
+            + "|event_id=" + event_id
+            + "|session_date_et=" + self.current_day_et
+            + "|trigger_et=" + trigger_et
+            + "|trigger_utc=" + trigger_utc
+            + "|symbol=US.SPY|bar_type=K_5M|select=2|session=RTH"
+            + "|close=" + self.number_text(close_value)
+            + "|ema20=" + self.number_text(ema20_value)
+            + "|factor_state=" + factor_state
+            + "|horizons_bars=3,6,12"
+            + "|price_use=NON_EXECUTABLE_CLOSE_TO_CLOSE"
+            + "|overlap_warning=TRUE|edge_claim=PROHIBITED"
+        )
 
         for horizon_bars in (3, 6, 12):
             self.pending.append({
@@ -287,26 +214,24 @@ class Strategy(StrategyBase):
             else:
                 baseline_mean = sum(all_values) / len(all_values)
                 delta_text = self.number_text(mean_value - baseline_mean)
-        self.emit_factor("SUMMARY", {
-            "record": "SUMMARY",
-            "scope": scope,
-            "asof_et": trigger_et,
-            "asof_utc": trigger_utc,
-            "session_date_et": self.current_day_et,
-            "factor": "CLOSE_GT_EMA20",
-            "horizon_bars": horizon_bars,
-            "horizon_minutes": horizon_bars * 5,
-            "group": group,
-            "n": count,
-            "mean_return": mean_text,
-            "median_return": median_text,
-            "win_rate": win_rate_text,
-            "delta_mean_vs_all": delta_text,
-            "price_use": "NON_EXECUTABLE_CLOSE_TO_CLOSE",
-            "overlap_warning": True,
-            "independent_samples": False,
-            "edge_claim": "PROHIBITED"
-        })
+        print(
+            "SPY_FACTOR_V1|record=SUMMARY|version=1|run_phase=FUNCTIONAL_VALIDATION"
+            + "|scope=" + scope
+            + "|asof_et=" + trigger_et
+            + "|asof_utc=" + trigger_utc
+            + "|session_date_et=" + self.current_day_et
+            + "|symbol=US.SPY|factor=CLOSE_GT_EMA20"
+            + "|horizon_bars=" + str(horizon_bars)
+            + "|horizon_minutes=" + str(horizon_bars * 5)
+            + "|group=" + group
+            + "|n=" + str(count)
+            + "|mean_return=" + mean_text
+            + "|median_return=" + median_text
+            + "|win_rate=" + win_rate_text
+            + "|delta_mean_vs_all=" + delta_text
+            + "|price_use=NON_EXECUTABLE_CLOSE_TO_CLOSE"
+            + "|overlap_warning=TRUE|independent_samples=FALSE|edge_claim=PROHIBITED"
+        )
 
     def emit_summaries(self, trigger_et, trigger_utc):
         complete = (
@@ -317,25 +242,20 @@ class Strategy(StrategyBase):
             and len(self.day_returns["6_ALL"]) == 65
             and len(self.day_returns["12_ALL"]) == 65
         )
-        if complete:
-            self.completed_day_count += 1
-        else:
-            self.incomplete_day_count += 1
-        self.emit_factor("DAY_STATUS", {
-            "record": "DAY_STATUS",
-            "session_date_et": self.current_day_et,
-            "asof_et": trigger_et,
-            "asof_utc": trigger_utc,
-            "status": "COMPLETE" if complete else "INCOMPLETE",
-            "event_count": self.day_event_count,
-            "outcomes_h3": len(self.day_returns["3_ALL"]),
-            "outcomes_h6": len(self.day_returns["6_ALL"]),
-            "outcomes_h12": len(self.day_returns["12_ALL"]),
-            "pending_count": len(self.pending),
-            "error_count": self.day_error_count,
-            "expected_events": 65,
-            "edge_claim": "PROHIBITED"
-        })
+        print(
+            "SPY_FACTOR_V1|record=DAY_STATUS|version=1|run_phase=FUNCTIONAL_VALIDATION"
+            + "|session_date_et=" + self.current_day_et
+            + "|asof_et=" + trigger_et
+            + "|asof_utc=" + trigger_utc
+            + "|status=" + ("COMPLETE" if complete else "INCOMPLETE")
+            + "|event_count=" + str(self.day_event_count)
+            + "|outcomes_h3=" + str(len(self.day_returns["3_ALL"]))
+            + "|outcomes_h6=" + str(len(self.day_returns["6_ALL"]))
+            + "|outcomes_h12=" + str(len(self.day_returns["12_ALL"]))
+            + "|pending_count=" + str(len(self.pending))
+            + "|error_count=" + str(self.day_error_count)
+            + "|expected_events=65|edge_claim=PROHIBITED"
+        )
         for horizon_bars in (3, 6, 12):
             for group in ("ALL", "PASS", "FAIL"):
                 self.emit_summary_line(
@@ -344,26 +264,6 @@ class Strategy(StrategyBase):
                 self.emit_summary_line(
                     "CUMULATIVE", self.total_returns, horizon_bars, group, trigger_et, trigger_utc
                 )
-        if self.current_day_number == self.study_end:
-            run_complete = (
-                self.completed_day_count == 7
-                and self.incomplete_day_count == 0
-                and self.total_error_count == 0
-            )
-            self.emit_factor("RUN_END", {
-                "record": "RUN_END",
-                "end_time_et": trigger_et,
-                "end_time_utc": trigger_utc,
-                "status": "COMPLETE" if run_complete else "INCOMPLETE",
-                "completed_days": self.completed_day_count,
-                "incomplete_days": self.incomplete_day_count,
-                "signal_count": sum(1 for _ in self.total_returns["3_ALL"]),
-                "labels_h3": len(self.total_returns["3_ALL"]),
-                "labels_h6": len(self.total_returns["6_ALL"]),
-                "labels_h12": len(self.total_returns["12_ALL"]),
-                "error_count": self.total_error_count,
-                "edge_claim": "PROHIBITED"
-            })
 
     def handle_data(self):
         try:
@@ -375,14 +275,11 @@ class Strategy(StrategyBase):
             trigger_et = self.timestamp_text(clock_et)
             trigger_utc = self.timestamp_text(clock_utc) + "Z"
         except Exception as exc:
-            self.emit_factor("ERROR", {
-                "record": "ERROR",
-                "session_date_et": "UNKNOWN",
-                "trigger_et": "UNKNOWN",
-                "code": "CLOCK_READ_FAILED",
-                "detail": type(exc).__name__,
-                "edge_claim": "PROHIBITED"
-            })
+            print(
+                "SPY_FACTOR_V1|record=ERROR|version=1|run_phase=FUNCTIONAL_VALIDATION"
+                + "|session_date_et=UNKNOWN|trigger_et=UNKNOWN|code=CLOCK_READ_FAILED"
+                + "|detail=" + type(exc).__name__ + "|edge_claim=PROHIBITED"
+            )
             return
 
         if day_number < self.study_start or day_number > self.study_end:

@@ -7,11 +7,13 @@ class Strategy(StrategyBase):
         self.global_variables()
         self.emit_factor("RUN_START", {
             "record": "START",
-            "study_partition": "FUNCTIONAL_VALIDATION",
-            "study_start_et": "2026-09-28",
-            "study_end_et": "2026-10-06",
+            "study_partition": "TRAIN",
+            "study_start_et": "2025-10-01",
+            "study_end_et": "2026-06-30",
             "signal_start_et": "09:35",
             "signal_end_et": "14:55",
+            "early_close_signal_end_et": "11:55",
+            "early_close_dates_et": "2025-11-28,2025-12-24",
             "horizons_bars": "3,6,12",
             "formula": "close(select=2)>ema20(select=2)",
             "price_use": "NON_EXECUTABLE_CLOSE_TO_CLOSE",
@@ -29,15 +31,19 @@ class Strategy(StrategyBase):
 
     def global_variables(self):
         self.factor_id = "SPY_F001_CLOSE_GT_EMA20"
-        self.run_id = "SPY_F001_20260928_20261006_FV1"
-        self.strategy_version = "SPY_FACTOR_RESEARCH_V1.1"
-        self.strategy_hash = "20b794ad9bb14dc307d8be3d83a9b8a6a6050656d4e1d386e1a441e1c416d177"
-        self.parameter_version = "F001-P1"
-        self.study_start = 20260928
-        self.study_end = 20261006
+        self.run_id = "SPY_F001_TRAIN_20251001_20260630_V1"
+        self.strategy_version = "SPY_FACTOR_RESEARCH_TRAIN_V1"
+        self.strategy_hash = "42fec052a94e2320879e7c9f35d17d682911ec60afd0bae95d43349df9018687"
+        self.parameter_version = "F001-TRAIN-20251001-20260630"
+        self.study_start = 20251001
+        self.study_end = 20260630
+        self.expected_session_count = 187
         self.signal_start_minute_et = 9 * 60 + 35
         self.signal_end_minute_et = 14 * 60 + 55
         self.summary_minute_et = 15 * 60 + 55
+        self.early_close_signal_end_minute_et = 11 * 60 + 55
+        self.early_close_summary_minute_et = 12 * 60 + 55
+        self.early_close_days = {20251128: True, 20251224: True}
         self.last_trigger_key = ""
         self.current_day_et = ""
         self.current_day_number = 0
@@ -85,6 +91,20 @@ class Strategy(StrategyBase):
         for key in payload:
             parts.append(self.json_value(key) + ":" + self.json_value(payload[key]))
         print("FUTU_FACTOR_V1|{" + ",".join(parts) + "}")
+
+    def signal_end_for_day(self, day_number):
+        if day_number in self.early_close_days:
+            return self.early_close_signal_end_minute_et
+        return self.signal_end_minute_et
+
+    def summary_minute_for_day(self, day_number):
+        if day_number in self.early_close_days:
+            return self.early_close_summary_minute_et
+        return self.summary_minute_et
+
+    def expected_events_for_day(self, day_number):
+        signal_end = self.signal_end_for_day(day_number)
+        return (signal_end - self.signal_start_minute_et) // 5 + 1
 
     def empty_returns(self):
         return {
@@ -309,13 +329,14 @@ class Strategy(StrategyBase):
         })
 
     def emit_summaries(self, trigger_et, trigger_utc):
+        expected_events = self.expected_events_for_day(self.current_day_number)
         complete = (
-            self.day_event_count == 65
+            self.day_event_count == expected_events
             and len(self.pending) == 0
             and self.day_error_count == 0
-            and len(self.day_returns["3_ALL"]) == 65
-            and len(self.day_returns["6_ALL"]) == 65
-            and len(self.day_returns["12_ALL"]) == 65
+            and len(self.day_returns["3_ALL"]) == expected_events
+            and len(self.day_returns["6_ALL"]) == expected_events
+            and len(self.day_returns["12_ALL"]) == expected_events
         )
         if complete:
             self.completed_day_count += 1
@@ -333,7 +354,7 @@ class Strategy(StrategyBase):
             "outcomes_h12": len(self.day_returns["12_ALL"]),
             "pending_count": len(self.pending),
             "error_count": self.day_error_count,
-            "expected_events": 65,
+            "expected_events": expected_events,
             "edge_claim": "PROHIBITED"
         })
         for horizon_bars in (3, 6, 12):
@@ -346,7 +367,7 @@ class Strategy(StrategyBase):
                 )
         if self.current_day_number == self.study_end:
             run_complete = (
-                self.completed_day_count == 7
+                self.completed_day_count == self.expected_session_count
                 and self.incomplete_day_count == 0
                 and self.total_error_count == 0
             )
@@ -356,6 +377,7 @@ class Strategy(StrategyBase):
                 "end_time_utc": trigger_utc,
                 "status": "COMPLETE" if run_complete else "INCOMPLETE",
                 "completed_days": self.completed_day_count,
+                "expected_sessions": self.expected_session_count,
                 "incomplete_days": self.incomplete_day_count,
                 "signal_count": sum(1 for _ in self.total_returns["3_ALL"]),
                 "labels_h3": len(self.total_returns["3_ALL"]),
@@ -387,7 +409,9 @@ class Strategy(StrategyBase):
 
         if day_number < self.study_start or day_number > self.study_end:
             return
-        if minute_et < self.signal_start_minute_et or minute_et > self.summary_minute_et:
+        signal_end_minute_et = self.signal_end_for_day(day_number)
+        summary_minute_et = self.summary_minute_for_day(day_number)
+        if minute_et < self.signal_start_minute_et or minute_et > summary_minute_et:
             return
         if minute_et % 5 != 0:
             return
@@ -423,8 +447,8 @@ class Strategy(StrategyBase):
 
         self.resolve_pending(day_number, minute_et, close_value, trigger_et, trigger_utc)
 
-        if self.signal_start_minute_et <= minute_et <= self.signal_end_minute_et:
+        if self.signal_start_minute_et <= minute_et <= signal_end_minute_et:
             self.record_signal(day_number, minute_et, close_value, trigger_et, trigger_utc)
 
-        if minute_et == self.summary_minute_et:
+        if minute_et == summary_minute_et:
             self.emit_summaries(trigger_et, trigger_utc)

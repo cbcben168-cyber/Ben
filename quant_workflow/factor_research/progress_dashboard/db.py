@@ -12,6 +12,13 @@ from .stats import compute_statistics, histogram
 
 
 FACTOR_ID = "SPY_F001_CLOSE_GT_EMA20"
+HORIZONS = (15, 30, 60)
+PARTITION_PRIORITY = {"FUNCTIONAL_VALIDATION": 1, "TRAIN": 2, "VALIDATION": 3, "OOS": 4}
+SUPPORTED_EDGE_STATUSES = {
+    "VALIDATION_SUPPORTED",
+    "OOS_SUPPORTED",
+    "INDEPENDENT_VALIDATION_SUPPORTED",
+}
 
 
 def utc_now() -> str:
@@ -638,7 +645,245 @@ class Database:
     def _rows(rows: list[sqlite3.Row]) -> list[dict[str, Any]]:
         return [dict(row) for row in rows]
 
-    def dashboard_snapshot(self) -> dict[str, Any]:
+    def _run_window_metrics(
+        self, connection: sqlite3.Connection, run_instance_id: str, horizon_minutes: int
+    ) -> dict[str, Any]:
+        statistics = self._rows(
+            connection.execute(
+                """
+                SELECT * FROM run_statistics
+                WHERE run_instance_id=? AND horizon_minutes=?
+                ORDER BY cohort
+                """,
+                (run_instance_id, horizon_minutes),
+            ).fetchall()
+        )
+        by_cohort = {row["cohort"]: row for row in statistics}
+        baseline = by_cohort.get("ALL", {})
+        passed = by_cohort.get("PASS", {})
+        failed = by_cohort.get("FAIL", {})
+        coverage = connection.execute(
+            """
+            SELECT COUNT(DISTINCT substr(s.signal_time_et, 1, 10)) AS trading_days,
+                   MIN(substr(s.signal_time_et, 1, 10)) AS first_day,
+                   MAX(substr(s.signal_time_et, 1, 10)) AS last_day
+            FROM labels l
+            JOIN signals s ON s.run_instance_id=l.run_instance_id
+                AND s.signal_id=l.signal_id
+            WHERE l.run_instance_id=? AND l.horizon_minutes=?
+            """,
+            (run_instance_id, horizon_minutes),
+        ).fetchone()
+        stability = connection.execute(
+            """
+            WITH daily AS (
+                SELECT substr(s.signal_time_et, 1, 10) AS trading_day,
+                       s.factor_value AS cohort,
+                       AVG(l.forward_return) AS mean_return
+                FROM labels l
+                JOIN signals s ON s.run_instance_id=l.run_instance_id
+                    AND s.signal_id=l.signal_id
+                WHERE l.run_instance_id=? AND l.horizon_minutes=?
+                GROUP BY trading_day, cohort
+            ), paired AS (
+                SELECT p.trading_day, p.mean_return AS pass_mean, f.mean_return AS fail_mean
+                FROM daily p
+                JOIN daily f ON f.trading_day=p.trading_day
+                WHERE p.cohort='PASS' AND f.cohort='FAIL'
+            )
+            SELECT COUNT(*) AS eligible_days,
+                   COALESCE(SUM(CASE WHEN pass_mean > fail_mean THEN 1 ELSE 0 END), 0)
+                       AS better_days
+            FROM paired
+            """,
+            (run_instance_id, horizon_minutes),
+        ).fetchone()
+        monthly_rows = self._rows(
+            connection.execute(
+                """
+                SELECT substr(s.signal_time_et, 1, 7) AS month,
+                       s.factor_value AS cohort,
+                       COUNT(*) AS n,
+                       AVG(l.forward_return) AS mean_return
+                FROM labels l
+                JOIN signals s ON s.run_instance_id=l.run_instance_id
+                    AND s.signal_id=l.signal_id
+                WHERE l.run_instance_id=? AND l.horizon_minutes=?
+                GROUP BY month, cohort
+                ORDER BY month, cohort
+                """,
+                (run_instance_id, horizon_minutes),
+            ).fetchall()
+        )
+        months: dict[str, dict[str, Any]] = {}
+        for item in monthly_rows:
+            month = months.setdefault(
+                item["month"],
+                {
+                    "month": item["month"],
+                    "pass_n": 0,
+                    "fail_n": 0,
+                    "pass_mean_return": None,
+                    "fail_mean_return": None,
+                    "pass_fail_diff_bps": None,
+                },
+            )
+            key = item["cohort"].lower()
+            month[f"{key}_n"] = item["n"]
+            month[f"{key}_mean_return"] = item["mean_return"]
+        for month in months.values():
+            if month["pass_mean_return"] is not None and month["fail_mean_return"] is not None:
+                month["pass_fail_diff_bps"] = (
+                    month["pass_mean_return"] - month["fail_mean_return"]
+                ) * 10000
+        pass_mean = passed.get("mean_return")
+        fail_mean = failed.get("mean_return")
+        eligible_days = int(stability["eligible_days"] or 0)
+        better_days = int(stability["better_days"] or 0)
+        return {
+            "horizon_minutes": horizon_minutes,
+            "pass_mean_return": pass_mean,
+            "fail_mean_return": fail_mean,
+            "pass_fail_diff_bps": (
+                (pass_mean - fail_mean) * 10000
+                if pass_mean is not None and fail_mean is not None
+                else None
+            ),
+            "baseline_mean_return": baseline.get("mean_return"),
+            "pass_edge_vs_baseline_bps": passed.get("edge_bps"),
+            "pass_n": int(passed.get("n") or 0),
+            "fail_n": int(failed.get("n") or 0),
+            "positive_rate": passed.get("positive_rate"),
+            "coverage_trading_days": int(coverage["trading_days"] or 0),
+            "coverage_first_day": coverage["first_day"],
+            "coverage_last_day": coverage["last_day"],
+            "stable_better_days": better_days,
+            "stable_eligible_days": eligible_days,
+            "daily_stability": better_days / eligible_days if eligible_days else None,
+            "monthly": list(months.values()),
+        }
+
+    def _comparison_snapshot(
+        self,
+        connection: sqlite3.Connection,
+        factors: list[dict[str, Any]],
+        horizon_minutes: int,
+        planned_factor_count: int,
+    ) -> dict[str, Any]:
+        candidate_runs = self._rows(
+            connection.execute(
+                """
+                SELECT r.*, v.factor_id, s.marker_version
+                FROM research_runs r
+                JOIN factor_versions v ON v.version_id=r.version_id
+                JOIN source_files s ON s.file_sha256=r.file_sha256
+                WHERE r.run_status='VALIDATED'
+                ORDER BY r.imported_at_utc DESC
+                """
+            ).fetchall()
+        )
+        selected_runs: dict[str, dict[str, Any]] = {}
+        completed_partitions: dict[str, set[str]] = {}
+        for run in candidate_runs:
+            completed_partitions.setdefault(run["factor_id"], set()).add(run["study_partition"])
+            current = selected_runs.get(run["factor_id"])
+            if current is None or PARTITION_PRIORITY.get(run["study_partition"], 0) > PARTITION_PRIORITY.get(
+                current["study_partition"], 0
+            ):
+                selected_runs[run["factor_id"]] = run
+
+        rows: list[dict[str, Any]] = []
+        for factor in factors:
+            run = selected_runs.get(factor["factor_id"])
+            row: dict[str, Any] = {
+                "rank": None,
+                "factor_id": factor["factor_id"],
+                "formula": factor["formula"],
+                "data_gate": factor["data_gate"],
+                "run_instance_id": run["run_instance_id"] if run else None,
+                "declared_run_id": run["declared_run_id"] if run else None,
+                "study_partition": run["study_partition"] if run else None,
+                "completed_partitions": sorted(completed_partitions.get(factor["factor_id"], set())),
+                "comparison_scope": None,
+            }
+            if run:
+                row.update(self._run_window_metrics(connection, run["run_instance_id"], horizon_minutes))
+                row["comparison_scope"] = {
+                    "symbol": run["symbol"],
+                    "timeframe": run["timeframe"],
+                    "study_partition": run["study_partition"],
+                    "settings_start_et": run["settings_start_et"],
+                    "settings_end_et": run["settings_end_et"],
+                    "timezone": run["timezone"],
+                    "session": run["session"],
+                    "data_gate": factor["data_gate"],
+                    "marker_version": run["marker_version"],
+                    "return_definition": "close_to_close",
+                }
+            else:
+                row.update(
+                    {
+                        "horizon_minutes": horizon_minutes,
+                        "pass_mean_return": None,
+                        "fail_mean_return": None,
+                        "pass_fail_diff_bps": None,
+                        "baseline_mean_return": None,
+                        "pass_edge_vs_baseline_bps": None,
+                        "pass_n": 0,
+                        "fail_n": 0,
+                        "positive_rate": None,
+                        "coverage_trading_days": 0,
+                        "coverage_first_day": None,
+                        "coverage_last_day": None,
+                        "stable_better_days": 0,
+                        "stable_eligible_days": 0,
+                        "daily_stability": None,
+                        "monthly": [],
+                    }
+                )
+            rows.append(row)
+
+        reason_codes: list[str] = []
+        if len(factors) != planned_factor_count:
+            reason_codes.append("PLAN_CATALOG_INCOMPLETE")
+        if len(factors) < 2:
+            reason_codes.append("FEWER_THAN_TWO_FACTORS")
+        if any(row["pass_mean_return"] is None or row["fail_mean_return"] is None for row in rows):
+            reason_codes.append("MISSING_ELIGIBLE_RUN")
+        if any(factor["data_gate"] != "PASS" for factor in factors):
+            reason_codes.append("DATA_GATE_NOT_PASS")
+        scope_tokens = {
+            json.dumps(row["comparison_scope"], ensure_ascii=False, sort_keys=True)
+            for row in rows
+            if row["comparison_scope"] is not None
+        }
+        if len(factors) > 1 and (
+            len(scope_tokens) != 1 or any(row["comparison_scope"] is None for row in rows)
+        ):
+            reason_codes.append("COMPARISON_SCOPE_MISMATCH")
+
+        reason_codes = list(dict.fromkeys(reason_codes))
+        ranking_ready = not reason_codes
+        if ranking_ready:
+            rows.sort(key=lambda item: item["pass_fail_diff_bps"], reverse=True)
+            for rank, row in enumerate(rows, start=1):
+                row["rank"] = rank
+        else:
+            rows.sort(key=lambda item: item["factor_id"])
+        return {
+            "horizon_minutes": horizon_minutes,
+            "ranking_ready": ranking_ready,
+            "reason_codes": reason_codes,
+            "rows": rows,
+            "return_unit": "percent",
+            "difference_unit": "bp",
+        }
+
+    def dashboard_snapshot(
+        self, horizon_minutes: int = 15, planned_factor_count: int | None = None
+    ) -> dict[str, Any]:
+        if horizon_minutes not in HORIZONS:
+            raise ValueError("unsupported horizon")
         with self.connect() as connection:
             factors = self._rows(
                 connection.execute(
@@ -667,7 +912,7 @@ class Database:
                 connection.execute(
                     """
                     SELECT r.*, v.factor_id, v.strategy_version, v.strategy_hash,
-                        v.parameter_version, s.canonical_path
+                        v.parameter_version, s.canonical_path, s.marker_version
                     FROM research_runs r
                     JOIN factor_versions v ON v.version_id=r.version_id
                     JOIN source_files s ON s.file_sha256=r.file_sha256
@@ -699,10 +944,37 @@ class Database:
                 row["state_key"]: row["state_value"]
                 for row in connection.execute("SELECT * FROM app_state").fetchall()
             }
+            planned_count = max(planned_factor_count or len(factors), len(factors))
+            comparison = self._comparison_snapshot(
+                connection, factors, horizon_minutes, planned_count
+            )
+        validated_partitions = {
+            (item["factor_id"], item["study_partition"])
+            for item in runs
+            if item["run_status"] == "VALIDATED"
+        }
         summary = {
             "candidate_factors": len(factors),
+            "planned_factors": planned_count,
+            "planned_factor_source": "C1 六因子计划；可由 FUTU_FACTOR_PLANNED_COUNT 覆盖",
+            "registered_factors": len(factors),
             "code_written": sum(int(item["code_present"]) for item in factors),
             "first_backtest_done": sum(int(item["valid_run_count"] > 0) for item in factors),
+            "functional_backtest_done": len(
+                {factor_id for factor_id, part in validated_partitions if part == "FUNCTIONAL_VALIDATION"}
+            ),
+            "long_train_done": len(
+                {factor_id for factor_id, part in validated_partitions if part == "TRAIN"}
+            ),
+            "validation_done": len(
+                {factor_id for factor_id, part in validated_partitions if part == "VALIDATION"}
+            ),
+            "oos_done": len(
+                {factor_id for factor_id, part in validated_partitions if part == "OOS"}
+            ),
+            "evidence_supported": sum(
+                item["edge_status"] in SUPPORTED_EDGE_STATUSES for item in factors
+            ),
             "data_qualified": sum(item["data_gate"] == "PASS" for item in factors),
             "oos_supported": sum(item["edge_status"] == "OOS_SUPPORTED" for item in factors),
             "rejected": sum(item["development_stage"] == "REJECTED" for item in factors),
@@ -719,9 +991,14 @@ class Database:
                 + [None],
                 key=lambda value: value or "",
             ),
+            "next_action": next(
+                (item["next_action"] for item in factors if item.get("next_action")),
+                "等待新的验收记录或回测 CSV。",
+            ),
         }
         return {
             "summary": summary,
+            "comparison": comparison,
             "factors": factors,
             "runs": runs,
             "gates": gates,
@@ -730,8 +1007,12 @@ class Database:
             "app_state": states,
         }
 
-    def factor_detail(self, factor_id: str) -> dict[str, Any] | None:
-        snapshot = self.dashboard_snapshot()
+    def factor_detail(
+        self, factor_id: str, horizon_minutes: int = 15
+    ) -> dict[str, Any] | None:
+        if horizon_minutes not in HORIZONS:
+            raise ValueError("unsupported horizon")
+        snapshot = self.dashboard_snapshot(horizon_minutes=horizon_minutes)
         factor = next((item for item in snapshot["factors"] if item["factor_id"] == factor_id), None)
         if factor is None:
             return None
@@ -765,8 +1046,12 @@ class Database:
                         ]
                         distributions[f"{horizon}_{cohort}"] = histogram(values)
                 run["distributions"] = distributions
+                run["selected_window"] = self._run_window_metrics(
+                    connection, run["run_instance_id"], horizon_minutes
+                )
         return {
             "factor": factor,
+            "horizon_minutes": horizon_minutes,
             "runs": runs,
             "gates": [
                 item
@@ -775,6 +1060,12 @@ class Database:
             ],
             "issues": [
                 item for item in snapshot["issues"] if item["factor_id"] in (None, factor_id)
+            ],
+            "market_environment_note": "尚无经验证的市场环境标签，当前不生成环境优劣结论。",
+            "limitations": [
+                "条件收益为 close-to-close 研究统计，不是可执行交易 PnL。",
+                "相邻信号和持有窗口可能重叠，样本并非完全独立。",
+                "只有明确完成 Validation/OOS 后，才可升级独立验证结论。",
             ],
         }
 

@@ -1,4 +1,4 @@
-# Futu Quant 因子研究进度看板 V1
+# Futu 因子研究看板 V2
 
 本工具是 `SPY_FACTOR_RESEARCH_V1` 的本地只读监控附件。它不会连接账户、查询持仓、发送订单或修改富途策略。
 
@@ -18,7 +18,7 @@ http://127.0.0.1:8766/
 2. 手动运行历史回测并导出 `RunLog_*.csv` 到 Downloads。
 3. 看板接受 `FUTU_FACTOR_V1|{JSON}`，并仅对冻结的
    `SPY_FACTOR_V1` F001 功能日志提供严格兼容；其他旧探针仍显示为忽略。
-4. 在网页查看 F001、每次运行、15/30/60 分钟统计、数据门槛和异常。
+4. 在首页查看项目阶段、下一项工作，以及 15/30/60 分钟因子比较；运行 ID、哈希、导入审计和原始错误保留在“高级资料”。
 
 也可使用网页的“手动选择 CSV”按钮。上传文件保存在本地 `data/inbox/`，不会发送到云端。
 
@@ -31,12 +31,15 @@ http://127.0.0.1:8766/
 - OOS 未完成时，系统不会自动升级为 `OOS_SUPPORTED`。
 - 相同参数和覆盖区间的重复跑次分别存档，但不会合并为独立样本。
 - 测试 fixture 默认禁止写入正式数据库。
+- 只有计划因子全部登记、所选窗口数据完整、数据资格通过，并且标的、周期、日期范围、研究分区及收益口径一致时才产生正式名次。
+- 当前 `FUTU_FACTOR_V1` 解析器仍是单文件单跑次合同。未经批准的多因子批量 CSV 会整批拒绝，不会部分导入后生成不完整排行。
 
 ## 可选启动参数
 
 ```powershell
 py -3.14 -m quant_workflow.factor_research.progress_dashboard --no-browser
 py -3.14 -m quant_workflow.factor_research.progress_dashboard --watch-dir C:\path\to\inbox
+$env:FUTU_FACTOR_PLANNED_COUNT='6'
 ```
 
-默认数据库位于 `progress_dashboard/data/factor_progress_v1.sqlite3`，SQLite 事务保证运行元数据、信号、标签、统计与异常原子更新。
+`FUTU_FACTOR_PLANNED_COUNT` 默认是 C1 计划的 6 个因子；若权威因子目录变更，可在启动前覆盖。默认数据库位于 `progress_dashboard/data/factor_progress_v1.sqlite3`，SQLite 事务保证单个运行的元数据、信号、标签、统计与异常原子更新。

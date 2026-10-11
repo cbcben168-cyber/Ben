@@ -37,3 +37,13 @@
 逻辑 `[0]` 对应富途 `select=2` 的最新已完成 K 线；历史引用据此增加 select。实际平台通过必须以富途导出的 S0 CSV 为证，本地测试不能代替平台兼容性验收。
 
 完整字段合同见 `BATCH_CSV_CONTRACT.md`。
+
+## Strategy-First V3（第二批）
+
+第二批 TRAIN 使用可直接复制到富途的 `SPY_C1_STRATEGY_BATCH_TRAIN_V3.py`，一次运行同时记录 F007–F012、S01–S03、正式 Regime、固定日内时段、下一根开盘入场、成本与路径不确定性。
+
+- 预注册设计：`C1_STRATEGY_FIRST_V3_RESEARCH_PLAN.md`
+- CSV 合同与中文富途参数表：`STRATEGY_BATCH_V3_CONTRACT.md`
+- 第一批事后时段核查：`validation/train_time_match_audit_7514881494081894629/REPORT_CN.md`
+
+V3 尚未执行真实富途 TRAIN；Dashboard 只会在完整 CSV 原子验收通过后展示，且与 F001–F006 因子榜分开，不会自动升级 Gate 或 Edge。

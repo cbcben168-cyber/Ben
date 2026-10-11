@@ -9,7 +9,7 @@ import re
 import sqlite3
 from typing import Any
 
-from .stats import compute_statistics, compute_train_analysis, histogram
+from .stats import compute_statistics, compute_strategy_metrics, compute_train_analysis, histogram
 
 
 FACTOR_ID = "SPY_F001_CLOSE_GT_EMA20"
@@ -105,6 +105,12 @@ class Database:
             / "factor_research"
             / "spy_factor_batch_v1"
             / "SPY_SIX_FACTOR_BATCH_TRAIN_V1.py"
+        )
+        self.strategy_v3_path = (
+            repo_root
+            / "factor_research"
+            / "spy_factor_batch_v1"
+            / "SPY_C1_STRATEGY_BATCH_TRAIN_V3.py"
         )
 
     def connect(self) -> sqlite3.Connection:
@@ -1235,6 +1241,181 @@ class Database:
             "difference_unit": "bp",
         }
 
+    def import_strategy_batch(
+        self, file_sha256: str, batch: dict[str, Any]
+    ) -> tuple[str, str]:
+        batch_instance_id = hashlib.sha256(
+            f"{file_sha256}|{batch['batch_id']}".encode("utf-8")
+        ).hexdigest()
+        if batch["strategy_hash"] != canonical_strategy_hash(self.strategy_v3_path):
+            self.update_source(file_sha256, import_status="INVALID", error_text="STRATEGY_V3_VERSION_MISMATCH")
+            return "INVALID", batch_instance_id
+        metrics = compute_strategy_metrics(
+            batch["trades"], seed_key=batch_instance_id
+        )
+        now = utc_now()
+        with self.connect() as connection:
+            existing = connection.execute(
+                "SELECT batch_instance_id FROM strategy_batches WHERE batch_instance_id=?",
+                (batch_instance_id,),
+            ).fetchone()
+            if existing:
+                return "DUPLICATE", batch_instance_id
+            connection.execute(
+                """
+                INSERT INTO strategy_batches (
+                    batch_instance_id, declared_batch_id, file_sha256,
+                    strategy_version, strategy_hash, parameter_version,
+                    study_partition, study_start_et, study_end_et, run_status,
+                    signal_count, trade_count, trading_day_count, imported_at_utc
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    batch_instance_id, batch["batch_id"], file_sha256,
+                    batch["strategy_version"], batch["strategy_hash"],
+                    batch["parameter_version"], "TRAIN", batch["study_start_et"],
+                    batch["study_end_et"], batch["run_status"], len(batch["signals"]),
+                    len(batch["trades"]), len(batch["days"]), now,
+                ),
+            )
+            for signal in batch["signals"]:
+                context = {
+                    key: signal.get(key)
+                    for key in ("preopen_regime", "prior_day_context", "dynamic_regime", "vol_regime", "day_position", "gap_regime")
+                }
+                connection.execute(
+                    """
+                    INSERT INTO strategy_signals VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        batch_instance_id, signal["signal_id"], signal["candidate_id"],
+                        signal["direction"], signal["event_unit"], signal["signal_time_et"],
+                        signal["signal_price"], signal["time_bucket"],
+                        json.dumps(context, ensure_ascii=False, sort_keys=True),
+                        signal.get("r15"), signal.get("r30"), signal.get("r60"),
+                    ),
+                )
+            for trade in batch["trades"]:
+                context = {
+                    key: trade.get(key)
+                    for key in (
+                        "time_bucket", "preopen_regime", "prior_day_context",
+                        "dynamic_regime", "vol_regime", "day_position", "gap_regime", "factor_filters",
+                    )
+                }
+                connection.execute(
+                    """
+                    INSERT INTO strategy_trades VALUES (
+                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                    )
+                    """,
+                    (
+                        batch_instance_id, trade["trade_id"], trade["signal_id"],
+                        trade["strategy_id"], trade["direction"], trade["trade_date_et"],
+                        trade["signal_time_et"], trade["entry_time_et"], trade["exit_time_et"],
+                        trade["entry_price"], trade["exit_price"], trade["stop"], trade["target"],
+                        trade["gross_return"], trade["net_return"], trade["mfe"], trade["mae"],
+                        trade["exit_reason"], int(bool(trade["ambiguous"])),
+                        trade["target_first_net_return"], json.dumps(context, ensure_ascii=False, sort_keys=True),
+                    ),
+                )
+            for test in batch["tests"]:
+                connection.execute(
+                    "INSERT INTO strategy_test_registry VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        batch_instance_id, test["test_id"], test["layer"], test["family"],
+                        test["family_size"], test["adjustment"], test["cluster_unit"],
+                    ),
+                )
+            for row in metrics:
+                connection.execute(
+                    "INSERT INTO strategy_metrics VALUES (?, ?, ?, ?)",
+                    (
+                        batch_instance_id, row["strategy_id"], row["direction"],
+                        json.dumps(row, ensure_ascii=False, sort_keys=True),
+                    ),
+                )
+            connection.execute(
+                "UPDATE source_files SET import_status=?, error_text=NULL WHERE file_sha256=?",
+                (batch["run_status"], file_sha256),
+            )
+        return batch["run_status"], batch_instance_id
+
+    def _strategy_snapshot(self, connection: sqlite3.Connection) -> dict[str, Any]:
+        batches = self._rows(
+            connection.execute(
+                "SELECT * FROM strategy_batches ORDER BY imported_at_utc DESC LIMIT 20"
+            ).fetchall()
+        )
+        if not batches:
+            return {
+                "status": "NOT_TESTED", "warning": "尚未导入 Strategy-First V3 TRAIN 数据。",
+                "batches": [], "metrics": [], "candidate_metrics": [], "tests": [], "event_units": [],
+            }
+        latest = batches[0]["batch_instance_id"]
+        metrics = [
+            json.loads(row["metrics_json"])
+            for row in connection.execute(
+                "SELECT metrics_json FROM strategy_metrics WHERE batch_instance_id=? ORDER BY strategy_id, direction",
+                (latest,),
+            ).fetchall()
+        ]
+        tests = self._rows(
+            connection.execute(
+                "SELECT test_id, layer, family, family_size, adjustment, cluster_unit FROM strategy_test_registry WHERE batch_instance_id=? ORDER BY layer, test_id",
+                (latest,),
+            ).fetchall()
+        )
+        units = self._rows(
+            connection.execute(
+                "SELECT event_unit, COUNT(*) AS signal_count, COUNT(DISTINCT substr(signal_time_et,1,10)) AS trading_days FROM strategy_signals WHERE batch_instance_id=? GROUP BY event_unit ORDER BY event_unit",
+                (latest,),
+            ).fetchall()
+        )
+        signal_rows = self._rows(
+            connection.execute(
+                "SELECT candidate_id, direction, event_unit, signal_time_et, r15, r30, r60 FROM strategy_signals WHERE batch_instance_id=? AND candidate_id IN ('F007','F008','F009','F010','F011','F012')",
+                (latest,),
+            ).fetchall()
+        )
+        baseline_by_horizon = {
+            horizon: [float(item[key]) for item in signal_rows if item["candidate_id"] == "F012" and item[key] is not None]
+            for horizon, key in ((15, "r15"), (30, "r30"), (60, "r60"))
+        }
+        candidate_metrics: list[dict[str, Any]] = []
+        candidate_groups: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
+        for item in signal_rows:
+            candidate_groups.setdefault(
+                (item["candidate_id"], item["direction"], item["event_unit"]), []
+            ).append(item)
+        for (candidate_id, direction, event_unit), items in sorted(candidate_groups.items()):
+            for horizon, key in ((15, "r15"), (30, "r30"), (60, "r60")):
+                values = [float(item[key]) for item in items if item[key] is not None]
+                baseline_values = baseline_by_horizon[horizon]
+                sign = -1.0 if direction == "SHORT" else 1.0
+                raw_mean = sum(values) / len(values) if values else None
+                baseline_mean = sum(baseline_values) / len(baseline_values) if baseline_values else None
+                candidate_metrics.append({
+                    "candidate_id": candidate_id, "direction": direction,
+                    "event_unit": event_unit, "horizon_minutes": horizon,
+                    "n": len(values),
+                    "trading_days": len({str(item["signal_time_et"])[:10] for item in items}),
+                    "raw_mean": raw_mean,
+                    "directional_mean": raw_mean * sign if raw_mean is not None and direction in {"LONG", "SHORT"} else None,
+                    "baseline_mean": baseline_mean,
+                    "directional_increment_bps": (
+                        (raw_mean - baseline_mean) * sign * 10000
+                        if raw_mean is not None and baseline_mean is not None and direction in {"LONG", "SHORT"}
+                        else None
+                    ),
+                })
+        return {
+            "status": batches[0]["run_status"],
+            "warning": "补充研究展示；TRAIN 不构成 Edge，且不同事件单位不可直接排行。",
+            "batches": batches, "metrics": metrics, "candidate_metrics": candidate_metrics,
+            "tests": tests, "event_units": units,
+        }
+
     def dashboard_snapshot(
         self, horizon_minutes: int = 15, planned_factor_count: int | None = None
     ) -> dict[str, Any]:
@@ -1305,6 +1486,7 @@ class Database:
             comparison = self._comparison_snapshot(
                 connection, factors, horizon_minutes, planned_count
             )
+            strategy_research = self._strategy_snapshot(connection)
         validated_partitions = {
             (item["factor_id"], item["study_partition"])
             for item in runs
@@ -1353,6 +1535,14 @@ class Database:
                 "等待新的验收记录或回测 CSV。",
             ),
         }
+        if strategy_research["status"] == "NOT_TESTED":
+            summary["next_action"] = (
+                "复制 SPY_C1_STRATEGY_BATCH_TRAIN_V3.py，在富途运行一次 TRAIN 并导出一份 CSV。"
+            )
+        elif strategy_research["status"] == "VALIDATED":
+            summary["next_action"] = (
+                "审阅 S01–S03 扣成本结果、聚类区间和样本覆盖；未经另行批准不要运行 Validation/OOS。"
+            )
         return {
             "summary": summary,
             "comparison": comparison,
@@ -1362,6 +1552,7 @@ class Database:
             "issues": issues,
             "imports": imports,
             "app_state": states,
+            "strategy_research": strategy_research,
         }
 
     def factor_detail(

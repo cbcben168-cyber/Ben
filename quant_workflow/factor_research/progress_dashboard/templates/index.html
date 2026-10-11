@@ -100,6 +100,19 @@
   </section>
 
   <section class="panel">
+    <div class="panel-head"><div><h2>C1 Strategy-First V3</h2><span class="muted">S01 趋势回踩、S02 开盘区间突破、S03 震荡回归；TRAIN 不等于 Edge。</span></div></div>
+    <div id="strategyWarning" class="notice">正在读取第二批研究状态…</div>
+    <div class="table-wrap"><table><thead><tr>
+      <th>策略</th><th>方向</th><th>交易数 / 交易日</th><th>扣成本净期望</th><th>PF</th><th>最大回撤</th><th>MFE / MAE</th><th>日聚类95%区间</th><th>路径不确定</th>
+    </tr></thead><tbody id="strategyRows"></tbody></table></div>
+    <div class="panel-body"><h3>F007–F012 条件收益（与策略净收益分开）</h3></div>
+    <div class="table-wrap"><table><thead><tr>
+      <th>候选</th><th>方向/状态</th><th>事件单位</th><th>窗口</th><th>样本 / 交易日</th><th>原始未来收益</th><th>方向化收益</th><th>无条件基准</th><th>方向化增量</th>
+    </tr></thead><tbody id="candidateRows"></tbody></table></div>
+    <div id="strategyRegistry" class="panel-body muted"></div>
+  </section>
+
+  <section class="panel">
     <div class="panel-head"><div><h2>尚未完成的因子</h2><span class="muted">没有真实结果时只显示“未测试”，不会用 0 代替。</span></div></div>
     <div id="untestedFactors" class="panel-body"></div>
   </section>
@@ -164,7 +177,25 @@
     document.getElementById('cards').innerHTML=cards.map(([value,label])=>`<div class="card"><div class="muted">${esc(label)}</div><div class="value">${esc(value)}</div></div>`).join('');
     document.getElementById('currentStage').textContent=projectStage(s);
     document.getElementById('nextAction').textContent=s.next_action;
-    renderComparison(data.comparison,data.factors); renderUntested(data.factors); renderAdvanced(data);
+    renderComparison(data.comparison,data.factors); renderStrategy(data.strategy_research); renderUntested(data.factors); renderAdvanced(data);
+  }
+
+  function renderStrategy(research){
+    const notice=document.getElementById('strategyWarning');
+    notice.textContent=research.warning;
+    notice.className=research.status==='VALIDATED'?'notice ready':'notice';
+    document.getElementById('strategyRows').innerHTML=research.metrics.length?research.metrics.map(x=>`<tr>
+      <td><b>${esc(x.strategy_id)}</b></td><td>${esc(x.direction)}</td><td>${esc(x.trade_count)} / ${esc(x.trading_days)}</td>
+      <td>${pct(x.net_mean)}</td><td>${isNil(x.profit_factor)?'未测试':Number(x.profit_factor).toFixed(2)}</td><td>${pct(x.max_drawdown)}</td>
+      <td>${pct(x.mfe_mean)} / ${pct(x.mae_mean)}</td><td>${pct(x.cluster_ci_low)} 至 ${pct(x.cluster_ci_high)}</td>
+      <td>${esc(x.ambiguous_count)} 笔</td></tr>`).join(''):'<tr><td colspan="9" class="empty">尚未测试：等待一次完整 V3 TRAIN CSV。</td></tr>';
+    document.getElementById('candidateRows').innerHTML=research.candidate_metrics.length?research.candidate_metrics.map(x=>`<tr>
+      <td><b>${esc(x.candidate_id)}</b></td><td>${esc(x.direction)}</td><td>${esc(x.event_unit)}</td><td>${esc(x.horizon_minutes)} 分钟</td>
+      <td>${esc(x.n)} / ${esc(x.trading_days)}</td><td>${pct(x.raw_mean)}</td><td>${pct(x.directional_mean)}</td>
+      <td>${pct(x.baseline_mean)}</td><td>${bp(x.directional_increment_bps)}</td></tr>`).join(''):'<tr><td colspan="9" class="empty">尚未测试：不以 0 收益代替缺失结果。</td></tr>';
+    const units=research.event_units.map(x=>`${esc(x.event_unit)}：${esc(x.signal_count)} 个信号 / ${esc(x.trading_days)} 日`).join('；');
+    const tests=research.tests.map(x=>`${esc(x.layer)} ${esc(x.family)}（${esc(x.family_size)}，${esc(x.adjustment)}）`).join('；');
+    document.getElementById('strategyRegistry').innerHTML=`<b>事件单位分开显示：</b>${units||'尚无数据'}<br><b>预注册检验族：</b>${tests||'等待导入；合同已冻结'}`;
   }
 
   function renderComparison(comparison,factors){

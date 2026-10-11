@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 import hashlib
 import io
 import json
+import math
 from pathlib import Path
 import re
 import threading
@@ -17,6 +18,7 @@ from .db import Database, utc_now
 
 MARKER = "FUTU_FACTOR_V1|"
 BATCH_MARKER = "FUTU_FACTOR_BATCH_V1|"
+STRATEGY_V3_MARKER = "FUTU_FACTOR_STRATEGY_V3|"
 LEGACY_MARKER = "SPY_FACTOR_V1|"
 LEGACY_STRATEGY_HASH = "137abf998ac16210d7185bcae3b6c96d77c0fe75344af33d3ac73a6675f28bc3"
 MAX_FILE_BYTES = 50 * 1024 * 1024
@@ -48,6 +50,12 @@ BATCH_REQUIRED_COMMON = {
     "select",
     "timezone",
 }
+STRATEGY_V3_REQUIRED_COMMON = BATCH_REQUIRED_COMMON
+STRATEGY_V3_VERSION = "FUTU_C1_STRATEGY_BATCH_TRAIN_V3"
+STRATEGY_V3_PARAMETER_VERSION = "C1-STRATEGY-FIRST-TRAIN-V3"
+STRATEGY_V3_DEFINITION_HASH = "c7a45d9da3ccfb0cc11c65e0f9edee005837d650e741dc894970982c12a73ec5"
+STRATEGY_V3_CANDIDATES = "F007,F008,F009,F010,F011,F012"
+STRATEGY_V3_STRATEGIES = "S01,S02,S03"
 BATCH_DEFINITION_HASH = "370c846144bf3e184642acd4a55c97976c75c377073a74f43aa001fef758be23"
 BATCH_FACTORS = (
     ("SPY_F001_CLOSE_GT_EMA20", "f001", "F001-C1-BATCH-V1"),
@@ -1203,6 +1211,145 @@ def _parse_batch_events(
     )
 
 
+def _parse_strategy_v3_events(
+    events: list[dict[str, Any]], *, encoding: str, rows_total: int,
+    rows_marked: int, parsed_rows: int, allow_fixtures: bool,
+) -> ParseResult:
+    starts = [item for item in events if item["event_type"] == "RUN_START"]
+    ends = [item for item in events if item["event_type"] == "RUN_END"]
+    if len(starts) != 1 or len(ends) != 1:
+        return ParseResult("STRATEGY_BATCH_V3", "PARSE_FAILED", encoding, "FUTU_FACTOR_STRATEGY_V3", rows_total, rows_marked, parsed_rows, error=f"STRATEGY_V3_BOUNDARY_COUNT:{len(starts)}:{len(ends)}")
+    start, end = starts[0], ends[0]
+    fixture = bool(start.get("fixture"))
+    if fixture and not allow_fixtures:
+        return ParseResult("TEST_FIXTURE", "INVALID", encoding, "FUTU_FACTOR_STRATEGY_V3", rows_total, rows_marked, parsed_rows, error="FIXTURE_NOT_ALLOWED_IN_PRODUCTION_DB")
+    expected_start = {
+        "strategy_version": STRATEGY_V3_VERSION,
+        "parameter_version": STRATEGY_V3_PARAMETER_VERSION,
+        "study_partition": "TRAIN",
+        "symbol": "US.SPY", "timeframe": "5m", "session": "RTH", "select": 2,
+        "candidate_ids": STRATEGY_V3_CANDIDATES,
+        "strategy_ids": STRATEGY_V3_STRATEGIES,
+        "definition_hash": STRATEGY_V3_DEFINITION_HASH,
+        "parameter_attempt": 1,
+    }
+    if not fixture:
+        expected_start.update({
+            "system_start_et": TRAIN_SYSTEM_START, "study_start_et": TRAIN_START,
+            "study_end_et": TRAIN_END, "expected_sessions": TRAIN_EXPECTED_SESSIONS,
+        })
+    mismatches = [key for key, value in expected_start.items() if start.get(key) != value]
+    if mismatches:
+        return ParseResult("STRATEGY_BATCH_V3", "INVALID", encoding, "FUTU_FACTOR_STRATEGY_V3", rows_total, rows_marked, parsed_rows, error="STRATEGY_V3_CONTRACT_MISMATCH:" + ",".join(mismatches))
+    if not re.fullmatch(r"[0-9a-f]{64}", str(start.get("strategy_hash", ""))):
+        return ParseResult("STRATEGY_BATCH_V3", "PARSE_FAILED", encoding, "FUTU_FACTOR_STRATEGY_V3", rows_total, rows_marked, parsed_rows, error="INVALID_STRATEGY_HASH")
+    identity_keys = ("batch_id", "run_id", "strategy_version", "strategy_hash", "parameter_version", "symbol", "timeframe", "session", "select", "timezone")
+    identity = {key: start[key] for key in identity_keys}
+    for event in events:
+        for key, value in identity.items():
+            if event.get(key) != value:
+                return ParseResult("STRATEGY_BATCH_V3", "PARSE_FAILED", encoding, "FUTU_FACTOR_STRATEGY_V3", rows_total, rows_marked, parsed_rows, error="STRATEGY_V3_IDENTITY_MISMATCH:" + key)
+    try:
+        signals: list[dict[str, Any]] = []
+        signal_ids: set[str] = set()
+        for item in (event for event in events if event["event_type"] == "SIGNAL_EVENT"):
+            _required(item, {"signal_id", "candidate_id", "direction", "event_unit", "signal_time_et", "signal_price", "time_bucket", "r15", "r30", "r60"})
+            signal_id = str(item["signal_id"])
+            if signal_id in signal_ids:
+                raise ValueError("DUPLICATE_STRATEGY_SIGNAL_ID")
+            signal_ids.add(signal_id)
+            if item["candidate_id"] not in {"F007", "F008", "F009", "F010", "F011", "F012", "S01_BASE"}:
+                raise ValueError("UNKNOWN_STRATEGY_CANDIDATE")
+            if item["direction"] not in {"LONG", "SHORT", "LOW", "NORMAL", "HIGH", "UNKNOWN"} or item["event_unit"] not in {"FIVE_MINUTE_EVENT", "OPENING_EVENT", "FIVE_MINUTE_STATE"}:
+                raise ValueError("INVALID_STRATEGY_SIGNAL_CLASS")
+            _parse_time(item["signal_time_et"], "signal_time_et")
+            row = dict(item)
+            for key in ("signal_price", "r15", "r30", "r60"):
+                row[key] = float(row[key])
+                if not math.isfinite(row[key]):
+                    raise ValueError("NONFINITE_STRATEGY_SIGNAL")
+            signals.append(row)
+        signal_by_id = {item["signal_id"]: item for item in signals}
+        if not fixture:
+            f012 = [item for item in signals if item["candidate_id"] == "F012"]
+            if len(f012) != TRAIN_EXPECTED_EVENTS:
+                raise ValueError("STRATEGY_F012_BASELINE_COUNT_MISMATCH")
+            f012_counts: dict[str, int] = defaultdict(int)
+            for item in f012:
+                f012_counts[str(item["signal_time_et"])[:10]] += 1
+            if set(f012_counts) != expected_train_sessions() or any(
+                count != (29 if day in TRAIN_EARLY_CLOSE_DAYS else 65)
+                for day, count in f012_counts.items()
+            ):
+                raise ValueError("STRATEGY_F012_SESSION_COVERAGE_MISMATCH")
+        trades: list[dict[str, Any]] = []
+        trade_ids: set[str] = set()
+        for item in (event for event in events if event["event_type"] == "TRADE_EVENT"):
+            _required(item, {"trade_id", "signal_id", "strategy_id", "direction", "trade_date_et", "signal_time_et", "entry_time_et", "exit_time_et", "entry_price", "exit_price", "stop", "target", "gross_return", "cost_bps_per_side", "net_return", "net_return_cost_1bp", "net_return_cost_3bp", "mfe", "mae", "exit_reason", "ambiguous", "primary_path", "target_first_net_return"})
+            trade_id = str(item["trade_id"])
+            if trade_id in trade_ids:
+                raise ValueError("DUPLICATE_STRATEGY_TRADE_ID")
+            trade_ids.add(trade_id)
+            if item["signal_id"] not in signal_ids or item["strategy_id"] not in {"S01", "S02", "S03"}:
+                raise ValueError("TRADE_WITHOUT_REGISTERED_SIGNAL")
+            signal = signal_by_id[str(item["signal_id"])]
+            if item["direction"] != signal["direction"] or item["signal_time_et"] != signal["signal_time_et"]:
+                raise ValueError("TRADE_SIGNAL_IDENTITY_MISMATCH")
+            signal_time = _parse_time(item["signal_time_et"], "signal_time_et")
+            entry_time = _parse_time(item["entry_time_et"], "entry_time_et")
+            exit_time = _parse_time(item["exit_time_et"], "exit_time_et")
+            if (entry_time - signal_time).total_seconds() != 300 or exit_time < entry_time:
+                raise ValueError("NEXT_BAR_ENTRY_CONTRACT_FAILED")
+            if item["exit_reason"] not in {"STOP", "TARGET", "TIME"}:
+                raise ValueError("INVALID_EXIT_REASON")
+            if bool(item["ambiguous"]) and item["primary_path"] != "STOP_FIRST":
+                raise ValueError("AMBIGUOUS_PATH_NOT_STOP_FIRST")
+            row = dict(item)
+            for key in ("entry_price", "exit_price", "stop", "target", "gross_return", "net_return", "net_return_cost_1bp", "net_return_cost_3bp", "mfe", "mae", "target_first_net_return"):
+                row[key] = float(row[key])
+                if not math.isfinite(row[key]):
+                    raise ValueError("NONFINITE_STRATEGY_TRADE")
+            if (
+                float(item.get("cost_bps_per_side", -1)) != 2.0
+                or abs(row["net_return"] - (row["gross_return"] - 0.0004)) > 5e-10
+                or abs(row["net_return_cost_1bp"] - (row["gross_return"] - 0.0002)) > 5e-10
+                or abs(row["net_return_cost_3bp"] - (row["gross_return"] - 0.0006)) > 5e-10
+                or row["mfe"] < 0 or row["mae"] < 0
+            ):
+                raise ValueError("STRATEGY_COST_OR_EXCURSION_MISMATCH")
+            trades.append(row)
+        tests = [dict(item) for item in events if item["event_type"] == "TEST_REGISTRY"]
+        required_tests = {"CANDIDATE_SCREEN", "STRATEGY_BASELINE", "REGIME_INCREMENT", "TIME_INCREMENT", "REGIME_TIME_INTERACTION", "F001_F006_FILTER_INCREMENT"}
+        if {str(item.get("test_id")) for item in tests} != required_tests:
+            raise ValueError("STRATEGY_TEST_REGISTRY_INCOMPLETE")
+        for item in tests:
+            _required(item, {"test_id", "layer", "family", "family_size", "adjustment", "cluster_unit"})
+            item["family_size"] = int(item["family_size"])
+        days = [dict(item) for item in events if item["event_type"] == "DAY_END"]
+        expected_days = int(start["expected_sessions"])
+        if len(days) != expected_days or any(item.get("status") != "COMPLETE" for item in days):
+            raise ValueError("STRATEGY_DAY_COMPLETENESS_FAILED")
+        if sum(int(item.get("signal_count", -1)) for item in days) != len(signals) or sum(
+            int(item.get("trade_count", -1)) for item in days
+        ) != len(trades):
+            raise ValueError("STRATEGY_DAY_COUNT_MISMATCH")
+        if not fixture and {item.get("session_date_et") for item in days} != expected_train_sessions():
+            raise ValueError("STRATEGY_SESSION_SET_MISMATCH")
+        errors = [item for item in events if item["event_type"] == "ERROR"]
+        if errors or end.get("status") != "COMPLETE":
+            raise ValueError("STRATEGY_RUN_END_INCOMPLETE")
+        if int(end.get("completed_days", -1)) != expected_days or int(end.get("signal_count", -1)) != len(signals) or int(end.get("trade_count", -1)) != len(trades):
+            raise ValueError("STRATEGY_RUN_END_COUNT_MISMATCH")
+    except (KeyError, TypeError, ValueError) as exc:
+        return ParseResult("STRATEGY_BATCH_V3", "INVALID", encoding, "FUTU_FACTOR_STRATEGY_V3", rows_total, rows_marked, parsed_rows, error=str(exc))
+    batch = {
+        **identity, "study_start_et": start.get("study_start_et"),
+        "study_end_et": start.get("study_end_et"), "run_status": "VALIDATED",
+        "signals": signals, "trades": trades, "tests": tests, "days": days,
+    }
+    return ParseResult("TEST_FIXTURE" if fixture else "STRATEGY_BATCH_V3", "VALIDATED", encoding, "FUTU_FACTOR_STRATEGY_V3", rows_total, rows_marked, parsed_rows, run={"strategy_batch": batch})
+
+
 def parse_runlog(path: Path, *, allow_fixtures: bool = False) -> ParseResult:
     try:
         text, encoding = decode_csv(path)
@@ -1227,7 +1374,7 @@ def parse_runlog(path: Path, *, allow_fixtures: bool = False) -> ParseResult:
             rows_marked += 1
             version, payload = decoded
             versions.add(version)
-            if version not in {"FUTU_FACTOR_V1", "FUTU_FACTOR_BATCH_V1"}:
+            if version not in {"FUTU_FACTOR_V1", "FUTU_FACTOR_BATCH_V1", "FUTU_FACTOR_STRATEGY_V3"}:
                 continue
             _required(
                 payload,
@@ -1266,6 +1413,13 @@ def parse_runlog(path: Path, *, allow_fixtures: bool = False) -> ParseResult:
                 allow_fixtures=allow_fixtures,
             ),
             text,
+        )
+    if versions == {"FUTU_FACTOR_STRATEGY_V3"}:
+        return _attach_system_log_lifecycle(
+            _parse_strategy_v3_events(
+                events, encoding=encoding, rows_total=rows_total, rows_marked=rows_marked,
+                parsed_rows=parsed_rows, allow_fixtures=allow_fixtures,
+            ), text,
         )
     if versions != {"FUTU_FACTOR_V1"}:
         return ParseResult(
@@ -1597,6 +1751,22 @@ class Importer:
                 "batch_id": result.run["batch_id"],
                 "run_instance_ids": run_instance_ids,
                 "error": error,
+            }
+        if "strategy_batch" in result.run:
+            status, batch_instance_id = self.database.import_strategy_batch(
+                file_hash, result.run["strategy_batch"]
+            )
+            error = None
+            if status == "INVALID":
+                with self.database.connect() as connection:
+                    source = connection.execute(
+                        "SELECT error_text FROM source_files WHERE file_sha256=?", (file_hash,)
+                    ).fetchone()
+                error = source["error_text"] if source else None
+            return {
+                "status": status, "file_sha256": file_hash,
+                "batch_id": result.run["strategy_batch"]["batch_id"],
+                "batch_instance_id": batch_instance_id, "error": error,
             }
         status, run_instance_id = self.database.import_run(file_hash, result.run)
         return {

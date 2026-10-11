@@ -7,6 +7,69 @@ from statistics import mean, median, pstdev
 from itertools import combinations
 
 
+def compute_strategy_metrics(
+    trades: list[dict], *, bootstrap_replicates: int = 2000, seed_key: str = "strategy-v3"
+) -> list[dict]:
+    """Summarize executable trade records with trading-day cluster uncertainty."""
+    grouped: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    for trade in trades:
+        grouped[(str(trade["strategy_id"]), str(trade["direction"]))].append(trade)
+    rows: list[dict] = []
+    for (strategy_id, direction), items in sorted(grouped.items()):
+        items.sort(key=lambda item: (str(item["trade_date_et"]), str(item["entry_time_et"])))
+        returns = [float(item["net_return"]) for item in items]
+        gross_profits = sum(value for value in returns if value > 0)
+        gross_losses = -sum(value for value in returns if value < 0)
+        equity = 0.0
+        peak = 0.0
+        max_drawdown = 0.0
+        for value in returns:
+            equity += value
+            peak = max(peak, equity)
+            max_drawdown = max(max_drawdown, peak - equity)
+        by_day: dict[str, list[float]] = defaultdict(list)
+        by_month: dict[str, list[float]] = defaultdict(list)
+        for item in items:
+            day = str(item["trade_date_et"])
+            by_day[day].append(float(item["net_return"]))
+            by_month[day[:7]].append(float(item["net_return"]))
+        rng = random.Random(int(hashlib.sha256(seed_key.encode()).hexdigest()[:16], 16))
+        days = sorted(by_day)
+        bootstrap_means: list[float] = []
+        if days:
+            for _ in range(bootstrap_replicates):
+                sampled = [days[rng.randrange(len(days))] for _ in days]
+                sample = [value for day in sampled for value in by_day[day]]
+                bootstrap_means.append(mean(sample))
+        rows.append(
+            {
+                "strategy_id": strategy_id,
+                "direction": direction,
+                "trade_count": len(items),
+                "trading_days": len(days),
+                "net_mean": mean(returns) if returns else None,
+                "net_median": median(returns) if returns else None,
+                "positive_rate": sum(value > 0 for value in returns) / len(returns) if returns else None,
+                "profit_factor": gross_profits / gross_losses if gross_losses else None,
+                "max_drawdown": max_drawdown,
+                "mfe_mean": mean(float(item["mfe"]) for item in items) if items else None,
+                "mae_mean": mean(float(item["mae"]) for item in items) if items else None,
+                "ambiguous_count": sum(bool(item["ambiguous"]) for item in items),
+                "target_count": sum(item["exit_reason"] == "TARGET" for item in items),
+                "stop_count": sum(item["exit_reason"] == "STOP" for item in items),
+                "timeout_count": sum(item["exit_reason"] == "TIME" for item in items),
+                "cluster_ci_low": _percentile(bootstrap_means, 0.025),
+                "cluster_ci_high": _percentile(bootstrap_means, 0.975),
+                "bootstrap_replicates": bootstrap_replicates,
+                "monthly": [
+                    {"month": month, "trades": len(values), "net_mean": mean(values), "net_sum": sum(values)}
+                    for month, values in sorted(by_month.items())
+                ],
+            }
+        )
+    return rows
+
+
 def compute_statistics(signals: list[dict], labels: list[dict]) -> list[dict]:
     factor_by_signal = {item["signal_id"]: item["factor_value"] for item in signals}
     grouped: dict[tuple[int, str], list[float]] = defaultdict(list)

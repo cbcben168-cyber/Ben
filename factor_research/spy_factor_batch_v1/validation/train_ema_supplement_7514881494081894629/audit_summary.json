@@ -1,0 +1,109 @@
+{
+  "audit_contract": "C1_TRAIN_EMA_SUPPLEMENT_AUDIT_V1",
+  "dashboard_validation_upgrade": "PROHIBITED",
+  "edge_claim": "PROHIBITED",
+  "metrics": {
+    "ema_alignment": {
+      "corrected_state_mismatches": {
+        "f001": 0,
+        "f002": 0,
+        "f003": 0
+      },
+      "logged_sensitivity_vs_skip_close_max_abs_diff": 5.002220859751105e-11,
+      "logged_skip_state_mismatches": {
+        "f001": 0,
+        "f002": 0,
+        "f003": 0
+      },
+      "logged_system_vs_skip_close_max_abs_diff": 5.002220859751105e-11,
+      "platform_ema1_max_abs_diff": 4.999833436158951e-09,
+      "platform_ema3_max_abs_diff": 4.999833436158951e-09,
+      "platform_vs_full_long_max_abs_diff": 4.999833436158951e-09,
+      "platform_vs_full_long_mismatch_gt_1e_8": 0,
+      "platform_vs_full_short_max_abs_diff": 4.999833436158951e-09,
+      "platform_vs_full_short_mismatch_gt_1e_8": 0
+    },
+    "opend_coverage": {
+      "bars": 19470,
+      "outside_rth_label_range": 0,
+      "sessions": 251,
+      "warmup_bars": 4956,
+      "warmup_last_label_counts": {
+        "13:00": 1,
+        "16:00": 63
+      },
+      "warmup_sessions": 64
+    },
+    "price_alignment": {
+      "signal_compared": 12083,
+      "signal_max_abs_diff": 0.0,
+      "signal_mismatch_gt_1e_8": 0,
+      "target_compared": 36249,
+      "target_max_abs_diff": 0.0,
+      "target_mismatch_gt_1e_8": 0
+    },
+    "raw_event_counts": {
+      "all_marked": 12274,
+      "day_ends": 187,
+      "errors": 1,
+      "factor_events": 12083,
+      "labels": 36249
+    },
+    "raw_status_preserved": {
+      "error_codes": [
+        "WARMUP_INCOMPLETE"
+      ],
+      "incomplete_day_count": 1,
+      "run_end_status": "INCOMPLETE",
+      "warmup_audit_status": "INCOMPLETE",
+      "warmup_bars_before_train": 4892
+    },
+    "select_identity": {
+      "select2_current_0935_mismatch_gt_1e_8": 0,
+      "select2_max_abs_diff": 0.0,
+      "select3_max_abs_diff": 1.1368683772161603e-13,
+      "select3_prior_session_final_mismatch_gt_1e_8": 0,
+      "sessions": 187
+    }
+  },
+  "query_contract": {
+    "adjustment": "AS_OF_DYNAMIC_FORWARD_FROM_GET_REHAB",
+    "bar_type": "K_5M",
+    "end": "2026-06-30",
+    "extended_time": false,
+    "historical_autype": "NONE",
+    "session": "RTH",
+    "start": "2025-07-01",
+    "symbol": "US.SPY",
+    "time_label": "America/New_York bar end"
+  },
+  "raw_run_sha256": "bda31dddd8fc878663ce6827f11cb336ab4508c0fe0459259d88e321827af742",
+  "raw_run_status_preserved": "INCOMPLETE",
+  "rehab_events": [
+    {
+      "ex_div_date": "2025-09-19",
+      "forward_adj_factor_a": 0.99723,
+      "forward_adj_factor_b": 0.0,
+      "per_cash_div": 1.83111
+    },
+    {
+      "ex_div_date": "2025-12-19",
+      "forward_adj_factor_a": 0.99705,
+      "forward_adj_factor_b": 0.0,
+      "per_cash_div": 1.99337
+    },
+    {
+      "ex_div_date": "2026-03-20",
+      "forward_adj_factor_a": 0.99727,
+      "forward_adj_factor_b": 0.0,
+      "per_cash_div": 1.797
+    },
+    {
+      "ex_div_date": "2026-06-18",
+      "forward_adj_factor_a": 0.99743,
+      "forward_adj_factor_b": 0.0,
+      "per_cash_div": 1.90352
+    }
+  ],
+  "status": "SUPPORTED"
+}

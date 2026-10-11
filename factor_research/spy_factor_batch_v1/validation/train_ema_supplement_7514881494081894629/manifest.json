@@ -1,0 +1,39 @@
+{
+  "artifacts": {
+    "REPORT.md": {
+      "bytes": 1887,
+      "sha256": "2000f27a814dedebce5ab923c6fc5f9cc264ba05102c2bf2b9ed66aaa3c183ad"
+    },
+    "audit_summary.json": {
+      "bytes": 3140,
+      "sha256": "c7da0c3482f557e6a4403c766a3f7c3422ea48dbae2829fce1a19bf4416fe218"
+    },
+    "opend_5m_ohlc.csv": {
+      "bytes": 947345,
+      "sha256": "e5e3ab7cfa981be022388b7a54952a6f8fa29e2dc0043672edf4e84997940e2f"
+    },
+    "opend_rehab.csv": {
+      "bytes": 189,
+      "sha256": "16a1bae16d562edffac364cbba2a6a26d72765e1eca57ab0c31189b37ceb17c4"
+    }
+  },
+  "audit_contract": "C1_TRAIN_EMA_SUPPLEMENT_AUDIT_V1",
+  "dashboard_validation_upgrade": "PROHIBITED",
+  "edge_claim": "PROHIBITED",
+  "futu_sdk_version": "10.11.7108",
+  "generated_at_utc": "2026-10-11T03:31:32.831279+00:00",
+  "query_contract": {
+    "adjustment": "AS_OF_DYNAMIC_FORWARD_FROM_GET_REHAB",
+    "bar_type": "K_5M",
+    "end": "2026-06-30",
+    "extended_time": false,
+    "historical_autype": "NONE",
+    "session": "RTH",
+    "start": "2025-07-01",
+    "symbol": "US.SPY",
+    "time_label": "America/New_York bar end"
+  },
+  "raw_run_sha256": "bda31dddd8fc878663ce6827f11cb336ab4508c0fe0459259d88e321827af742",
+  "raw_run_status_preserved": "INCOMPLETE",
+  "script_normalized_sha256": "b4f08cc65d7258546ac896c4ce4688414db637329a90d7392762934830590bbb"
+}

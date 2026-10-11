@@ -59,3 +59,29 @@ F004保持原定义：前五根高点使用 `select=3..7`。因此开盘初段�
 真实S0 CSV为835,705字节、455个事件。按事件行宽推算，TRAIN基础日志约21.1 MiB；加入预热审计字段后保守估计低于25 MiB，低于看板50 MiB导入上限。事件工作量约为S0的26.6倍，但模拟时间戳不能证明真实墙钟耗时。
 
 若富途拒绝完整日期范围、运行失败或导出被截断：保留原日志和错误，停止导入验收并报告；不得自行拼接CSV、缩短区间、静默分段或进入Validation/OOS。
+
+## TRAIN V1 EMA补充审计
+
+真实运行 `RunLog_7514881494081894629_20261011110014.csv` 的原始SHA256为
+`bda31dddd8fc878663ce6827f11cb336ab4508c0fe0459259d88e321827af742`。该运行保留：
+
+- `WARMUP_AUDIT=INCOMPLETE`；
+- `RUN_END=INCOMPLETE`；
+- 原始预热计数4,892，低于4,956；
+- 不得直接升级为Dashboard `VALIDATED`，也不得进入Validation/OOS。
+
+只读补充审计命令：
+
+```powershell
+python factor_research\spy_factor_batch_v1\train_ema_supplement_audit.py `
+  --runlog "C:\Users\cbcbe\Downloads\RunLog_7514881494081894629_20261011110014.csv" `
+  --output-dir "factor_research\spy_factor_batch_v1\validation\train_ema_supplement_7514881494081894629"
+```
+
+审计固定使用OpenD `US.SPY`、5分钟、RTH、`extended_time=False`、`AuType.NONE`，再用
+`get_rehab()` 对历史EMA状态实施逐日动态前复权。输出只包含OHLC，不读取或使用Volume。
+
+`SUPPORTED`只表示现有事件、标签、平台EMA和F001–F003状态可以由独立数据重建。证据包中的
+`raw_run_status_preserved=INCOMPLETE`、`dashboard_validation_upgrade=PROHIBITED`、
+`edge_claim=PROHIBITED`不可删除或弱化。补充审计不能改写原始CSV，也不能代替一个自包含、
+`RUN_END=COMPLETE`的富途重跑。

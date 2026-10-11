@@ -145,10 +145,16 @@ def import_error_zh(error: Any) -> dict[str, str]:
             "TRAIN 日期、版本或预注册参数与冻结合同不一致，已整批拒绝。",
             "请使用 SPY_SIX_FACTOR_BATCH_TRAIN_V1.py 原样运行，并核对富途参数表。",
         )
-    elif raw.startswith(("STRATEGY_V3_", "STRATEGY_COST_", "NEXT_BAR_ENTRY_", "AMBIGUOUS_PATH_")):
+    elif raw.startswith((
+        "STRATEGY_V3_", "STRATEGY_COST_", "NEXT_BAR_ENTRY_",
+        "AMBIGUOUS_PATH_", "INVALID_ENTRY_RISK", "FIXED_R_MULTIPLE_",
+        "OPTIMISTIC_GAP_", "INFERENCE_FAMILY_", "INITIAL_RISK_",
+        "REWARD_TO_RISK_", "EXECUTABLE_SIGNAL_", "TRADE_SIGNAL_",
+        "REJECTION_", "STRATEGY_TEST_", "HOLM_",
+    )):
         message, action = (
-            "Strategy-First V3 CSV 未通过版本、时序、完整性或成交路径合同，已整批拒绝。",
-            "请保留原始 CSV，使用冻结的 SPY_C1_STRATEGY_BATCH_TRAIN_V3.py 原样重跑，并检查 DAY_END/RUN_END。",
+            "Strategy-First V3.1 CSV 未通过版本、时序、完整性、成交路径或统计合同，已整批拒绝。",
+            "请保留原始 CSV，使用 SPY_C1_STRATEGY_BATCH_TRAIN_V3_1.py 原样重跑，并检查 DAY_END/RUN_END。",
         )
     elif raw.startswith(
         (

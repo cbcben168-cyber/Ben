@@ -255,6 +255,44 @@ CREATE TABLE IF NOT EXISTS strategy_metrics (
     PRIMARY KEY(batch_instance_id, strategy_id, direction)
 );
 
+CREATE TABLE IF NOT EXISTS strategy_execution_signals (
+    batch_instance_id TEXT NOT NULL REFERENCES strategy_batches(batch_instance_id) ON DELETE CASCADE,
+    signal_id TEXT NOT NULL,
+    strategy_id TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    signal_time_et TEXT NOT NULL,
+    signal_price REAL NOT NULL,
+    context_json TEXT NOT NULL,
+    PRIMARY KEY(batch_instance_id, signal_id)
+);
+
+CREATE TABLE IF NOT EXISTS strategy_entry_rejections (
+    batch_instance_id TEXT NOT NULL REFERENCES strategy_batches(batch_instance_id) ON DELETE CASCADE,
+    signal_id TEXT NOT NULL,
+    strategy_id TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    decision_time_et TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    PRIMARY KEY(batch_instance_id, signal_id, reason)
+);
+
+CREATE TABLE IF NOT EXISTS strategy_inference_results (
+    batch_instance_id TEXT NOT NULL REFERENCES strategy_batches(batch_instance_id) ON DELETE CASCADE,
+    family TEXT NOT NULL,
+    test_id TEXT NOT NULL,
+    result_json TEXT NOT NULL,
+    PRIMARY KEY(batch_instance_id, family, test_id)
+);
+
+CREATE TABLE IF NOT EXISTS strategy_inference_families (
+    batch_instance_id TEXT NOT NULL REFERENCES strategy_batches(batch_instance_id) ON DELETE CASCADE,
+    family TEXT NOT NULL,
+    summary_json TEXT NOT NULL,
+    PRIMARY KEY(batch_instance_id, family)
+);
+
 CREATE INDEX IF NOT EXISTS idx_runs_factor_version ON research_runs(version_id, imported_at_utc DESC);
 CREATE INDEX IF NOT EXISTS idx_runs_coverage ON research_runs(coverage_key);
 CREATE INDEX IF NOT EXISTS idx_issues_status ON issues(status, last_seen_utc DESC);

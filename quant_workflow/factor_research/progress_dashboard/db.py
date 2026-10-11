@@ -9,7 +9,13 @@ import re
 import sqlite3
 from typing import Any
 
-from .stats import compute_statistics, compute_strategy_metrics, compute_train_analysis, histogram
+from .stats import (
+    compute_statistics,
+    compute_strategy_inference,
+    compute_strategy_metrics,
+    compute_train_analysis,
+    histogram,
+)
 
 
 FACTOR_ID = "SPY_F001_CLOSE_GT_EMA20"
@@ -111,6 +117,12 @@ class Database:
             / "factor_research"
             / "spy_factor_batch_v1"
             / "SPY_C1_STRATEGY_BATCH_TRAIN_V3.py"
+        )
+        self.strategy_v3_1_path = (
+            repo_root
+            / "factor_research"
+            / "spy_factor_batch_v1"
+            / "SPY_C1_STRATEGY_BATCH_TRAIN_V3_1.py"
         )
 
     def connect(self) -> sqlite3.Connection:
@@ -1247,12 +1259,74 @@ class Database:
         batch_instance_id = hashlib.sha256(
             f"{file_sha256}|{batch['batch_id']}".encode("utf-8")
         ).hexdigest()
-        if batch["strategy_hash"] != canonical_strategy_hash(self.strategy_v3_path):
-            self.update_source(file_sha256, import_status="INVALID", error_text="STRATEGY_V3_VERSION_MISMATCH")
+        is_v31 = batch["strategy_version"] == "FUTU_C1_STRATEGY_BATCH_TRAIN_V3_1"
+        expected_path = self.strategy_v3_1_path if is_v31 else self.strategy_v3_path
+        if batch["strategy_hash"] != canonical_strategy_hash(expected_path):
+            self.update_source(
+                file_sha256,
+                import_status="INVALID",
+                error_text="STRATEGY_VERSION_MISMATCH",
+            )
             return "INVALID", batch_instance_id
         metrics = compute_strategy_metrics(
             batch["trades"], seed_key=batch_instance_id
         )
+        inference = (
+            compute_strategy_inference(
+                batch["signals"],
+                batch["trades"],
+                seed_key=batch_instance_id,
+            )
+            if is_v31
+            else {"results": [], "families": [], "study_days": 0}
+        )
+        if is_v31:
+            signal_counts: dict[tuple[str, str], int] = {}
+            for item in batch["strategy_signals"]:
+                key = (str(item["strategy_id"]), str(item["direction"]))
+                signal_counts[key] = signal_counts.get(key, 0) + 1
+            rejected_counts: dict[tuple[str, str], int] = {}
+            for item in batch["rejected_entries"]:
+                key = (str(item["strategy_id"]), str(item["direction"]))
+                rejected_counts[key] = rejected_counts.get(key, 0) + 1
+            metric_keys = {(row["strategy_id"], row["direction"]) for row in metrics}
+            for strategy_id in ("S01", "S02", "S03"):
+                for direction in ("LONG", "SHORT"):
+                    key = (strategy_id, direction)
+                    if key not in metric_keys:
+                        metrics.append(
+                            {
+                                "strategy_id": strategy_id,
+                                "direction": direction,
+                                "trade_count": 0,
+                                "trading_days": 0,
+                                "net_mean": None,
+                                "net_median": None,
+                                "positive_rate": None,
+                                "profit_factor": None,
+                                "max_drawdown": None,
+                                "mfe_mean": None,
+                                "mae_mean": None,
+                                "ambiguous_count": 0,
+                                "target_count": 0,
+                                "stop_count": 0,
+                                "timeout_count": 0,
+                                "cluster_ci_low": None,
+                                "cluster_ci_high": None,
+                                "bootstrap_replicates": 0,
+                                "monthly": [],
+                            }
+                        )
+            for row in metrics:
+                key = (row["strategy_id"], row["direction"])
+                row["strategy_signal_count"] = signal_counts.get(key, 0)
+                row["rejected_entry_count"] = rejected_counts.get(key, 0)
+                row["execution_coverage"] = (
+                    row["trade_count"] / row["strategy_signal_count"]
+                    if row["strategy_signal_count"] else 0.0
+                )
+                row["drawdown_basis"] = "COMPOUNDED_UNIT_EQUITY_PER_STRATEGY_DIRECTION"
+            metrics.sort(key=lambda row: (row["strategy_id"], row["direction"]))
         now = utc_now()
         with self.connect() as connection:
             existing = connection.execute(
@@ -1300,7 +1374,10 @@ class Database:
                     key: trade.get(key)
                     for key in (
                         "time_bucket", "preopen_regime", "prior_day_context",
-                        "dynamic_regime", "vol_regime", "day_position", "gap_regime", "factor_filters",
+                        "dynamic_regime", "vol_regime", "day_position", "gap_regime",
+                        "factor_filters", "entry_observed_at_et", "entry_bar_end_et",
+                        "exit_bar_end_et", "exit_time_precision", "initial_risk",
+                        "reward_to_risk",
                     )
                 }
                 connection.execute(
@@ -1319,6 +1396,40 @@ class Database:
                         trade["target_first_net_return"], json.dumps(context, ensure_ascii=False, sort_keys=True),
                     ),
                 )
+            for signal in batch.get("strategy_signals", []):
+                context = {
+                    key: signal.get(key)
+                    for key in (
+                        "time_bucket", "preopen_regime", "prior_day_context",
+                        "dynamic_regime", "vol_regime", "day_position",
+                        "gap_regime", "factor_filters",
+                    )
+                }
+                connection.execute(
+                    """
+                    INSERT INTO strategy_execution_signals
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        batch_instance_id, signal["signal_id"], signal["strategy_id"],
+                        signal["source_id"], signal["direction"], signal["signal_time_et"],
+                        signal["signal_price"],
+                        json.dumps(context, ensure_ascii=False, sort_keys=True),
+                    ),
+                )
+            for rejected in batch.get("rejected_entries", []):
+                connection.execute(
+                    """
+                    INSERT INTO strategy_entry_rejections
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        batch_instance_id, rejected["signal_id"], rejected["strategy_id"],
+                        rejected["direction"], rejected["decision_time_et"],
+                        rejected["reason"],
+                        json.dumps(rejected, ensure_ascii=False, sort_keys=True),
+                    ),
+                )
             for test in batch["tests"]:
                 connection.execute(
                     "INSERT INTO strategy_test_registry VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -1332,6 +1443,22 @@ class Database:
                     "INSERT INTO strategy_metrics VALUES (?, ?, ?, ?)",
                     (
                         batch_instance_id, row["strategy_id"], row["direction"],
+                        json.dumps(row, ensure_ascii=False, sort_keys=True),
+                    ),
+                )
+            for row in inference["results"]:
+                connection.execute(
+                    "INSERT INTO strategy_inference_results VALUES (?, ?, ?, ?)",
+                    (
+                        batch_instance_id, row["family"], row["test_id"],
+                        json.dumps(row, ensure_ascii=False, sort_keys=True),
+                    ),
+                )
+            for row in inference["families"]:
+                connection.execute(
+                    "INSERT INTO strategy_inference_families VALUES (?, ?, ?)",
+                    (
+                        batch_instance_id, row["family"],
                         json.dumps(row, ensure_ascii=False, sort_keys=True),
                     ),
                 )
@@ -1351,6 +1478,7 @@ class Database:
             return {
                 "status": "NOT_TESTED", "warning": "尚未导入 Strategy-First V3 TRAIN 数据。",
                 "batches": [], "metrics": [], "candidate_metrics": [], "tests": [], "event_units": [],
+                "inference_results": [], "inference_families": [],
             }
         latest = batches[0]["batch_instance_id"]
         metrics = [
@@ -1366,6 +1494,26 @@ class Database:
                 (latest,),
             ).fetchall()
         )
+        inference_results = [
+            json.loads(row["result_json"])
+            for row in connection.execute(
+                """
+                SELECT result_json FROM strategy_inference_results
+                WHERE batch_instance_id=? ORDER BY family, test_id
+                """,
+                (latest,),
+            ).fetchall()
+        ]
+        inference_families = [
+            json.loads(row["summary_json"])
+            for row in connection.execute(
+                """
+                SELECT summary_json FROM strategy_inference_families
+                WHERE batch_instance_id=? ORDER BY family
+                """,
+                (latest,),
+            ).fetchall()
+        ]
         units = self._rows(
             connection.execute(
                 "SELECT event_unit, COUNT(*) AS signal_count, COUNT(DISTINCT substr(signal_time_et,1,10)) AS trading_days FROM strategy_signals WHERE batch_instance_id=? GROUP BY event_unit ORDER BY event_unit",
@@ -1411,9 +1559,15 @@ class Database:
                 })
         return {
             "status": batches[0]["run_status"],
-            "warning": "补充研究展示；TRAIN 不构成 Edge，且不同事件单位不可直接排行。",
+            "warning": (
+                "V3.1 TRAIN 补充研究展示；同时区间与 Holm 已执行，但 TRAIN 仍不构成 Edge。"
+                if batches[0]["strategy_version"] == "FUTU_C1_STRATEGY_BATCH_TRAIN_V3_1"
+                else "旧 V3 仅保留历史兼容；正式 TRAIN 前应使用 V3.1。"
+            ),
             "batches": batches, "metrics": metrics, "candidate_metrics": candidate_metrics,
             "tests": tests, "event_units": units,
+            "inference_results": inference_results,
+            "inference_families": inference_families,
         }
 
     def dashboard_snapshot(

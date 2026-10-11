@@ -16,17 +16,18 @@ def compute_strategy_metrics(
         grouped[(str(trade["strategy_id"]), str(trade["direction"]))].append(trade)
     rows: list[dict] = []
     for (strategy_id, direction), items in sorted(grouped.items()):
-        items.sort(key=lambda item: (str(item["trade_date_et"]), str(item["entry_time_et"])))
+        items.sort(key=lambda item: (str(item["trade_date_et"]), str(item.get("exit_time_et", item["entry_time_et"]))))
         returns = [float(item["net_return"]) for item in items]
         gross_profits = sum(value for value in returns if value > 0)
         gross_losses = -sum(value for value in returns if value < 0)
-        equity = 0.0
-        peak = 0.0
+        equity = 1.0
+        peak = 1.0
         max_drawdown = 0.0
         for value in returns:
-            equity += value
+            equity *= 1.0 + value
             peak = max(peak, equity)
-            max_drawdown = max(max_drawdown, peak - equity)
+            if peak > 0:
+                max_drawdown = max(max_drawdown, (peak - equity) / peak)
         by_day: dict[str, list[float]] = defaultdict(list)
         by_month: dict[str, list[float]] = defaultdict(list)
         for item in items:
@@ -68,6 +69,387 @@ def compute_strategy_metrics(
             }
         )
     return rows
+
+
+def compute_strategy_inference(
+    signals: list[dict],
+    trades: list[dict],
+    *,
+    bootstrap_replicates: int = 2000,
+    seed_key: str = "strategy-v3.1",
+) -> dict:
+    """Execute every V3.1 preregistered family with day-cluster resampling."""
+    baseline_signals = [item for item in signals if item["candidate_id"] == "F012"]
+    study_days = sorted({str(item["signal_time_et"])[:10] for item in baseline_signals})
+    trade_groups: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    for item in trades:
+        trade_groups[(str(item["strategy_id"]), str(item["direction"]))].append(item)
+
+    specs: list[dict] = []
+
+    def add_value_spec(
+        family: str,
+        test_id: str,
+        items: list[dict],
+        value_fn,
+        match_fn,
+        *,
+        min_n: int,
+        min_days: int,
+        target: str,
+    ) -> None:
+        by_day: dict[str, list[float]] = defaultdict(list)
+        matched = []
+        for item in items:
+            day = str(item["trade_date_et"])
+            by_day[day].append(float(value_fn(item)))
+            if match_fn(item):
+                matched.append(item)
+        day_totals = {
+            day: (sum(values), len(values)) for day, values in by_day.items()
+        }
+
+        def estimator(sampled_days: list[str]) -> float | None:
+            total = 0.0
+            count = 0
+            for day in sampled_days:
+                day_total, day_count = day_totals.get(day, (0.0, 0))
+                total += day_total
+                count += day_count
+            return total / count if count else None
+
+        specs.append(
+            {
+                "family": family,
+                "test_id": test_id,
+                "target": target,
+                "estimator": estimator,
+                "sample_count": len(matched),
+                "trading_days": len({str(item["trade_date_et"]) for item in matched}),
+                "baseline_count": len(items),
+                "coverage": len(matched) / len(items) if items else 0.0,
+                "min_n": min_n,
+                "min_days": min_days,
+            }
+        )
+
+    baseline_by_horizon: dict[int, dict[str, list[float]]] = {}
+    for horizon, key in ((15, "r15"), (30, "r30"), (60, "r60")):
+        values: dict[str, list[float]] = defaultdict(list)
+        for item in baseline_signals:
+            if item.get(key) is not None:
+                values[str(item["signal_time_et"])[:10]].append(float(item[key]))
+        baseline_by_horizon[horizon] = values
+
+    for candidate_id in ("F007", "F008", "F009", "F010", "F011"):
+        for direction in ("LONG", "SHORT"):
+            sign = -1.0 if direction == "SHORT" else 1.0
+            candidate_items = [
+                item for item in signals
+                if item["candidate_id"] == candidate_id and item["direction"] == direction
+            ]
+            for horizon, key in ((15, "r15"), (30, "r30"), (60, "r60")):
+                candidate_by_day: dict[str, list[float]] = defaultdict(list)
+                for item in candidate_items:
+                    if item.get(key) is not None:
+                        candidate_by_day[str(item["signal_time_et"])[:10]].append(float(item[key]))
+                market_by_day = baseline_by_horizon[horizon]
+                candidate_totals = {
+                    day: (sum(values), len(values))
+                    for day, values in candidate_by_day.items()
+                }
+                market_totals = {
+                    day: (sum(values), len(values))
+                    for day, values in market_by_day.items()
+                }
+
+                def estimator(
+                    sampled_days: list[str],
+                    candidate_totals=candidate_totals,
+                    market_totals=market_totals,
+                    sign=sign,
+                ) -> float | None:
+                    selected_sum = selected_count = 0
+                    market_sum = market_count = 0
+                    for day in sampled_days:
+                        day_sum, day_count = candidate_totals.get(day, (0.0, 0))
+                        selected_sum += day_sum
+                        selected_count += day_count
+                        day_sum, day_count = market_totals.get(day, (0.0, 0))
+                        market_sum += day_sum
+                        market_count += day_count
+                    if not selected_count or not market_count:
+                        return None
+                    return sign * (
+                        selected_sum / selected_count - market_sum / market_count
+                    )
+
+                opening = candidate_id in {"F009", "F011"}
+                specs.append(
+                    {
+                        "family": "CANDIDATE_SCREEN",
+                        "test_id": f"{candidate_id}_{direction}_{horizon}",
+                        "target": "directional_increment_vs_unconditional_market",
+                        "estimator": estimator,
+                        "sample_count": len(candidate_items),
+                        "trading_days": len(
+                            {str(item["signal_time_et"])[:10] for item in candidate_items}
+                        ),
+                        "baseline_count": len(baseline_signals),
+                        "coverage": (
+                            len(candidate_items) / len(baseline_signals)
+                            if baseline_signals else 0.0
+                        ),
+                        "min_n": 30 if opening else 50,
+                        "min_days": 30 if opening else 40,
+                    }
+                )
+
+    for strategy_id in ("S01", "S02", "S03"):
+        for direction in ("LONG", "SHORT"):
+            items = trade_groups.get((strategy_id, direction), [])
+            baseline_min_n = 30 if strategy_id == "S02" else 50
+            baseline_min_days = 30 if strategy_id == "S02" else 40
+            add_value_spec(
+                "STRATEGY_BASELINE",
+                f"{strategy_id}_{direction}",
+                items,
+                lambda item: float(item["net_return"]),
+                lambda item: True,
+                min_n=baseline_min_n,
+                min_days=baseline_min_days,
+                target="mean_net_return_per_executed_trade",
+            )
+
+            aligned_preopen = (
+                (lambda item: item.get("preopen_regime") == "BULL")
+                if direction == "LONG"
+                else (lambda item: item.get("preopen_regime") == "BEAR")
+            )
+            gap_aligned = (
+                (lambda item: item.get("gap_regime") == "GAP_UP")
+                if direction == "LONG"
+                else (lambda item: item.get("gap_regime") == "GAP_DOWN")
+            )
+            regime_tests = {
+                "S01": (
+                    ("PREOPEN_ALIGNED", aligned_preopen),
+                    ("VOL_NORMAL", lambda item: item.get("vol_regime") == "NORMAL"),
+                ),
+                "S02": (
+                    ("GAP_ALIGNED", gap_aligned),
+                    ("PREOPEN_ALIGNED", aligned_preopen),
+                ),
+                "S03": (
+                    ("PREOPEN_NEUTRAL", lambda item: item.get("preopen_regime") == "NEUTRAL"),
+                    ("VOL_NORMAL", lambda item: item.get("vol_regime") == "NORMAL"),
+                ),
+            }[strategy_id]
+            for label, predicate in regime_tests:
+                add_value_spec(
+                    "REGIME_INCREMENT",
+                    f"{strategy_id}_{direction}_{label}",
+                    items,
+                    lambda item, predicate=predicate: (
+                        0.0 if predicate(item) else -float(item["net_return"])
+                    ),
+                    predicate,
+                    min_n=25,
+                    min_days=20,
+                    target="paired_filtered_minus_baseline_return_per_opportunity",
+                )
+
+            for bucket in ("09:35-10:30", "10:30-12:00", "12:00-14:00", "14:00-15:55"):
+                predicate = lambda item, bucket=bucket: item.get("time_bucket") == bucket
+                add_value_spec(
+                    "TIME_INCREMENT",
+                    f"{strategy_id}_{direction}_{bucket}",
+                    items,
+                    lambda item, predicate=predicate: (
+                        0.0 if predicate(item) else -float(item["net_return"])
+                    ),
+                    predicate,
+                    min_n=25,
+                    min_days=20,
+                    target="paired_time_filter_minus_baseline_return_per_opportunity",
+                )
+
+            if strategy_id == "S01":
+                interaction = lambda item, aligned_preopen=aligned_preopen: (
+                    aligned_preopen(item) and item.get("vol_regime") == "NORMAL"
+                )
+                interaction_label = "PREOPEN_ALIGNED_X_VOL_NORMAL"
+            elif strategy_id == "S02":
+                interaction = lambda item, gap_aligned=gap_aligned: (
+                    gap_aligned(item) and item.get("time_bucket") == "09:35-10:30"
+                )
+                interaction_label = "GAP_ALIGNED_X_OPENING_BUCKET"
+            else:
+                interaction = lambda item: (
+                    item.get("preopen_regime") == "NEUTRAL"
+                    and item.get("time_bucket") in {"10:30-12:00", "12:00-14:00"}
+                )
+                interaction_label = "PREOPEN_NEUTRAL_X_1030_1400"
+            add_value_spec(
+                "REGIME_TIME_INTERACTION",
+                f"{strategy_id}_{direction}_{interaction_label}",
+                items,
+                lambda item, interaction=interaction: (
+                    0.0 if interaction(item) else -float(item["net_return"])
+                ),
+                interaction,
+                min_n=25,
+                min_days=20,
+                target="paired_interaction_filter_minus_baseline_return_per_opportunity",
+            )
+
+            for factor_index in range(6):
+                predicate = lambda item, factor_index=factor_index: (
+                    len(str(item.get("factor_filters", ""))) == 6
+                    and str(item["factor_filters"])[factor_index] == "1"
+                )
+                add_value_spec(
+                    "F001_F006_FILTER_INCREMENT",
+                    f"{strategy_id}_{direction}_F{factor_index + 1:03d}",
+                    items,
+                    lambda item, predicate=predicate: (
+                        0.0 if predicate(item) else -float(item["net_return"])
+                    ),
+                    predicate,
+                    min_n=25,
+                    min_days=20,
+                    target="paired_factor_filter_minus_baseline_return_per_opportunity",
+                )
+
+    expected_sizes = {
+        "CANDIDATE_SCREEN": 30,
+        "STRATEGY_BASELINE": 6,
+        "REGIME_INCREMENT": 12,
+        "TIME_INCREMENT": 24,
+        "REGIME_TIME_INTERACTION": 6,
+        "F001_F006_FILTER_INCREMENT": 36,
+    }
+    results: list[dict] = []
+    family_summaries: list[dict] = []
+    for family, expected_size in expected_sizes.items():
+        family_specs = [spec for spec in specs if spec["family"] == family]
+        if len(family_specs) != expected_size:
+            raise ValueError(f"INFERENCE_FAMILY_SIZE_MISMATCH:{family}")
+        rng = random.Random(
+            int(hashlib.sha256(f"{seed_key}|{family}".encode()).hexdigest()[:16], 16)
+        )
+        points = [spec["estimator"](study_days) for spec in family_specs]
+        boot: list[list[float | None]] = [[] for _ in family_specs]
+        if study_days:
+            for _ in range(bootstrap_replicates):
+                sampled_days = [
+                    study_days[rng.randrange(len(study_days))] for _ in study_days
+                ]
+                for index, spec in enumerate(family_specs):
+                    boot[index].append(spec["estimator"](sampled_days))
+        standard_errors = [
+            pstdev([value for value in values if value is not None])
+            if len([value for value in values if value is not None]) > 1 else None
+            for values in boot
+        ]
+        max_t_values = []
+        for replicate in range(bootstrap_replicates):
+            candidates = []
+            for index, point in enumerate(points):
+                value = boot[index][replicate] if boot[index] else None
+                se = standard_errors[index]
+                if point is not None and value is not None and se not in (None, 0):
+                    candidates.append(abs((value - point) / se))
+            if candidates:
+                max_t_values.append(max(candidates))
+        critical = _percentile(max_t_values, 0.95)
+        raw_p_values = []
+        for index, point in enumerate(points):
+            valid = [value for value in boot[index] if value is not None]
+            if point is None or not valid:
+                raw_p_values.append(None)
+            else:
+                raw_p_values.append(
+                    (1 + sum(abs(value - point) >= abs(point) for value in valid))
+                    / (len(valid) + 1)
+                )
+        holm = _holm_adjust(raw_p_values, family_size=expected_size)
+        for index, spec in enumerate(family_specs):
+            point = points[index]
+            se = standard_errors[index]
+            valid_boot = [value for value in boot[index] if value is not None]
+            enough = (
+                spec["sample_count"] >= spec["min_n"]
+                and spec["trading_days"] >= spec["min_days"]
+            )
+            results.append(
+                {
+                    "family": family,
+                    "test_id": spec["test_id"],
+                    "target": spec["target"],
+                    "estimate": point,
+                    "sample_count": spec["sample_count"],
+                    "trading_days": spec["trading_days"],
+                    "baseline_count": spec["baseline_count"],
+                    "coverage": spec["coverage"],
+                    "minimum_sample_count": spec["min_n"],
+                    "minimum_trading_days": spec["min_days"],
+                    "status": (
+                        "INSUFFICIENT_SAMPLE"
+                        if not enough else "ESTIMATED"
+                        if point is not None else "NOT_ESTIMABLE"
+                    ),
+                    "cluster_ci_low": _percentile(valid_boot, 0.025),
+                    "cluster_ci_high": _percentile(valid_boot, 0.975),
+                    "simultaneous_ci_low": (
+                        point - critical * se
+                        if point is not None and critical is not None and se is not None
+                        else None
+                    ),
+                    "simultaneous_ci_high": (
+                        point + critical * se
+                        if point is not None and critical is not None and se is not None
+                        else None
+                    ),
+                    "raw_p_value": raw_p_values[index],
+                    "holm_p_value": holm[index],
+                    "bootstrap_replicates": len(valid_boot),
+                }
+            )
+        family_summaries.append(
+            {
+                "family": family,
+                "expected_tests": expected_size,
+                "actual_tests": len(family_specs),
+                "max_t_critical_95": critical,
+                "estimable_tests": sum(point is not None for point in points),
+                "bootstrap_replicates": bootstrap_replicates,
+                "cluster_unit": "TRADING_DAY",
+                "adjustment": "MAX_T_PLUS_HOLM",
+            }
+        )
+    return {
+        "results": results,
+        "families": family_summaries,
+        "study_days": len(study_days),
+    }
+
+
+def _holm_adjust(
+    values: list[float | None], *, family_size: int | None = None
+) -> list[float | None]:
+    adjusted: list[float | None] = [None] * len(values)
+    ordered = sorted(
+        ((value, index) for index, value in enumerate(values) if value is not None)
+    )
+    running = 0.0
+    count = family_size if family_size is not None else len(values)
+    if count < len(ordered):
+        raise ValueError("HOLM_FAMILY_SIZE_TOO_SMALL")
+    for rank, (value, index) in enumerate(ordered):
+        running = max(running, min(1.0, (count - rank) * value))
+        adjusted[index] = running
+    return adjusted
 
 
 def compute_statistics(signals: list[dict], labels: list[dict]) -> list[dict]:

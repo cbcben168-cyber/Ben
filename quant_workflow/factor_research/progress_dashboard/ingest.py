@@ -19,6 +19,7 @@ from .db import Database, utc_now
 MARKER = "FUTU_FACTOR_V1|"
 BATCH_MARKER = "FUTU_FACTOR_BATCH_V1|"
 STRATEGY_V3_MARKER = "FUTU_FACTOR_STRATEGY_V3|"
+STRATEGY_V3_1_MARKER = "FUTU_FACTOR_STRATEGY_V3_1|"
 LEGACY_MARKER = "SPY_FACTOR_V1|"
 LEGACY_STRATEGY_HASH = "137abf998ac16210d7185bcae3b6c96d77c0fe75344af33d3ac73a6675f28bc3"
 MAX_FILE_BYTES = 50 * 1024 * 1024
@@ -56,6 +57,9 @@ STRATEGY_V3_PARAMETER_VERSION = "C1-STRATEGY-FIRST-TRAIN-V3"
 STRATEGY_V3_DEFINITION_HASH = "c7a45d9da3ccfb0cc11c65e0f9edee005837d650e741dc894970982c12a73ec5"
 STRATEGY_V3_CANDIDATES = "F007,F008,F009,F010,F011,F012"
 STRATEGY_V3_STRATEGIES = "S01,S02,S03"
+STRATEGY_V3_1_VERSION = "FUTU_C1_STRATEGY_BATCH_TRAIN_V3_1"
+STRATEGY_V3_1_PARAMETER_VERSION = "C1-STRATEGY-FIRST-TRAIN-V3.1"
+STRATEGY_V3_1_DEFINITION_HASH = "0c73ae4ef39fda9aa472d59d2cf53cfebf7872595618319fb55bb557f4e4d562"
 BATCH_DEFINITION_HASH = "370c846144bf3e184642acd4a55c97976c75c377073a74f43aa001fef758be23"
 BATCH_FACTORS = (
     ("SPY_F001_CLOSE_GT_EMA20", "f001", "F001-C1-BATCH-V1"),
@@ -1213,42 +1217,52 @@ def _parse_batch_events(
 
 def _parse_strategy_v3_events(
     events: list[dict[str, Any]], *, encoding: str, rows_total: int,
-    rows_marked: int, parsed_rows: int, allow_fixtures: bool,
+    rows_marked: int, parsed_rows: int, allow_fixtures: bool, v31: bool = False,
 ) -> ParseResult:
+    marker = "FUTU_FACTOR_STRATEGY_V3_1" if v31 else "FUTU_FACTOR_STRATEGY_V3"
+    classification = "STRATEGY_BATCH_V3_1" if v31 else "STRATEGY_BATCH_V3"
     starts = [item for item in events if item["event_type"] == "RUN_START"]
     ends = [item for item in events if item["event_type"] == "RUN_END"]
     if len(starts) != 1 or len(ends) != 1:
-        return ParseResult("STRATEGY_BATCH_V3", "PARSE_FAILED", encoding, "FUTU_FACTOR_STRATEGY_V3", rows_total, rows_marked, parsed_rows, error=f"STRATEGY_V3_BOUNDARY_COUNT:{len(starts)}:{len(ends)}")
+        boundary_code = "STRATEGY_V3_1_BOUNDARY_COUNT" if v31 else "STRATEGY_V3_BOUNDARY_COUNT"
+        return ParseResult(classification, "PARSE_FAILED", encoding, marker, rows_total, rows_marked, parsed_rows, error=f"{boundary_code}:{len(starts)}:{len(ends)}")
     start, end = starts[0], ends[0]
     fixture = bool(start.get("fixture"))
     if fixture and not allow_fixtures:
-        return ParseResult("TEST_FIXTURE", "INVALID", encoding, "FUTU_FACTOR_STRATEGY_V3", rows_total, rows_marked, parsed_rows, error="FIXTURE_NOT_ALLOWED_IN_PRODUCTION_DB")
+        return ParseResult("TEST_FIXTURE", "INVALID", encoding, marker, rows_total, rows_marked, parsed_rows, error="FIXTURE_NOT_ALLOWED_IN_PRODUCTION_DB")
     expected_start = {
-        "strategy_version": STRATEGY_V3_VERSION,
-        "parameter_version": STRATEGY_V3_PARAMETER_VERSION,
+        "strategy_version": STRATEGY_V3_1_VERSION if v31 else STRATEGY_V3_VERSION,
+        "parameter_version": STRATEGY_V3_1_PARAMETER_VERSION if v31 else STRATEGY_V3_PARAMETER_VERSION,
         "study_partition": "TRAIN",
         "symbol": "US.SPY", "timeframe": "5m", "session": "RTH", "select": 2,
         "candidate_ids": STRATEGY_V3_CANDIDATES,
         "strategy_ids": STRATEGY_V3_STRATEGIES,
-        "definition_hash": STRATEGY_V3_DEFINITION_HASH,
-        "parameter_attempt": 1,
+        "definition_hash": STRATEGY_V3_1_DEFINITION_HASH if v31 else STRATEGY_V3_DEFINITION_HASH,
+        "parameter_attempt": 2 if v31 else 1,
     }
     if not fixture:
         expected_start.update({
             "system_start_et": TRAIN_SYSTEM_START, "study_start_et": TRAIN_START,
             "study_end_et": TRAIN_END, "expected_sessions": TRAIN_EXPECTED_SESSIONS,
         })
+    if v31:
+        expected_start.update({
+            "entry_rule": "NEXT_5M_BAR_OPEN_RECONSTRUCTED_AT_BAR_END",
+            "entry_time_contract": "SIGNAL_BAR_END_EQUALS_ENTRY_BAR_START;OBSERVED_AT_ENTRY_BAR_END",
+            "final_bar_contract": "NEXT_SESSION_SELECT3_BY_EXPLICIT_BAR_ID",
+            "adjustment_contract": "LOCKED_OPEND_REHAB_V1",
+        })
     mismatches = [key for key, value in expected_start.items() if start.get(key) != value]
     if mismatches:
-        return ParseResult("STRATEGY_BATCH_V3", "INVALID", encoding, "FUTU_FACTOR_STRATEGY_V3", rows_total, rows_marked, parsed_rows, error="STRATEGY_V3_CONTRACT_MISMATCH:" + ",".join(mismatches))
+        return ParseResult(classification, "INVALID", encoding, marker, rows_total, rows_marked, parsed_rows, error="STRATEGY_CONTRACT_MISMATCH:" + ",".join(mismatches))
     if not re.fullmatch(r"[0-9a-f]{64}", str(start.get("strategy_hash", ""))):
-        return ParseResult("STRATEGY_BATCH_V3", "PARSE_FAILED", encoding, "FUTU_FACTOR_STRATEGY_V3", rows_total, rows_marked, parsed_rows, error="INVALID_STRATEGY_HASH")
+        return ParseResult(classification, "PARSE_FAILED", encoding, marker, rows_total, rows_marked, parsed_rows, error="INVALID_STRATEGY_HASH")
     identity_keys = ("batch_id", "run_id", "strategy_version", "strategy_hash", "parameter_version", "symbol", "timeframe", "session", "select", "timezone")
     identity = {key: start[key] for key in identity_keys}
     for event in events:
         for key, value in identity.items():
             if event.get(key) != value:
-                return ParseResult("STRATEGY_BATCH_V3", "PARSE_FAILED", encoding, "FUTU_FACTOR_STRATEGY_V3", rows_total, rows_marked, parsed_rows, error="STRATEGY_V3_IDENTITY_MISMATCH:" + key)
+                return ParseResult(classification, "PARSE_FAILED", encoding, marker, rows_total, rows_marked, parsed_rows, error="STRATEGY_IDENTITY_MISMATCH:" + key)
     try:
         signals: list[dict[str, Any]] = []
         signal_ids: set[str] = set()
@@ -1258,7 +1272,10 @@ def _parse_strategy_v3_events(
             if signal_id in signal_ids:
                 raise ValueError("DUPLICATE_STRATEGY_SIGNAL_ID")
             signal_ids.add(signal_id)
-            if item["candidate_id"] not in {"F007", "F008", "F009", "F010", "F011", "F012", "S01_BASE"}:
+            allowed_candidates = {"F007", "F008", "F009", "F010", "F011", "F012"}
+            if not v31:
+                allowed_candidates.add("S01_BASE")
+            if item["candidate_id"] not in allowed_candidates:
                 raise ValueError("UNKNOWN_STRATEGY_CANDIDATE")
             if item["direction"] not in {"LONG", "SHORT", "LOW", "NORMAL", "HIGH", "UNKNOWN"} or item["event_unit"] not in {"FIVE_MINUTE_EVENT", "OPENING_EVENT", "FIVE_MINUTE_STATE"}:
                 raise ValueError("INVALID_STRATEGY_SIGNAL_CLASS")
@@ -1282,30 +1299,89 @@ def _parse_strategy_v3_events(
                 for day, count in f012_counts.items()
             ):
                 raise ValueError("STRATEGY_F012_SESSION_COVERAGE_MISMATCH")
+        strategy_signals: list[dict[str, Any]] = []
+        strategy_signal_ids: set[str] = set()
+        if v31:
+            for item in (event for event in events if event["event_type"] == "STRATEGY_SIGNAL_EVENT"):
+                _required(item, {
+                    "signal_id", "strategy_id", "source_id", "direction",
+                    "signal_time_et", "signal_price", "time_bucket",
+                    "preopen_regime", "prior_day_context", "dynamic_regime",
+                    "vol_regime", "day_position", "gap_regime", "factor_filters",
+                })
+                signal_id = str(item["signal_id"])
+                if signal_id in strategy_signal_ids:
+                    raise ValueError("DUPLICATE_EXECUTABLE_SIGNAL_ID")
+                strategy_signal_ids.add(signal_id)
+                if item["strategy_id"] not in {"S01", "S02", "S03"}:
+                    raise ValueError("UNKNOWN_EXECUTABLE_STRATEGY")
+                expected_source = {"S01": "PULLBACK", "S02": "F011", "S03": "F008"}
+                if item["source_id"] != expected_source[item["strategy_id"]]:
+                    raise ValueError("EXECUTABLE_SIGNAL_SOURCE_MISMATCH")
+                if item["direction"] not in {"LONG", "SHORT"}:
+                    raise ValueError("INVALID_EXECUTABLE_DIRECTION")
+                _parse_time(item["signal_time_et"], "signal_time_et")
+                if not re.fullmatch(r"[01]{6}", str(item["factor_filters"])):
+                    raise ValueError("INVALID_FACTOR_FILTER_VECTOR")
+                row = dict(item)
+                row["signal_price"] = float(row["signal_price"])
+                if not math.isfinite(row["signal_price"]) or row["signal_price"] <= 0:
+                    raise ValueError("NONFINITE_EXECUTABLE_SIGNAL")
+                strategy_signals.append(row)
+        else:
+            strategy_signal_ids = set(signal_ids)
         trades: list[dict[str, Any]] = []
         trade_ids: set[str] = set()
         for item in (event for event in events if event["event_type"] == "TRADE_EVENT"):
             _required(item, {"trade_id", "signal_id", "strategy_id", "direction", "trade_date_et", "signal_time_et", "entry_time_et", "exit_time_et", "entry_price", "exit_price", "stop", "target", "gross_return", "cost_bps_per_side", "net_return", "net_return_cost_1bp", "net_return_cost_3bp", "mfe", "mae", "exit_reason", "ambiguous", "primary_path", "target_first_net_return"})
+            if v31:
+                _required(item, {
+                    "entry_observed_at_et", "entry_bar_end_et", "exit_bar_end_et",
+                    "exit_time_precision", "initial_risk", "reward_to_risk",
+                    "time_bucket", "preopen_regime", "prior_day_context",
+                    "dynamic_regime", "vol_regime", "day_position",
+                    "gap_regime", "factor_filters",
+                })
             trade_id = str(item["trade_id"])
             if trade_id in trade_ids:
                 raise ValueError("DUPLICATE_STRATEGY_TRADE_ID")
             trade_ids.add(trade_id)
-            if item["signal_id"] not in signal_ids or item["strategy_id"] not in {"S01", "S02", "S03"}:
+            if item["signal_id"] not in strategy_signal_ids or item["strategy_id"] not in {"S01", "S02", "S03"}:
                 raise ValueError("TRADE_WITHOUT_REGISTERED_SIGNAL")
-            signal = signal_by_id[str(item["signal_id"])]
-            if item["direction"] != signal["direction"] or item["signal_time_et"] != signal["signal_time_et"]:
+            signal = (
+                {row["signal_id"]: row for row in strategy_signals}[str(item["signal_id"])]
+                if v31 else signal_by_id[str(item["signal_id"])]
+            )
+            if (
+                item["strategy_id"] != signal.get("strategy_id", item["strategy_id"])
+                or item["direction"] != signal["direction"]
+                or item["signal_time_et"] != signal["signal_time_et"]
+            ):
                 raise ValueError("TRADE_SIGNAL_IDENTITY_MISMATCH")
             signal_time = _parse_time(item["signal_time_et"], "signal_time_et")
             entry_time = _parse_time(item["entry_time_et"], "entry_time_et")
             exit_time = _parse_time(item["exit_time_et"], "exit_time_et")
-            if (entry_time - signal_time).total_seconds() != 300 or exit_time < entry_time:
+            if v31:
+                observed_time = _parse_time(item["entry_observed_at_et"], "entry_observed_at_et")
+                bar_end_time = _parse_time(item["entry_bar_end_et"], "entry_bar_end_et")
+                if (
+                    entry_time != signal_time
+                    or observed_time != bar_end_time
+                    or (observed_time - entry_time).total_seconds() != 300
+                    or exit_time < observed_time
+                ):
+                    raise ValueError("NEXT_BAR_ENTRY_V3_1_CONTRACT_FAILED")
+            elif (entry_time - signal_time).total_seconds() != 300 or exit_time < entry_time:
                 raise ValueError("NEXT_BAR_ENTRY_CONTRACT_FAILED")
-            if item["exit_reason"] not in {"STOP", "TARGET", "TIME"}:
+            if item["exit_reason"] not in ({"STOP", "TARGET", "TIME", "GAP_STOP"} if v31 else {"STOP", "TARGET", "TIME"}):
                 raise ValueError("INVALID_EXIT_REASON")
             if bool(item["ambiguous"]) and item["primary_path"] != "STOP_FIRST":
                 raise ValueError("AMBIGUOUS_PATH_NOT_STOP_FIRST")
             row = dict(item)
-            for key in ("entry_price", "exit_price", "stop", "target", "gross_return", "net_return", "net_return_cost_1bp", "net_return_cost_3bp", "mfe", "mae", "target_first_net_return"):
+            numeric_keys = ["entry_price", "exit_price", "stop", "target", "gross_return", "net_return", "net_return_cost_1bp", "net_return_cost_3bp", "mfe", "mae", "target_first_net_return"]
+            if v31:
+                numeric_keys.extend(("initial_risk", "reward_to_risk"))
+            for key in numeric_keys:
                 row[key] = float(row[key])
                 if not math.isfinite(row[key]):
                     raise ValueError("NONFINITE_STRATEGY_TRADE")
@@ -1317,7 +1393,52 @@ def _parse_strategy_v3_events(
                 or row["mfe"] < 0 or row["mae"] < 0
             ):
                 raise ValueError("STRATEGY_COST_OR_EXCURSION_MISMATCH")
+            if v31:
+                sign = 1.0 if item["direction"] == "LONG" else -1.0
+                if row["initial_risk"] <= 0 or sign * (row["entry_price"] - row["stop"]) <= 0:
+                    raise ValueError("INVALID_ENTRY_RISK")
+                if abs(row["initial_risk"] - abs(row["entry_price"] - row["stop"])) > 1e-10:
+                    raise ValueError("INITIAL_RISK_MISMATCH")
+                expected_reward_to_risk = abs(row["target"] - row["entry_price"]) / row["initial_risk"]
+                if abs(row["reward_to_risk"] - expected_reward_to_risk) > 1e-10:
+                    raise ValueError("REWARD_TO_RISK_MISMATCH")
+                if item["strategy_id"] in {"S01", "S02"} and abs(row["reward_to_risk"] - 1.5) > 1e-10:
+                    raise ValueError("FIXED_R_MULTIPLE_MISMATCH")
+                if item["exit_reason"] == "GAP_STOP":
+                    if (sign > 0 and row["exit_price"] > row["stop"]) or (sign < 0 and row["exit_price"] < row["stop"]):
+                        raise ValueError("OPTIMISTIC_GAP_STOP_FILL")
             trades.append(row)
+        rejected_entries: list[dict[str, Any]] = []
+        if v31:
+            rejected_ids: set[tuple[str, str]] = set()
+            for item in (event for event in events if event["event_type"] == "ENTRY_REJECTED"):
+                _required(item, {
+                    "strategy_id", "signal_id", "direction", "signal_time_et",
+                    "decision_time_et", "reason",
+                })
+                identity_key = (str(item["signal_id"]), str(item["reason"]))
+                if identity_key in rejected_ids:
+                    raise ValueError("DUPLICATE_ENTRY_REJECTION")
+                rejected_ids.add(identity_key)
+                if item["signal_id"] not in strategy_signal_ids:
+                    raise ValueError("REJECTION_WITHOUT_EXECUTABLE_SIGNAL")
+                signal = {row["signal_id"]: row for row in strategy_signals}[str(item["signal_id"])]
+                if (
+                    item["strategy_id"] != signal["strategy_id"]
+                    or item["direction"] != signal["direction"]
+                    or item["signal_time_et"] != signal["signal_time_et"]
+                ):
+                    raise ValueError("REJECTION_SIGNAL_IDENTITY_MISMATCH")
+                if item["reason"] not in {
+                    "POSITION_BUSY", "STOP_CROSSED_BEFORE_ENTRY",
+                    "TARGET_CROSSED_BEFORE_ENTRY",
+                }:
+                    raise ValueError("UNKNOWN_ENTRY_REJECTION_REASON")
+                signal_time = _parse_time(item["signal_time_et"], "signal_time_et")
+                decision_time = _parse_time(item["decision_time_et"], "decision_time_et")
+                if decision_time < signal_time:
+                    raise ValueError("REJECTION_PRECEDES_SIGNAL")
+                rejected_entries.append(dict(item))
         tests = [dict(item) for item in events if item["event_type"] == "TEST_REGISTRY"]
         required_tests = {"CANDIDATE_SCREEN", "STRATEGY_BASELINE", "REGIME_INCREMENT", "TIME_INCREMENT", "REGIME_TIME_INTERACTION", "F001_F006_FILTER_INCREMENT"}
         if {str(item.get("test_id")) for item in tests} != required_tests:
@@ -1325,6 +1446,26 @@ def _parse_strategy_v3_events(
         for item in tests:
             _required(item, {"test_id", "layer", "family", "family_size", "adjustment", "cluster_unit"})
             item["family_size"] = int(item["family_size"])
+        if v31:
+            expected_registry = {
+                "CANDIDATE_SCREEN": ("CANDIDATE", 30),
+                "STRATEGY_BASELINE": ("L1", 6),
+                "REGIME_INCREMENT": ("L2_REGIME", 12),
+                "TIME_INCREMENT": ("L2_TIME", 24),
+                "REGIME_TIME_INTERACTION": ("L3", 6),
+                "F001_F006_FILTER_INCREMENT": ("L4", 36),
+            }
+            for item in tests:
+                layer, size = expected_registry[str(item["test_id"])]
+                if (
+                    item["layer"] != layer
+                    or item["family"] != item["test_id"]
+                    or item["family_size"] != size
+                    or item["adjustment"] != "MAX_T_PLUS_HOLM"
+                    or item["cluster_unit"] != "TRADING_DAY"
+                    or item.get("registered_before_train") is not True
+                ):
+                    raise ValueError("STRATEGY_TEST_REGISTRY_CONTRACT_MISMATCH")
         days = [dict(item) for item in events if item["event_type"] == "DAY_END"]
         expected_days = int(start["expected_sessions"])
         if len(days) != expected_days or any(item.get("status") != "COMPLETE" for item in days):
@@ -1333,6 +1474,11 @@ def _parse_strategy_v3_events(
             int(item.get("trade_count", -1)) for item in days
         ) != len(trades):
             raise ValueError("STRATEGY_DAY_COUNT_MISMATCH")
+        if v31 and (
+            sum(int(item.get("strategy_signal_count", -1)) for item in days) != len(strategy_signals)
+            or sum(int(item.get("rejected_entry_count", -1)) for item in days) != len(rejected_entries)
+        ):
+            raise ValueError("STRATEGY_DECISION_COUNT_MISMATCH")
         if not fixture and {item.get("session_date_et") for item in days} != expected_train_sessions():
             raise ValueError("STRATEGY_SESSION_SET_MISMATCH")
         errors = [item for item in events if item["event_type"] == "ERROR"]
@@ -1340,14 +1486,27 @@ def _parse_strategy_v3_events(
             raise ValueError("STRATEGY_RUN_END_INCOMPLETE")
         if int(end.get("completed_days", -1)) != expected_days or int(end.get("signal_count", -1)) != len(signals) or int(end.get("trade_count", -1)) != len(trades):
             raise ValueError("STRATEGY_RUN_END_COUNT_MISMATCH")
+        if v31:
+            if (
+                int(end.get("strategy_signal_count", -1)) != len(strategy_signals)
+                or int(end.get("rejected_entry_count", -1)) != len(rejected_entries)
+            ):
+                raise ValueError("STRATEGY_RUN_END_DECISION_COUNT_MISMATCH")
+            if not fixture and (
+                int(end.get("final_bars_injected", -1)) != 250
+                or int(end.get("basis_adjustments_applied", -1)) != 4
+            ):
+                raise ValueError("STRATEGY_BAR_LEDGER_INCOMPLETE")
     except (KeyError, TypeError, ValueError) as exc:
-        return ParseResult("STRATEGY_BATCH_V3", "INVALID", encoding, "FUTU_FACTOR_STRATEGY_V3", rows_total, rows_marked, parsed_rows, error=str(exc))
+        return ParseResult(classification, "INVALID", encoding, marker, rows_total, rows_marked, parsed_rows, error=str(exc))
     batch = {
         **identity, "study_start_et": start.get("study_start_et"),
         "study_end_et": start.get("study_end_et"), "run_status": "VALIDATED",
-        "signals": signals, "trades": trades, "tests": tests, "days": days,
+        "signals": signals, "strategy_signals": strategy_signals,
+        "trades": trades, "rejected_entries": rejected_entries,
+        "tests": tests, "days": days,
     }
-    return ParseResult("TEST_FIXTURE" if fixture else "STRATEGY_BATCH_V3", "VALIDATED", encoding, "FUTU_FACTOR_STRATEGY_V3", rows_total, rows_marked, parsed_rows, run={"strategy_batch": batch})
+    return ParseResult("TEST_FIXTURE" if fixture else classification, "VALIDATED", encoding, marker, rows_total, rows_marked, parsed_rows, run={"strategy_batch": batch})
 
 
 def parse_runlog(path: Path, *, allow_fixtures: bool = False) -> ParseResult:
@@ -1374,7 +1533,7 @@ def parse_runlog(path: Path, *, allow_fixtures: bool = False) -> ParseResult:
             rows_marked += 1
             version, payload = decoded
             versions.add(version)
-            if version not in {"FUTU_FACTOR_V1", "FUTU_FACTOR_BATCH_V1", "FUTU_FACTOR_STRATEGY_V3"}:
+            if version not in {"FUTU_FACTOR_V1", "FUTU_FACTOR_BATCH_V1", "FUTU_FACTOR_STRATEGY_V3", "FUTU_FACTOR_STRATEGY_V3_1"}:
                 continue
             _required(
                 payload,
@@ -1419,6 +1578,13 @@ def parse_runlog(path: Path, *, allow_fixtures: bool = False) -> ParseResult:
             _parse_strategy_v3_events(
                 events, encoding=encoding, rows_total=rows_total, rows_marked=rows_marked,
                 parsed_rows=parsed_rows, allow_fixtures=allow_fixtures,
+            ), text,
+        )
+    if versions == {"FUTU_FACTOR_STRATEGY_V3_1"}:
+        return _attach_system_log_lifecycle(
+            _parse_strategy_v3_events(
+                events, encoding=encoding, rows_total=rows_total, rows_marked=rows_marked,
+                parsed_rows=parsed_rows, allow_fixtures=allow_fixtures, v31=True,
             ), text,
         )
     if versions != {"FUTU_FACTOR_V1"}:

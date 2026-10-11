@@ -605,3 +605,12 @@ def test_v311_import_is_atomic_visible_and_keeps_v31_compatible(tmp_path):
     )
     assert len(research["inference_results"]) == 114
     assert len(research["inference_families"]) == 6
+
+
+def test_dashboard_waiting_state_points_to_v311_and_futu_code_check(tmp_path):
+    db = Database(tmp_path / "factor.sqlite3")
+    db.initialize()
+    snapshot = db.dashboard_snapshot()
+    assert "V3.1.1" in snapshot["strategy_research"]["warning"]
+    assert "SPY_C1_STRATEGY_BATCH_TRAIN_V3_1_1.py" in snapshot["summary"]["next_action"]
+    assert "先通过富途代码检查" in snapshot["summary"]["next_action"]

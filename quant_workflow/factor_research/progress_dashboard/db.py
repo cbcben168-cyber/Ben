@@ -1491,7 +1491,7 @@ class Database:
         )
         if not batches:
             return {
-                "status": "NOT_TESTED", "warning": "尚未导入 Strategy-First V3 TRAIN 数据。",
+                "status": "NOT_TESTED", "warning": "尚未导入 Strategy-First V3.1.1 TRAIN 数据。",
                 "batches": [], "metrics": [], "candidate_metrics": [], "tests": [], "event_units": [],
                 "inference_results": [], "inference_families": [],
             }
@@ -1708,7 +1708,7 @@ class Database:
         }
         if strategy_research["status"] == "NOT_TESTED":
             summary["next_action"] = (
-                "复制 SPY_C1_STRATEGY_BATCH_TRAIN_V3.py，在富途运行一次 TRAIN 并导出一份 CSV。"
+                "复制 SPY_C1_STRATEGY_BATCH_TRAIN_V3_1_1.py；先通过富途代码检查，再运行一次 TRAIN 并导出一份 CSV。"
             )
         elif strategy_research["status"] == "VALIDATED":
             summary["next_action"] = (

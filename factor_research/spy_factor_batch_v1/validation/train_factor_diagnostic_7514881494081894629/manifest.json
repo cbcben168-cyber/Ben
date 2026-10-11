@@ -1,0 +1,50 @@
+{
+  "boundaries": {
+    "dashboard_gate_upgrade": "PROHIBITED",
+    "edge_claim": "PROHIBITED",
+    "executable_strategy_net_return": "NOT_TESTED",
+    "raw_run_status": "INCOMPLETE",
+    "supplemental_audit_status": "SUPPORTED",
+    "validation_oos": "NOT_RUN"
+  },
+  "contract": "C1_TRAIN_FACTOR_DIAGNOSTIC_V1",
+  "inputs": {
+    "analysis_script_sha256": "b84e38077958ce3515252f13ce15a5f1ee0bab07e4c37183450ff67f1c184d57",
+    "ema_audit_manifest_sha256": "f1f750867dd4a32eaf74d4d776dcf47002f0aa7f5b123db4177e57c4a1a266da",
+    "raw_run_sha256": "bda31dddd8fc878663ce6827f11cb336ab4508c0fe0459259d88e321827af742"
+  },
+  "outputs": {
+    "REPORT_CN.md": {
+      "bytes": 8825,
+      "sha256": "cc358501fc228823445d241f7fefe08af35373fe2440c8fbf2c527f5851b1c61"
+    },
+    "daily_stability.csv": {
+      "bytes": 450184,
+      "sha256": "5736333976af02d1f0bf0ca0ad7a4b549dde3050b8ff01648e7587e4ca3691bd"
+    },
+    "diagnostic_summary.json": {
+      "bytes": 2253,
+      "sha256": "2045763f26e33d5eba0f96327dcb6ca9e5ffe8172c77dae4a7cf2313c3302738"
+    },
+    "factor_window_summary.csv": {
+      "bytes": 11674,
+      "sha256": "ec87413210a16885ee34ac2cc09b9f8905bd8452b674329e5b5c6d00ca3b4b47"
+    },
+    "monthly_stability.csv": {
+      "bytes": 23008,
+      "sha256": "7596c40d0cbed48617d282dd1bbd5340c728c2e61e061e9e25b4665501b29228"
+    },
+    "non_overlap_phases.csv": {
+      "bytes": 17388,
+      "sha256": "1af97563f92f015060354d20780b1d570056a66ffb5f98d52c952f5c7cbd70fb"
+    },
+    "signal_redundancy.csv": {
+      "bytes": 2567,
+      "sha256": "52e662ec23822f799cc70aa0073b36e03a27dc704ad85c85c38396d913cac299"
+    },
+    "time_bucket_matched.csv": {
+      "bytes": 4800793,
+      "sha256": "c6c15a98d1d9609ec6a5b9b2b277da38bdecfbb56fd8731e3278e7bfc683d303"
+    }
+  }
+}

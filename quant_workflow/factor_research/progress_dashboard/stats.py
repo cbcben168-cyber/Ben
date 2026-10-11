@@ -4,6 +4,7 @@ from collections import defaultdict
 import hashlib
 import random
 from statistics import mean, median, pstdev
+from itertools import combinations
 
 
 def compute_statistics(signals: list[dict], labels: list[dict]) -> list[dict]:
@@ -91,6 +92,27 @@ def _summary(values: list[float]) -> dict:
     }
 
 
+def compute_distribution_statistics(signals: list[dict], labels: list[dict]) -> list[dict]:
+    """Return distribution details separately from the persisted statistics schema."""
+    factor_by_signal = {item["signal_id"]: item["factor_value"] for item in signals}
+    grouped: dict[tuple[int, str], list[float]] = defaultdict(list)
+    for item in labels:
+        horizon = int(item["horizon_minutes"])
+        value = float(item["forward_return"])
+        cohort = factor_by_signal[item["signal_id"]]
+        grouped[(horizon, "ALL")].append(value)
+        grouped[(horizon, cohort)].append(value)
+    return [
+        {
+            "horizon_minutes": horizon,
+            "cohort": cohort,
+            **_summary(grouped.get((horizon, cohort), [])),
+        }
+        for horizon in (15, 30, 60)
+        for cohort in ("ALL", "PASS", "FAIL")
+    ]
+
+
 def _difference(pass_values: list[float], fail_values: list[float]) -> float | None:
     if not pass_values or not fail_values:
         return None
@@ -108,12 +130,62 @@ def _percentile(values: list[float], percentile: float) -> float | None:
     return ordered[lower] * (1 - fraction) + ordered[upper] * fraction
 
 
+def _time_bucket(time_text: str, minutes: int = 30) -> tuple[int, str]:
+    hour, minute = (int(value) for value in time_text.split(":")[:2])
+    anchor = 9 * 60 + 35
+    offset = hour * 60 + minute - anchor
+    if offset < 0:
+        raise ValueError("signal time precedes the 09:35 RTH analysis anchor")
+    bucket = offset // minutes
+    start = anchor + bucket * minutes
+    end = start + minutes
+    label = f"[{start // 60:02d}:{start % 60:02d},{end // 60:02d}:{end % 60:02d})"
+    return bucket, label
+
+
+def compute_signal_redundancy(
+    states_by_factor: dict[str, dict[str, str]],
+) -> list[dict]:
+    """Compare aligned binary factor states without using future returns."""
+    rows: list[dict] = []
+    for factor_a, factor_b in combinations(sorted(states_by_factor), 2):
+        states_a = states_by_factor[factor_a]
+        states_b = states_by_factor[factor_b]
+        if set(states_a) != set(states_b):
+            raise ValueError("factor signal ids are not aligned")
+        pairs = [(states_a[key] == "PASS", states_b[key] == "PASS") for key in sorted(states_a)]
+        if any(states_a[key] not in {"PASS", "FAIL"} for key in states_a):
+            raise ValueError("factor states must be PASS or FAIL")
+        if any(states_b[key] not in {"PASS", "FAIL"} for key in states_b):
+            raise ValueError("factor states must be PASS or FAIL")
+        n11 = sum(a and b for a, b in pairs)
+        n10 = sum(a and not b for a, b in pairs)
+        n01 = sum(not a and b for a, b in pairs)
+        n00 = sum(not a and not b for a, b in pairs)
+        denominator = ((n11 + n10) * (n01 + n00) * (n11 + n01) * (n10 + n00)) ** 0.5
+        rows.append(
+            {
+                "factor_a": factor_a,
+                "factor_b": factor_b,
+                "n": len(pairs),
+                "both_pass_n": n11,
+                "agreement_rate": (n11 + n00) / len(pairs) if pairs else None,
+                "phi": ((n11 * n00 - n10 * n01) / denominator) if denominator else None,
+                "pass_jaccard": n11 / (n11 + n10 + n01) if n11 + n10 + n01 else None,
+                "a_pass_given_b_pass": n11 / (n11 + n01) if n11 + n01 else None,
+                "b_pass_given_a_pass": n11 / (n11 + n10) if n11 + n10 else None,
+            }
+        )
+    return rows
+
+
 def compute_train_analysis(
     signals: list[dict],
     labels: list[dict],
     *,
     seed_key: str,
     bootstrap_replicates: int = 5000,
+    multiple_testing_family_size: int = 18,
 ) -> list[dict]:
     """Compute pre-registered TRAIN diagnostics without treating events as independent."""
     signal_by_id = {item["signal_id"]: item for item in signals}
@@ -148,6 +220,7 @@ def compute_train_analysis(
         phase_groups: list[dict[str, list[float]]] = [
             {"ALL": [], "PASS": [], "FAIL": []} for _ in range(horizon_bars)
         ]
+        time_bucket_groups: dict[tuple[str, int], dict[str, object]] = {}
         for item in observations:
             value = item["value"]
             cohort = item["cohort"]
@@ -159,6 +232,14 @@ def compute_train_analysis(
             phase = position % horizon_bars
             phase_groups[phase]["ALL"].append(value)
             phase_groups[phase][cohort].append(value)
+            bucket, bucket_label = _time_bucket(item["time"])
+            stratum = time_bucket_groups.setdefault(
+                (item["day"], bucket),
+                {"day": item["day"], "bucket": bucket, "bucket_label": bucket_label,
+                 "ALL": [], "PASS": [], "FAIL": []},
+            )
+            stratum["ALL"].append(value)
+            stratum[cohort].append(value)
 
         daily: list[dict] = []
         cluster_rows: list[dict] = []
@@ -211,6 +292,28 @@ def compute_train_analysis(
                 }
             )
 
+        time_bucket_matched: list[dict] = []
+        for key in sorted(time_bucket_groups):
+            groups = time_bucket_groups[key]
+            difference_bps = _difference(groups["PASS"], groups["FAIL"])
+            pass_n = len(groups["PASS"])
+            fail_n = len(groups["FAIL"])
+            match_weight = (
+                pass_n * fail_n / (pass_n + fail_n) if pass_n and fail_n else 0.0
+            )
+            time_bucket_matched.append(
+                {
+                    "day": groups["day"],
+                    "bucket": groups["bucket"],
+                    "bucket_label": groups["bucket_label"],
+                    "baseline": _summary(groups["ALL"]),
+                    "pass": _summary(groups["PASS"]),
+                    "fail": _summary(groups["FAIL"]),
+                    "pass_fail_diff_bps": difference_bps,
+                    "fixed_effect_weight": match_weight,
+                }
+            )
+
         bootstrap_values: list[float] = []
         if cluster_rows:
             seed_material = f"{seed_key}|{horizon_minutes}|TRAIN_CLUSTER_BOOTSTRAP_V1"
@@ -241,6 +344,25 @@ def compute_train_analysis(
             for item in monthly
             if item["pass_fail_diff_bps"] is not None
         ]
+        matched_differences = [
+            item["pass_fail_diff_bps"]
+            for item in time_bucket_matched
+            if item["pass_fail_diff_bps"] is not None
+        ]
+        matched_weight_total = sum(
+            item["fixed_effect_weight"] for item in time_bucket_matched
+        )
+        fixed_effect_diff_bps = (
+            sum(
+                item["pass_fail_diff_bps"] * item["fixed_effect_weight"]
+                for item in time_bucket_matched
+                if item["pass_fail_diff_bps"] is not None
+            )
+            / matched_weight_total
+            if matched_weight_total
+            else None
+        )
+        tail_alpha = 0.05 / (2 * multiple_testing_family_size)
         all_pass_days = sum(item["fail"]["n"] == 0 and item["pass"]["n"] > 0 for item in daily)
         all_fail_days = sum(item["pass"]["n"] == 0 and item["fail"]["n"] > 0 for item in daily)
         results.append(
@@ -251,6 +373,19 @@ def compute_train_analysis(
                 "daily": daily,
                 "monthly": monthly,
                 "non_overlap_phases": non_overlap_phases,
+                "time_bucket_matched": time_bucket_matched,
+                "same_day_time_bucket": {
+                    "bucket_minutes": 30,
+                    "anchor": "09:35 America/New_York",
+                    "strata_total": len(time_bucket_matched),
+                    "strata_matched": len(matched_differences),
+                    "mean_stratum_diff_bps": mean(matched_differences) if matched_differences else None,
+                    "median_stratum_diff_bps": median(matched_differences) if matched_differences else None,
+                    "fixed_effect_diff_bps": fixed_effect_diff_bps,
+                    "fixed_effect_weight_total": matched_weight_total,
+                    "positive_strata": sum(value > 0 for value in matched_differences),
+                    "negative_strata": sum(value < 0 for value in matched_differences),
+                },
                 "cluster_bootstrap": {
                     "unit": "trading_day",
                     "replicates_requested": bootstrap_replicates,
@@ -258,6 +393,10 @@ def compute_train_analysis(
                     "ci_low_bps": _percentile(bootstrap_values, 0.025),
                     "median_bps": _percentile(bootstrap_values, 0.5),
                     "ci_high_bps": _percentile(bootstrap_values, 0.975),
+                    "multiple_testing_family_size": multiple_testing_family_size,
+                    "bonferroni_simultaneous_confidence": 0.95,
+                    "bonferroni_ci_low_bps": _percentile(bootstrap_values, tail_alpha),
+                    "bonferroni_ci_high_bps": _percentile(bootstrap_values, 1 - tail_alpha),
                     "seed_method": "sha256(run_instance_id|horizon|method)",
                 },
                 "stability": {
@@ -276,6 +415,8 @@ def compute_train_analysis(
                     "overlapping events are not independent samples",
                     "bootstrap resamples whole trading days",
                     "all non-overlapping phases are reported without phase selection",
+                    "same-day time matching uses every fixed 30-minute bucket anchored at 09:35 ET",
+                    "18 factor-horizon tests are reported with Bonferroni simultaneous intervals",
                     "TRAIN evidence cannot establish Validation or OOS support",
                 ],
             }

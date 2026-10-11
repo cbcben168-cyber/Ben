@@ -100,7 +100,7 @@
   </section>
 
   <section class="panel">
-    <div class="panel-head"><div><h2>C1 Strategy-First V3.1</h2><span class="muted">S01 趋势回踩、S02 开盘区间突破、S03 震荡回归；TRAIN 不等于 Edge。</span></div></div>
+    <div class="panel-head"><div><h2>C1 Strategy-First V3.1.1</h2><span class="muted">S01 趋势回踩、S02 开盘区间突破、S03 震荡回归；TRAIN 不等于 Edge。</span></div></div>
     <div id="strategyWarning" class="notice">正在读取第二批研究状态…</div>
     <div class="table-wrap"><table><thead><tr>
       <th>策略</th><th>方向</th><th>交易数 / 交易日 / 执行覆盖</th><th>扣成本净期望</th><th>PF</th><th>复合单位资金回撤</th><th>MFE / MAE</th><th>日聚类95%区间</th><th>路径不确定</th>
@@ -194,7 +194,7 @@
       <td><b>${esc(x.strategy_id)}</b></td><td>${esc(x.direction)}</td><td>${esc(x.trade_count)} / ${esc(x.trading_days)} / ${rate(x.execution_coverage)}</td>
       <td>${pct(x.net_mean)}</td><td>${isNil(x.profit_factor)?'未测试':Number(x.profit_factor).toFixed(2)}</td><td>${pct(x.max_drawdown)}</td>
       <td>${pct(x.mfe_mean)} / ${pct(x.mae_mean)}</td><td>${pct(x.cluster_ci_low)} 至 ${pct(x.cluster_ci_high)}</td>
-      <td>${esc(x.ambiguous_count)} 笔</td></tr>`).join(''):'<tr><td colspan="9" class="empty">尚未测试：等待一次完整 V3.1 TRAIN CSV。</td></tr>';
+      <td>${esc(x.ambiguous_count)} 笔</td></tr>`).join(''):'<tr><td colspan="9" class="empty">尚未测试：等待一次完整 V3.1.1 TRAIN CSV。</td></tr>';
     document.getElementById('candidateRows').innerHTML=research.candidate_metrics.length?research.candidate_metrics.map(x=>`<tr>
       <td><b>${esc(x.candidate_id)}</b></td><td>${esc(x.direction)}</td><td>${esc(x.event_unit)}</td><td>${esc(x.horizon_minutes)} 分钟</td>
       <td>${esc(x.n)} / ${esc(x.trading_days)}</td><td>${pct(x.raw_mean)}</td><td>${pct(x.directional_mean)}</td>

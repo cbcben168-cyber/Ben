@@ -124,6 +124,12 @@ class Database:
             / "spy_factor_batch_v1"
             / "SPY_C1_STRATEGY_BATCH_TRAIN_V3_1.py"
         )
+        self.strategy_v3_1_1_path = (
+            repo_root
+            / "factor_research"
+            / "spy_factor_batch_v1"
+            / "SPY_C1_STRATEGY_BATCH_TRAIN_V3_1_1.py"
+        )
 
     def connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.path, timeout=10)
@@ -1259,8 +1265,17 @@ class Database:
         batch_instance_id = hashlib.sha256(
             f"{file_sha256}|{batch['batch_id']}".encode("utf-8")
         ).hexdigest()
-        is_v31 = batch["strategy_version"] == "FUTU_C1_STRATEGY_BATCH_TRAIN_V3_1"
-        expected_path = self.strategy_v3_1_path if is_v31 else self.strategy_v3_path
+        version = batch["strategy_version"]
+        is_v311 = version == "FUTU_C1_STRATEGY_BATCH_TRAIN_V3_1_1"
+        is_modern = version in {
+            "FUTU_C1_STRATEGY_BATCH_TRAIN_V3_1",
+            "FUTU_C1_STRATEGY_BATCH_TRAIN_V3_1_1",
+        }
+        expected_path = (
+            self.strategy_v3_1_1_path if is_v311
+            else self.strategy_v3_1_path if is_modern
+            else self.strategy_v3_path
+        )
         if batch["strategy_hash"] != canonical_strategy_hash(expected_path):
             self.update_source(
                 file_sha256,
@@ -1277,10 +1292,10 @@ class Database:
                 batch["trades"],
                 seed_key=batch_instance_id,
             )
-            if is_v31
+            if is_modern
             else {"results": [], "families": [], "study_days": 0}
         )
-        if is_v31:
+        if is_modern:
             signal_counts: dict[tuple[str, str], int] = {}
             for item in batch["strategy_signals"]:
                 key = (str(item["strategy_id"]), str(item["direction"]))
@@ -1560,9 +1575,11 @@ class Database:
         return {
             "status": batches[0]["run_status"],
             "warning": (
-                "V3.1 TRAIN 补充研究展示；同时区间与 Holm 已执行，但 TRAIN 仍不构成 Edge。"
+                "V3.1.1 TRAIN 补充研究展示；同时区间与 Holm 已执行，但 TRAIN 仍不构成 Edge。"
+                if batches[0]["strategy_version"] == "FUTU_C1_STRATEGY_BATCH_TRAIN_V3_1_1"
+                else "V3.1 历史数据继续兼容；新正式 TRAIN 应使用V3.1.1。"
                 if batches[0]["strategy_version"] == "FUTU_C1_STRATEGY_BATCH_TRAIN_V3_1"
-                else "旧 V3 仅保留历史兼容；正式 TRAIN 前应使用 V3.1。"
+                else "旧 V3 仅保留历史兼容；新正式 TRAIN 应使用V3.1.1。"
             ),
             "batches": batches, "metrics": metrics, "candidate_metrics": candidate_metrics,
             "tests": tests, "event_units": units,

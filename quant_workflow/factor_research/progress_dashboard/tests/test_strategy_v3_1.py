@@ -19,6 +19,7 @@ STRATEGY = (
     / "spy_factor_batch_v1"
     / "SPY_C1_STRATEGY_BATCH_TRAIN_V3_1.py"
 )
+COMPAT_STRATEGY = STRATEGY.with_name("SPY_C1_STRATEGY_BATCH_TRAIN_V3_1_1.py")
 AUDIT = (
     ROOT
     / "factor_research"
@@ -36,22 +37,24 @@ REGISTRY = (
 )
 
 
-def _strategy():
+def _strategy(path: Path = STRATEGY):
     namespace = {"StrategyBase": object}
-    exec(compile(STRATEGY.read_text(encoding="utf-8"), str(STRATEGY), "exec"), namespace)
+    exec(compile(path.read_text(encoding="utf-8"), str(path), "exec"), namespace)
     strategy = namespace["Strategy"]()
     strategy.setup()
     return strategy
 
 
-def _common() -> dict:
+def _common(strategy_path: Path = STRATEGY) -> dict:
+    compat = strategy_path == COMPAT_STRATEGY
+    suffix = "V3_1_1" if compat else "V3_1"
     return {
-        "contract_version": "3.1",
-        "batch_id": "TEST_STRATEGY_V3_1",
-        "run_id": "TEST_STRATEGY_V3_1",
-        "strategy_version": "FUTU_C1_STRATEGY_BATCH_TRAIN_V3_1",
-        "strategy_hash": canonical_strategy_hash(STRATEGY),
-        "parameter_version": "C1-STRATEGY-FIRST-TRAIN-V3.1",
+        "contract_version": "3.1.1" if compat else "3.1",
+        "batch_id": "TEST_STRATEGY_" + suffix,
+        "run_id": "TEST_STRATEGY_" + suffix,
+        "strategy_version": "FUTU_C1_STRATEGY_BATCH_TRAIN_" + suffix,
+        "strategy_hash": canonical_strategy_hash(strategy_path),
+        "parameter_version": "C1-STRATEGY-FIRST-TRAIN-V3.1.1" if compat else "C1-STRATEGY-FIRST-TRAIN-V3.1",
         "symbol": "US.SPY",
         "timeframe": "5m",
         "bar_type": "K_5M",
@@ -61,8 +64,12 @@ def _common() -> dict:
     }
 
 
-def _write_fixture(path: Path, *, bad_entry_label: bool = False) -> Path:
-    common = _common()
+def _write_fixture(
+    path: Path, *, bad_entry_label: bool = False,
+    strategy_path: Path = STRATEGY,
+) -> Path:
+    common = _common(strategy_path)
+    compat = strategy_path == COMPAT_STRATEGY
     et = timezone(timedelta(hours=-4))
     signal_time = datetime(2026, 6, 30, 10, 0, tzinfo=et)
     observed_time = signal_time + timedelta(minutes=5)
@@ -78,7 +85,7 @@ def _write_fixture(path: Path, *, bad_entry_label: bool = False) -> Path:
             "candidate_ids": "F007,F008,F009,F010,F011,F012",
             "strategy_ids": "S01,S02,S03",
             "definition_hash": "0c73ae4ef39fda9aa472d59d2cf53cfebf7872595618319fb55bb557f4e4d562",
-            "parameter_attempt": 2,
+            "parameter_attempt": 3 if compat else 2,
             "entry_rule": "NEXT_5M_BAR_OPEN_RECONSTRUCTED_AT_BAR_END",
             "entry_time_contract": "SIGNAL_BAR_END_EQUALS_ENTRY_BAR_START;OBSERVED_AT_ENTRY_BAR_END",
             "final_bar_contract": "NEXT_SESSION_SELECT3_BY_EXPLICIT_BAR_ID",
@@ -222,7 +229,7 @@ def _write_fixture(path: Path, *, bad_entry_label: bool = False) -> Path:
             writer.writerow(
                 (
                     index,
-                    "FUTU_FACTOR_STRATEGY_V3_1|"
+                    ("FUTU_FACTOR_STRATEGY_V3_1_1|" if compat else "FUTU_FACTOR_STRATEGY_V3_1|")
                     + json.dumps(record, separators=(",", ":")),
                 )
             )
@@ -385,7 +392,12 @@ def test_opend_evidence_covers_bar_identity_half_days_and_rehab():
     assert by_day["2026-04-01"][-1]["close"] == by_day["2026-04-01"][-2]["close"]
 
 
-def test_opend_replay_injects_each_final_bar_once_and_matches_independent_indicators():
+@pytest.mark.parametrize(
+    "strategy_path", [STRATEGY, COMPAT_STRATEGY], ids=("v3.1", "v3.1.1")
+)
+def test_opend_replay_injects_each_final_bar_once_and_matches_independent_indicators(
+    strategy_path: Path,
+):
     with (AUDIT / "opend_5m_ohlc.csv").open(newline="", encoding="utf-8") as handle:
         rows = list(csv.DictReader(handle))
     with (AUDIT / "opend_rehab.csv").open(newline="", encoding="utf-8") as handle:
@@ -410,7 +422,7 @@ def test_opend_replay_injects_each_final_bar_once_and_matches_independent_indica
                 product *= factor
         return product
 
-    strategy = _strategy()
+    strategy = _strategy(strategy_path)
     reference_ema20 = None
     reference_ema50 = None
     reference_bars = []
@@ -569,3 +581,27 @@ def test_v31_import_is_atomic_visible_and_rejects_wrong_entry_label(tmp_path):
     parsed = parse_runlog(bad, allow_fixtures=True)
     assert parsed.run is None
     assert "NEXT_BAR_ENTRY_V3_1_CONTRACT_FAILED" in parsed.error
+
+
+def test_v311_import_is_atomic_visible_and_keeps_v31_compatible(tmp_path):
+    db = Database(tmp_path / "factor.sqlite3")
+    db.initialize()
+    importer = Importer(db, allow_fixtures=True)
+
+    v31 = importer.import_file(_write_fixture(tmp_path / "RunLog_V31.csv"))
+    v311 = importer.import_file(
+        _write_fixture(
+            tmp_path / "RunLog_V311.csv", strategy_path=COMPAT_STRATEGY
+        )
+    )
+    duplicate = importer.import_file(tmp_path / "RunLog_V311.csv")
+
+    assert v31["status"] == "VALIDATED"
+    assert v311["status"] == "VALIDATED"
+    assert duplicate["status"] == "DUPLICATE"
+    research = db.dashboard_snapshot()["strategy_research"]
+    assert research["batches"][0]["strategy_version"] == (
+        "FUTU_C1_STRATEGY_BATCH_TRAIN_V3_1_1"
+    )
+    assert len(research["inference_results"]) == 114
+    assert len(research["inference_families"]) == 6

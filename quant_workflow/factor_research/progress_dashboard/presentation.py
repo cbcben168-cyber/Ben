@@ -153,8 +153,8 @@ def import_error_zh(error: Any) -> dict[str, str]:
         "REJECTION_", "STRATEGY_TEST_", "HOLM_",
     )):
         message, action = (
-            "Strategy-First V3.1 CSV 未通过版本、时序、完整性、成交路径或统计合同，已整批拒绝。",
-            "请保留原始 CSV，使用 SPY_C1_STRATEGY_BATCH_TRAIN_V3_1.py 原样重跑，并检查 DAY_END/RUN_END。",
+            "Strategy-First V3.1/V3.1.1 CSV 未通过版本、时序、完整性、成交路径或统计合同，已整批拒绝。",
+            "请保留原始 CSV；新运行使用 SPY_C1_STRATEGY_BATCH_TRAIN_V3_1_1.py，并检查 DAY_END/RUN_END。",
         )
     elif raw.startswith(
         (

@@ -24,9 +24,10 @@ from factor_research.phase4_mechanism_study.input_integrity import (
     validate_rehab_frame,
 )
 from factor_research.phase4_mechanism_study.mechanisms import scan_all
+from factor_research.phase4_mechanism_study.simulator import replay_scan
 from factor_research.phase4_mechanism_study.volatility import expected_bar_ends, qualify_ohlc
 
-from .conftest import synthetic_frame, synthetic_schedule
+from .conftest import set_bar, synthetic_frame, synthetic_schedule
 
 
 def _raw(rows: list[tuple[str, float, float, float, float]]) -> pd.DataFrame:
@@ -172,6 +173,105 @@ def test_appending_future_session_does_not_change_prior_asof_scan() -> None:
 
     day = short_schedule[-1].session_date
     assert scan_all(adjusted_data(short_schedule), day) == scan_all(adjusted_data(long_schedule), day)
+
+
+def test_future_multiplicative_corporate_action_changes_coordinates_not_decisions() -> None:
+    schedule = synthetic_schedule(25)
+    raw = synthetic_frame(schedule).drop(columns="adjustment_basis")
+    raw["source_adjustment_basis"] = RAW_BASIS
+
+    m06_day = schedule[22].session_date
+    set_bar(raw, m06_day, 0, open=102.0, high=102.5, low=101.5, close=102.0)
+    set_bar(raw, m06_day, 1, open=101.6, high=101.7, low=100.9, close=101.0)
+    m01_day = schedule[23].session_date
+    set_bar(raw, m01_day, 12, open=99.6, high=100.0, low=99.3, close=99.8)
+    set_bar(raw, m01_day, 13, open=99.8, high=100.1, low=99.7, close=99.9)
+    m02_day = schedule[24].session_date
+    indices = raw.index[raw["session_date"].eq(m02_day)]
+    raw.loc[indices[18:24], ["open", "high", "low", "close"]] = [100.0, 100.2, 99.8, 100.0]
+    set_bar(raw, m02_day, 24, open=100.0, high=101.5, low=99.9, close=101.5)
+    set_bar(raw, m02_day, 25, open=100.0, high=100.5, low=99.9, close=100.4)
+
+    baseline_events = (RehabEvent("2000-01-01", 0.9, 0.0, 0.0),)
+    future_factor = 0.95
+    extended_events = (*baseline_events, RehabEvent("2099-01-01", future_factor, 0.0, 0.0))
+    baseline_frame, _ = apply_dynamic_forward_adjustments(raw, baseline_events)
+    extended_frame, _ = apply_dynamic_forward_adjustments(raw, extended_events)
+    baseline = qualify_ohlc(
+        baseline_frame[["session_date", "time_et", *PRICE_COLUMNS, "adjustment_basis"]],
+        schedule,
+        expected_session_count=len(schedule),
+    )
+    extended = qualify_ohlc(
+        extended_frame[["session_date", "time_et", *PRICE_COLUMNS, "adjustment_basis"]],
+        schedule,
+        expected_session_count=len(schedule),
+    )
+    np.testing.assert_allclose(
+        extended.bars.loc[:, PRICE_COLUMNS].to_numpy(dtype=float),
+        baseline.bars.loc[:, PRICE_COLUMNS].to_numpy(dtype=float) * future_factor,
+        rtol=0,
+        atol=1e-12,
+    )
+    np.testing.assert_allclose(
+        extended.daily[["daily_tr", "daily_atr20"]].to_numpy(dtype=float),
+        baseline.daily[["daily_tr", "daily_atr20"]].to_numpy(dtype=float) * future_factor,
+        rtol=0,
+        atol=1e-12,
+        equal_nan=True,
+    )
+
+    for day in (m06_day, m01_day, m02_day):
+        baseline_scans = scan_all(baseline, day)
+        extended_scans = scan_all(extended, day)
+        for hypothesis_id in baseline_scans:
+            left = baseline_scans[hypothesis_id]
+            right = extended_scans[hypothesis_id]
+            assert (left.status, left.evaluated_positions) == (right.status, right.evaluated_positions)
+            assert (left.signal is None) == (right.signal is None)
+            if left.signal is None or right.signal is None:
+                continue
+            assert (
+                left.signal.hypothesis_id,
+                left.signal.session_date,
+                left.signal.bar_in_session,
+                left.signal.global_pos,
+                left.signal.direction,
+                left.signal.target_kind,
+                left.signal.holding_bars,
+            ) == (
+                right.signal.hypothesis_id,
+                right.signal.session_date,
+                right.signal.bar_in_session,
+                right.signal.global_pos,
+                right.signal.direction,
+                right.signal.target_kind,
+                right.signal.holding_bars,
+            )
+            assert right.signal.stop_price == pytest.approx(left.signal.stop_price * future_factor)
+            if left.signal.target_kind == "FIXED_PRICE":
+                assert right.signal.target_value == pytest.approx(left.signal.target_value * future_factor)
+            else:
+                assert right.signal.target_value == left.signal.target_value
+            left_replay = replay_scan(baseline, left)
+            right_replay = replay_scan(extended, right)
+            assert (
+                left_replay.status,
+                left_replay.cancellation_reason,
+                left_replay.exit_reason_stop_first,
+                left_replay.exit_reason_target_first,
+            ) == (
+                right_replay.status,
+                right_replay.cancellation_reason,
+                right_replay.exit_reason_stop_first,
+                right_replay.exit_reason_target_first,
+            )
+            assert right_replay.gross_return_stop_first == pytest.approx(
+                left_replay.gross_return_stop_first, abs=1e-14
+            )
+            assert right_replay.gross_return_target_first == pytest.approx(
+                left_replay.gross_return_target_first, abs=1e-14
+            )
 
 
 def test_gap_uses_same_adjusted_basis_at_event_boundary() -> None:

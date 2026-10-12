@@ -1,0 +1,29 @@
+{
+  "attempt_id": "P4_TRAIN_V1_ONE_SHOT",
+  "runner_version": "PHASE4_TRAIN_RUNNER_V1",
+  "status": "REGISTERED_NOT_STARTED",
+  "authorization_flag": "--authorize-one-shot-train P4_TRAIN_V1_ONE_SHOT",
+  "phase42_commit": "e6b8737f0cc5cbb7314a8f37e7e44be72d803ed6",
+  "phase41_rule_hash_sha256": "dc9b4201cbd4d11d9f7273f5bff0d31effed977f4f15522b4a051fac43a894cb",
+  "phase41_code_hash_sha256": "17b245e8d2ea070021c2bf69e4bf14eb1d499dc4bd10b59028bff4d0a00f8837",
+  "phase42_preflight_source_sha256": "d3edde168f4ac29c526c0a858dc713b681fb16fa8fdfc584a47d8928bfaf553d",
+  "phase42_result_sha256": "5aa17767486cc4d7025e0b88e2df8b5150b5b35a33a616a000ec3143e5e4d5ee",
+  "runner_source_sha256": "c45b2454c192bb241cb93bf1f81a2310fceeec8de06573df49da0904fa3a692b",
+  "test_source_sha256": "d65b46846ea8fb1be9a78fb47d86442f109419227662df44a670778f44168f4c",
+  "synthetic_validation_sha256": "039d816d2a4f0cc4d3ad9afe4888ebf3d1db9f3a9a79dae69ca15b91010079c8",
+  "data_sha256": "e5e3ab7cfa981be022388b7a54952a6f8fa29e2dc0043672edf4e84997940e2f",
+  "audit_manifest_sha256": "f1f750867dd4a32eaf74d4d776dcf47002f0aa7f5b123db4177e57c4a1a266da",
+  "rehab_sha256": "16a1bae16d562edffac364cbba2a6a26d72765e1eca57ab0c31189b37ceb17c4",
+  "output_directory": "outputs/phase4_train_v1",
+  "family_id": "P4_PRIMARY_V1",
+  "family_size": 3,
+  "hypotheses": [
+    "P4_M01_ALL",
+    "P4_M02_ALL",
+    "P4_M06_ALL"
+  ],
+  "real_run_limit": 1,
+  "automatic_retry_allowed": false,
+  "validation_oos_authorized": false,
+  "account_order_position_access_authorized": false
+}

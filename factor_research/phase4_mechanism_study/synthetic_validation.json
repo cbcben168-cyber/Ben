@@ -1,0 +1,130 @@
+{
+  "validation_version": "PHASE4_3_SYNTHETIC_VALIDATION_V1",
+  "status": "PASS",
+  "completed_at_utc": "2026-10-12T18:16:09.9928828Z",
+  "real_train_accessed": false,
+  "validation_oos_accessed": false,
+  "account_order_position_accessed": false,
+  "runner_source_sha256": "c45b2454c192bb241cb93bf1f81a2310fceeec8de06573df49da0904fa3a692b",
+  "test_source_sha256": "d65b46846ea8fb1be9a78fb47d86442f109419227662df44a670778f44168f4c",
+  "test_runs": [
+    {
+      "command": "py -3 -m pytest -q -p no:cacheprovider factor_research/phase4_mechanism_study/tests/test_phase4_train_runner.py",
+      "result": "12 passed"
+    },
+    {
+      "command": "py -3 -m pytest -q -p no:cacheprovider factor_research/phase4_mechanism_study/tests -k <exclude two Phase4.2 old-HEAD lifecycle assertions>",
+      "result": "67 passed, 2 deselected"
+    },
+    {
+      "command": "py -3 -m pytest -q -p no:cacheprovider factor_research/phase4_mechanism_study/tests",
+      "result": "67 passed, 2 expected old-HEAD lifecycle failures after Phase4.2 checkpoint"
+    },
+    {
+      "command": "PYTHONPATH=.;src py -3 -m pytest -q -p no:cacheprovider -k <exclude two Phase4.2 old-HEAD lifecycle assertions>",
+      "result": "356 passed, 2 deselected"
+    }
+  ],
+  "phase42_pre_checkpoint_evidence": {
+    "head": "5651e8c1ff77344126a801b7bc1092b56360d529",
+    "command": "py -3 -m pytest -q -p no:cacheprovider factor_research/phase4_mechanism_study/tests",
+    "result": "57 passed"
+  },
+  "checks": [
+    {
+      "check_id": "FULL_FAMILY_ORCHESTRATION",
+      "status": "PASS",
+      "evidence": "test_full_family_enters_one_orchestration_and_matches_independent_replay"
+    },
+    {
+      "check_id": "INDEPENDENT_STATE_MACHINE_PARITY",
+      "status": "PASS",
+      "evidence": "direct scan_all and replay_scan comparison inside full-family orchestration test"
+    },
+    {
+      "check_id": "FIRST_COMPLETE_SIGNAL_CONSUMES_DAY",
+      "status": "PASS",
+      "evidence": "test_first_complete_signal_consumes_day_even_when_next_open_cancels"
+    },
+    {
+      "check_id": "CANCELED_SIGNAL_EXCLUDED_FROM_RETURNS",
+      "status": "PASS",
+      "evidence": "test_canceled_signal_remains_audit_only_and_does_not_become_zero_return"
+    },
+    {
+      "check_id": "STOP_FIRST_AND_TIME_EXIT",
+      "status": "PASS",
+      "evidence": "test_same_bar_dual_hit_obeys_stop_first_and_target_first_sensitivity and test_time_exit_uses_last_allowed_bar_close"
+    },
+    {
+      "check_id": "SAME_BAR_DUAL_TRIGGER_DISCLOSED",
+      "status": "PASS",
+      "evidence": "test_same_bar_dual_hit_obeys_stop_first_and_target_first_sensitivity"
+    },
+    {
+      "check_id": "MISSING_FUTURE_BAR_GLOBAL_FAILURE",
+      "status": "PASS",
+      "evidence": "test_missing_required_future_data_blocks_whole_replay_not_trade_only"
+    },
+    {
+      "check_id": "COST_SENSITIVITY_2_4_6_BP",
+      "status": "PASS",
+      "evidence": "test_cost_and_path_robustness_are_exact_transformations"
+    },
+    {
+      "check_id": "SIX_BP_NONPOSITIVE_BLOCKS_PROMOTION",
+      "status": "PASS",
+      "evidence": "test_six_bp_nonpositive_mean_blocks_otherwise_eligible_synthetic_result"
+    },
+    {
+      "check_id": "COMMON_TRADING_DAY_BOOTSTRAP_INDEX",
+      "status": "PASS",
+      "evidence": "test_estimand_is_equal_per_trade_not_equal_per_day_and_bootstrap_is_clustered"
+    },
+    {
+      "check_id": "HOLM_FIXED_FAMILY_SIZE_THREE",
+      "status": "PASS",
+      "evidence": "test_zero_trade_hypotheses_remain_in_complete_holm_family"
+    },
+    {
+      "check_id": "MAX_ABS_T_SIMULTANEOUS_INTERVAL",
+      "status": "PASS",
+      "evidence": "test_simultaneous_interval_is_present_for_full_family_and_candidate_can_pass_synthetic_gate"
+    },
+    {
+      "check_id": "ZERO_OR_INSUFFICIENT_SAMPLE_CANNOT_PROMOTE",
+      "status": "PASS",
+      "evidence": "test_zero_trade_hypotheses_remain_in_complete_holm_family"
+    },
+    {
+      "check_id": "INSUFFICIENT_MEMBER_REMAINS_IN_FAMILY",
+      "status": "PASS",
+      "evidence": "test_frozen_below_capacity_mechanisms_cannot_be_promoted"
+    },
+    {
+      "check_id": "PREREGISTRATION_OR_SOURCE_HASH_FAIL_CLOSED",
+      "status": "PASS",
+      "evidence": "test_registration_mismatch_fails_before_data_access and test_rule_mutation_is_rejected"
+    },
+    {
+      "check_id": "COMPLETED_ATTEMPT_CANNOT_RERUN",
+      "status": "PASS",
+      "evidence": "test_claim_attempt_is_one_shot"
+    },
+    {
+      "check_id": "FAILED_FAMILY_CANNOT_EMIT_CANDIDATE",
+      "status": "PASS",
+      "evidence": "test_incomplete_or_failed_family_never_emits_a_valid_candidate"
+    },
+    {
+      "check_id": "STATISTICAL_ANOMALY_CANNOT_PASS",
+      "status": "PASS",
+      "evidence": "test_statistics_rejects_nonfinite_trade_input_end_to_end and test_statistics_gate_rejects_unqualified_candidate_and_forbidden_labels"
+    },
+    {
+      "check_id": "EXACT_ONE_SHOT_AUTHORIZATION_REQUIRED",
+      "status": "PASS",
+      "evidence": "test_cli_is_disabled_without_exact_one_shot_authorization"
+    }
+  ]
+}

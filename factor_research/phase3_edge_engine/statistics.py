@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import math
 
 import numpy as np
 import pandas as pd
@@ -14,22 +13,73 @@ def _seed(label: str) -> int:
     return (BOOTSTRAP_SEED + value) % (2**32)
 
 
-def _cluster_summary(values: pd.Series, days: pd.Series, label: str) -> dict:
+def _cluster_summary(
+    values: pd.Series,
+    days: pd.Series,
+    label: str,
+    calendar_days: list[str] | np.ndarray | pd.Series | None = None,
+) -> dict:
+    """Estimate a per-observation mean with whole-day cluster resampling.
+
+    The estimand is the equally weighted trade/event mean.  A bootstrap draw
+    samples complete trading days and then recomputes that same ratio of total
+    return to total observations; it never replaces the estimand with an
+    equally weighted mean of daily means.
+    """
     valid = pd.DataFrame({"value": values, "day": days}).dropna()
-    if valid.empty:
-        return {"mean": np.nan, "ci_low": np.nan, "ci_high": np.nan, "se": np.nan, "days": 0}
-    daily = valid.groupby("day")["value"].mean().to_numpy(dtype=float)
-    estimate = float(valid["value"].mean())
-    if len(daily) < 2:
-        return {"mean": estimate, "ci_low": np.nan, "ci_high": np.nan, "se": np.nan, "days": len(daily)}
+    observed_days = valid["day"].astype(str)
+    if calendar_days is None:
+        calendar = sorted(observed_days.unique())
+    else:
+        calendar = list(dict.fromkeys(str(item) for item in calendar_days))
+    if valid.empty or not calendar:
+        return {
+            "mean": np.nan,
+            "ci_low": np.nan,
+            "ci_high": np.nan,
+            "se": np.nan,
+            "days": 0,
+            "_cluster_days": np.asarray(calendar, dtype=object),
+            "_cluster_sums": np.zeros(len(calendar), dtype=float),
+            "_cluster_counts": np.zeros(len(calendar), dtype=float),
+        }
+    valid = valid.assign(day=observed_days)
+    grouped = valid.groupby("day")["value"].agg(["sum", "count"]).reindex(calendar, fill_value=0)
+    cluster_sums = grouped["sum"].to_numpy(dtype=float)
+    cluster_counts = grouped["count"].to_numpy(dtype=float)
+    estimate = float(cluster_sums.sum() / cluster_counts.sum())
+    active_days = int((cluster_counts > 0).sum())
+    if len(calendar) < 2:
+        return {
+            "mean": estimate,
+            "ci_low": np.nan,
+            "ci_high": np.nan,
+            "se": np.nan,
+            "days": active_days,
+            "_cluster_days": np.asarray(calendar, dtype=object),
+            "_cluster_sums": cluster_sums,
+            "_cluster_counts": cluster_counts,
+        }
     rng = np.random.default_rng(_seed(label))
-    samples = daily[rng.integers(0, len(daily), size=(BOOTSTRAP_ITERATIONS, len(daily)))].mean(axis=1)
+    indices = rng.integers(0, len(calendar), size=(BOOTSTRAP_ITERATIONS, len(calendar)))
+    denominators = cluster_counts[indices].sum(axis=1)
+    numerators = cluster_sums[indices].sum(axis=1)
+    samples = np.divide(
+        numerators,
+        denominators,
+        out=np.full(BOOTSTRAP_ITERATIONS, np.nan, dtype=float),
+        where=denominators > 0,
+    )
+    samples = samples[np.isfinite(samples)]
     return {
         "mean": estimate,
-        "ci_low": float(np.quantile(samples, 0.025)),
-        "ci_high": float(np.quantile(samples, 0.975)),
-        "se": float(np.std(samples, ddof=1)),
-        "days": len(daily),
+        "ci_low": float(np.quantile(samples, 0.025)) if len(samples) else np.nan,
+        "ci_high": float(np.quantile(samples, 0.975)) if len(samples) else np.nan,
+        "se": float(np.std(samples, ddof=1)) if len(samples) > 1 else np.nan,
+        "days": active_days,
+        "_cluster_days": np.asarray(calendar, dtype=object),
+        "_cluster_sums": cluster_sums,
+        "_cluster_counts": cluster_counts,
     }
 
 
@@ -37,7 +87,7 @@ def _holm(rows: list[dict], p_key: str = "raw_p_value") -> None:
     valid = [(index, row[p_key]) for index, row in enumerate(rows) if np.isfinite(row.get(p_key, np.nan))]
     ordered = sorted(valid, key=lambda item: item[1])
     adjusted = 0.0
-    total = len(ordered)
+    total = len(rows)
     for rank, (index, value) in enumerate(ordered):
         adjusted = max(adjusted, min(1.0, value * (total - rank)))
         rows[index]["holm_p_value"] = adjusted
@@ -45,39 +95,67 @@ def _holm(rows: list[dict], p_key: str = "raw_p_value") -> None:
         row.setdefault("holm_p_value", np.nan)
 
 
-def _apply_family_adjustment(rows: list[dict]) -> None:
-    eligible = [row for row in rows if np.isfinite(row.get("estimate", np.nan)) and np.isfinite(row.get("se", np.nan)) and row["se"] > 0]
+def _apply_family_adjustment(rows: list[dict], family_label: str = "family") -> None:
+    eligible = [
+        row for row in rows
+        if np.isfinite(row.get("estimate", np.nan))
+        and np.isfinite(row.get("se", np.nan))
+        and row["se"] > 0
+    ]
     if not eligible:
         for row in rows:
             row["simultaneous_ci_low"] = np.nan
             row["simultaneous_ci_high"] = np.nan
             row["raw_p_value"] = np.nan
             row["holm_p_value"] = np.nan
+            row.pop("_cluster_days", None)
+            row.pop("_cluster_sums", None)
+            row.pop("_cluster_counts", None)
         return
-    rng = np.random.default_rng(_seed("family-max-t-" + str(len(eligible))))
+    calendars = [tuple(str(item) for item in row["_cluster_days"]) for row in eligible]
+    if any(calendar != calendars[0] for calendar in calendars[1:]):
+        raise ValueError("FAMILY_CLUSTER_CALENDAR_MISMATCH")
+    calendar_size = len(calendars[0])
+    rng = np.random.default_rng(_seed("family-max-t-" + family_label))
+    indices = rng.integers(0, calendar_size, size=(BOOTSTRAP_ITERATIONS, calendar_size))
     max_t = np.zeros(BOOTSTRAP_ITERATIONS)
     for row in eligible:
-        daily = np.asarray(row.pop("_daily"), dtype=float)
-        centered = daily - daily.mean()
-        if len(daily) < 2 or centered.std(ddof=1) == 0:
-            continue
-        sampled = centered[rng.integers(0, len(centered), size=(BOOTSTRAP_ITERATIONS, len(centered)))].mean(axis=1)
-        scale = centered.std(ddof=1) / math.sqrt(len(centered))
-        max_t = np.maximum(max_t, np.abs(sampled / scale))
+        sums = np.asarray(row["_cluster_sums"], dtype=float)
+        counts = np.asarray(row["_cluster_counts"], dtype=float)
+        centered_sums = sums - float(row["estimate"]) * counts
+        denominators = counts[indices].sum(axis=1)
+        sampled = np.divide(
+            centered_sums[indices].sum(axis=1),
+            denominators,
+            out=np.full(BOOTSTRAP_ITERATIONS, np.nan, dtype=float),
+            where=denominators > 0,
+        )
+        t_samples = np.abs(sampled / float(row["se"]))
+        finite = np.isfinite(t_samples)
+        max_t[finite] = np.maximum(max_t[finite], t_samples[finite])
+        row["_null_abs_t"] = t_samples
     critical = float(np.quantile(max_t, 0.95))
     for row in rows:
         estimate = row.get("estimate", np.nan)
         se = row.get("se", np.nan)
-        row.pop("_daily", None)
         if np.isfinite(estimate) and np.isfinite(se) and se > 0:
             t_value = estimate / se
-            row["raw_p_value"] = math.erfc(abs(t_value) / math.sqrt(2.0))
+            null_abs_t = np.asarray(row.pop("_null_abs_t"), dtype=float)
+            finite = null_abs_t[np.isfinite(null_abs_t)]
+            row["raw_p_value"] = (
+                float((1 + np.sum(finite >= abs(t_value))) / (len(finite) + 1))
+                if len(finite)
+                else np.nan
+            )
             row["simultaneous_ci_low"] = estimate - critical * se
             row["simultaneous_ci_high"] = estimate + critical * se
         else:
             row["raw_p_value"] = np.nan
             row["simultaneous_ci_low"] = np.nan
             row["simultaneous_ci_high"] = np.nan
+        row.pop("_cluster_days", None)
+        row.pop("_cluster_sums", None)
+        row.pop("_cluster_counts", None)
     _holm(rows)
 
 
@@ -85,6 +163,7 @@ def factor_results(events: pd.DataFrame, data: pd.DataFrame, specs: list[FactorS
     spec_map = {item.factor_id: item for item in specs}
     rows: list[dict] = []
     train = data[data["is_train"]]
+    calendar_days = list(train["session_date"].drop_duplicates().astype(str))
     for factor_id, factor_events in events.groupby("factor_id"):
         spec = spec_map[factor_id]
         for direction, directional_events in factor_events.groupby("direction"):
@@ -97,8 +176,12 @@ def factor_results(events: pd.DataFrame, data: pd.DataFrame, specs: list[FactorS
                 raw = raw[valid]
                 days = directional_events.loc[valid, "session_date"]
                 values = raw if spec.direction == "REGIME" else raw * int(direction)
-                summary = _cluster_summary(values, days, f"factor-{factor_id}-{direction}-{horizon}")
-                daily = pd.DataFrame({"value": values, "day": days}).groupby("day")["value"].mean().to_numpy()
+                summary = _cluster_summary(
+                    values,
+                    days,
+                    f"factor-{factor_id}-{direction}-{horizon}",
+                    calendar_days,
+                )
                 baseline = float(train[f"return_h{horizon}"].mean())
                 rows.append({
                     "factor_id": factor_id,
@@ -117,11 +200,13 @@ def factor_results(events: pd.DataFrame, data: pd.DataFrame, specs: list[FactorS
                     "cluster_ci_high": summary["ci_high"],
                     "estimate": summary["mean"],
                     "se": summary["se"],
-                    "_daily": daily,
+                    "_cluster_days": summary["_cluster_days"],
+                    "_cluster_sums": summary["_cluster_sums"],
+                    "_cluster_counts": summary["_cluster_counts"],
                     "sample_status": "ELIGIBLE" if len(values) >= 50 and days.nunique() >= 40 else "INSUFFICIENT_SAMPLE",
                     "research_status": "EXPLORATORY_SAME_TRAIN_SAMPLE",
                 })
-    _apply_family_adjustment(rows)
+    _apply_family_adjustment(rows, "factor-prediction")
     for row in rows:
         row.pop("estimate", None)
         row.pop("se", None)
@@ -164,7 +249,7 @@ def _max_drawdown(returns: pd.Series) -> float:
     return float(drawdown.min()) if len(drawdown) else np.nan
 
 
-def strategy_results(trades: pd.DataFrame) -> pd.DataFrame:
+def strategy_results(trades: pd.DataFrame, calendar_days: list[str] | pd.Series | np.ndarray | None = None) -> pd.DataFrame:
     rows: list[dict] = []
     if trades.empty:
         return pd.DataFrame()
@@ -176,7 +261,12 @@ def strategy_results(trades: pd.DataFrame) -> pd.DataFrame:
         returns = group["net_return"].astype(float)
         gains = returns[returns > 0].sum()
         losses = -returns[returns < 0].sum()
-        summary = _cluster_summary(returns, group["session_date"], f"strategy-{variant}-{direction}")
+        summary = _cluster_summary(
+            returns,
+            group["session_date"],
+            f"strategy-{variant}-{direction}",
+            calendar_days,
+        )
         monthly = group.assign(month=group["session_date"].str[:7]).groupby("month")["net_return"].sum()
         positive_total = monthly[monthly > 0].sum()
         max_month_share = float(monthly[monthly > 0].max() / positive_total) if positive_total > 0 else np.nan
@@ -205,10 +295,12 @@ def strategy_results(trades: pd.DataFrame) -> pd.DataFrame:
             "sample_status": "ELIGIBLE" if len(group) >= minimum_trades and group["session_date"].nunique() >= minimum_days else "INSUFFICIENT_SAMPLE",
             "estimate": summary["mean"],
             "se": summary["se"],
-            "_daily": group.groupby("session_date")["net_return"].mean().to_numpy(),
+            "_cluster_days": summary["_cluster_days"],
+            "_cluster_sums": summary["_cluster_sums"],
+            "_cluster_counts": summary["_cluster_counts"],
         }
         rows.append(row)
-    _apply_family_adjustment(rows)
+    _apply_family_adjustment(rows, "strategy-baseline-and-filter")
     for row in rows:
         qualifies = (
             row["sample_status"] == "ELIGIBLE"
@@ -312,8 +404,8 @@ def robustness_results(trades: pd.DataFrame) -> pd.DataFrame:
 
 def test_registry(factor_rows: pd.DataFrame, strategy_rows: pd.DataFrame, regime_rows: pd.DataFrame) -> pd.DataFrame:
     records = [
-        {"family": "FACTOR_PREDICTION", "actual_tests": len(factor_rows), "cluster_unit": "TRADING_DAY", "multiplicity": "MAX_ABS_T_AND_HOLM", "attempt_version": "PHASE3_V1"},
-        {"family": "STRATEGY_BASELINE_AND_FILTER", "actual_tests": len(strategy_rows), "cluster_unit": "TRADING_DAY", "multiplicity": "MAX_ABS_T_AND_HOLM", "attempt_version": "PHASE3_V1"},
-        {"family": "REGIME_TIME_DIAGNOSTIC", "actual_tests": len(regime_rows), "cluster_unit": "TRADING_DAY", "multiplicity": "DESCRIPTIVE_PRE_REGISTERED_DIMENSIONS", "attempt_version": "PHASE3_V1"},
+        {"family": "FACTOR_PREDICTION", "actual_tests": len(factor_rows), "cluster_unit": "TRADING_DAY", "multiplicity": "COMMON_DAY_MAX_ABS_T_AND_FULL_FAMILY_HOLM", "attempt_version": "PHASE3_V2"},
+        {"family": "STRATEGY_BASELINE_AND_FILTER", "actual_tests": len(strategy_rows), "cluster_unit": "TRADING_DAY", "multiplicity": "COMMON_DAY_MAX_ABS_T_AND_FULL_FAMILY_HOLM", "attempt_version": "PHASE3_V2"},
+        {"family": "REGIME_TIME_DIAGNOSTIC", "actual_tests": len(regime_rows), "cluster_unit": "TRADING_DAY", "multiplicity": "DESCRIPTIVE_PRE_REGISTERED_DIMENSIONS", "attempt_version": "PHASE3_V2"},
     ]
     return pd.DataFrame(records)

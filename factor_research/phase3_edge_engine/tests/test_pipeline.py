@@ -12,6 +12,10 @@ def test_pipeline_outputs_are_complete_hashed_and_deterministic(tmp_path):
     manifest = run_pipeline(DEFAULT_DATA, DEFAULT_AUDIT_MANIFEST, first)
     manifest_two = run_pipeline(DEFAULT_DATA, DEFAULT_AUDIT_MANIFEST, second)
     assert manifest["state_machine_consistency"]["status"] == "PASS"
+    assert manifest["engine_status"] == "ENGINE_PASS"
+    assert manifest["statistics_status"] == "STATISTICS_PASS"
+    assert manifest["trade_parity"]["status"] == "TRADE_PARITY_PASS"
+    assert manifest["research_status"] == "RESEARCH_NO_EDGE"
     assert manifest["registry"] == {"factor_count": 36, "strategy_variant_count": 9}
     required = {
         "RESEARCH_PLAN.md", "DATA_QUALIFICATION.md", "FACTOR_REGISTRY.csv",
@@ -19,6 +23,9 @@ def test_pipeline_outputs_are_complete_hashed_and_deterministic(tmp_path):
         "STRATEGY_RESULTS.csv", "REGIME_TIME_MATRIX.csv", "ROBUSTNESS_SUMMARY.csv",
         "TEST_REGISTRY.csv", "CANDIDATE_SHORTLIST.csv", "REPORT_CN.md",
         "TRADE_LOG.csv", "SIGNAL_REPLAY_AUDIT.csv", "V3_1_1_CONSISTENCY.json",
+        "V3_1_1_TRADE_PARITY.csv", "V3_1_1_TRADE_PARITY.json",
+        "FACTOR_RESULTS_V1_V2.csv", "STRATEGY_RESULTS_V1_V2.csv",
+        "CHANGE_AUDIT_CN.md",
         "manifest.json",
     }
     assert required == {path.name for path in first.iterdir()}
@@ -30,6 +37,7 @@ def test_pipeline_outputs_are_complete_hashed_and_deterministic(tmp_path):
         name: sha256_file(second / name) for name in deterministic
     }
     assert manifest_two["state_machine_consistency"]["status"] == "PASS"
+    assert manifest_two["trade_parity"]["status"] == "TRADE_PARITY_PASS"
 
 
 def test_shortlist_is_allowed_to_be_empty(phase3_state, tmp_path):
@@ -39,3 +47,4 @@ def test_shortlist_is_allowed_to_be_empty(phase3_state, tmp_path):
     assert len(shortlist.splitlines()) == 1
     assert manifest["validation_oos_accessed"] is False
     assert manifest["orders_accounts_positions_accessed"] is False
+    assert manifest["trade_parity"]["errors"] == []

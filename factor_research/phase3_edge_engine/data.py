@@ -12,6 +12,8 @@ from .contracts import (
     EXPECTED_AUDIT_MANIFEST_SHA256,
     EXPECTED_BARS,
     EXPECTED_DATA_SHA256,
+    EXPECTED_REHAB_ROWS,
+    EXPECTED_REHAB_SHA256,
     EXPECTED_SESSIONS,
     EXPECTED_TRAIN_SESSIONS,
     REHAB_DATES,
@@ -117,7 +119,33 @@ def load_and_qualify(csv_path: Path, audit_manifest_path: Path) -> tuple[pd.Data
         raise DataGateError("TRAIN_COVERAGE_MISMATCH")
 
     rehab_path = audit_manifest_path.parent / "opend_rehab.csv"
+    if not rehab_path.is_file():
+        raise DataGateError(f"REHAB_FILE_MISSING:{rehab_path}")
+    rehab_hash = sha256_file(rehab_path)
+    if rehab_hash != EXPECTED_REHAB_SHA256:
+        raise DataGateError(f"REHAB_HASH_MISMATCH:{rehab_hash}")
+    declared_rehab_hash = manifest.get("artifacts", {}).get("opend_rehab.csv", {}).get("sha256")
+    if declared_rehab_hash != rehab_hash:
+        raise DataGateError("REHAB_MANIFEST_HASH_MISMATCH")
     rehab = pd.read_csv(rehab_path)
+    expected_rehab_columns = [
+        "ex_div_date", "forward_adj_factor_a", "forward_adj_factor_b", "per_cash_div",
+    ]
+    if list(rehab.columns) != expected_rehab_columns:
+        raise DataGateError("REHAB_SCHEMA_MISMATCH")
+    if len(rehab) != len(EXPECTED_REHAB_ROWS) or rehab["ex_div_date"].duplicated().any():
+        raise DataGateError("REHAB_ROW_IDENTITY_MISMATCH")
+    observed_rehab_rows = tuple(
+        (
+            str(row.ex_div_date),
+            float(row.forward_adj_factor_a),
+            float(row.forward_adj_factor_b),
+            float(row.per_cash_div),
+        )
+        for row in rehab.itertuples(index=False)
+    )
+    if observed_rehab_rows != EXPECTED_REHAB_ROWS:
+        raise DataGateError("REHAB_FACTOR_MISMATCH")
     if set(rehab["ex_div_date"].astype(str)) != REHAB_DATES:
         raise DataGateError("REHAB_EVENT_MISMATCH")
 
@@ -140,6 +168,16 @@ def load_and_qualify(csv_path: Path, audit_manifest_path: Path) -> tuple[pd.Data
         "rehab_dates": sorted(REHAB_DATES),
         "data_sha256": data_hash,
         "audit_manifest_sha256": manifest_hash,
+        "rehab_sha256": rehab_hash,
+        "rehab_factors": [
+            {
+                "ex_div_date": date,
+                "forward_adj_factor_a": factor_a,
+                "forward_adj_factor_b": factor_b,
+                "per_cash_div": cash_div,
+            }
+            for date, factor_a, factor_b, cash_div in EXPECTED_REHAB_ROWS
+        ],
         "adjustment": contract["adjustment"],
         "one_minute_status": "NOT_AVAILABLE_NOT_REQUIRED",
         "volume_status": "PROHIBITED",

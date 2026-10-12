@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import shutil
+
 import numpy as np
 import pandas as pd
 import pytest
 
 from factor_research.phase3_edge_engine.contracts import EARLY_CLOSES
+from factor_research.phase3_edge_engine.data import DataGateError, load_and_qualify, sha256_file
 from factor_research.phase3_edge_engine.factors import build_features, compute_factor_matrix
 from factor_research.phase3_edge_engine.pipeline import DEFAULT_DATA
 
@@ -50,6 +53,23 @@ def test_forward_adjustment_matches_frozen_rehab_contract(phase3_state):
             event.forward_adj_factor_a * raw.at[before_index, "close"] + event.forward_adj_factor_b
         ) / raw.at[current_index, "close"]
         assert observed_ratio == pytest.approx(expected_ratio, abs=1e-12)
+
+
+def test_rehab_full_identity_and_coefficients_are_hash_gated(tmp_path):
+    source_dir = DEFAULT_DATA.parent
+    data_path = tmp_path / DEFAULT_DATA.name
+    manifest_path = tmp_path / "manifest.json"
+    rehab_path = tmp_path / "opend_rehab.csv"
+    shutil.copyfile(DEFAULT_DATA, data_path)
+    shutil.copyfile(source_dir / "manifest.json", manifest_path)
+    shutil.copyfile(source_dir / "opend_rehab.csv", rehab_path)
+    original_hash = sha256_file(rehab_path)
+    rehab = pd.read_csv(rehab_path)
+    rehab.loc[0, "forward_adj_factor_a"] += 0.001
+    rehab.to_csv(rehab_path, index=False)
+    assert sha256_file(rehab_path) != original_hash
+    with pytest.raises(DataGateError, match="REHAB_HASH_MISMATCH"):
+        load_and_qualify(data_path, manifest_path)
 
 
 def test_all_36_frozen_formulas_are_implemented(phase3_state):

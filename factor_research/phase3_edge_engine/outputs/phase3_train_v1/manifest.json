@@ -1,0 +1,153 @@
+{
+  "artifacts": {
+    "CANDIDATE_SHORTLIST.csv": {
+      "bytes": 356,
+      "sha256": "38a31f3a6cf798aebc795c5c7f9092285875a8cf558dde64fb3df8133f7e70d5"
+    },
+    "DATA_QUALIFICATION.md": {
+      "bytes": 979,
+      "sha256": "b22760c5e6f8e1ef746a7487c0562ec32366623397910875d38620a2c750d8cd"
+    },
+    "FACTOR_CORRELATION.csv": {
+      "bytes": 42281,
+      "sha256": "9856e8d117da1340475014aabbebe7ddcb0ce05f905900b244990b61fa21778d"
+    },
+    "FACTOR_REGISTRY.csv": {
+      "bytes": 9334,
+      "sha256": "605312d8bd6fce1ec5a4517556e7a188311f55a0cedac4530b85be01f4f1ef54"
+    },
+    "FACTOR_RESULTS.csv": {
+      "bytes": 51988,
+      "sha256": "aa0742dc9f428d4c71463a6dee0b6f796d98424a74d4487be64a237386a9adc2"
+    },
+    "REGIME_TIME_MATRIX.csv": {
+      "bytes": 95947,
+      "sha256": "359f16626c2068ebf11ea8048052acac70c212b6d6ca13703305d6a8b22a1351"
+    },
+    "REPORT_CN.md": {
+      "bytes": 3270,
+      "sha256": "ba093265a1324e86112a173993afec6af856a36b967368b69b6e2aebd086dcae"
+    },
+    "RESEARCH_PLAN.md": {
+      "bytes": 1087,
+      "sha256": "872ec9908400362643a86bccce5ba256dd452b12c82bbaf9b3c440ceb66ea2bb"
+    },
+    "ROBUSTNESS_SUMMARY.csv": {
+      "bytes": 1749,
+      "sha256": "916280b8fd5481d1b3c7a758b43aa368915e3e7e2f75801a42f99ef080ef26b3"
+    },
+    "SIGNAL_REPLAY_AUDIT.csv": {
+      "bytes": 374817,
+      "sha256": "751b0e3678f7ff1f526675b33114bff1f01ddad1ba7818d33687a721094fa4f6"
+    },
+    "STRATEGY_REGISTRY.csv": {
+      "bytes": 1678,
+      "sha256": "896429882af0eff49dd989fbb8433edca2a0752401fe8ee4a00b4f0f0725b76c"
+    },
+    "STRATEGY_RESULTS.csv": {
+      "bytes": 9252,
+      "sha256": "44b84a1dacdacc1760fa6d5c4af8b4244cdc35d7bbae419fd86a4d7f7c729c26"
+    },
+    "TEST_REGISTRY.csv": {
+      "bytes": 285,
+      "sha256": "15692c12990142f1b06349f340f1bf4129a0f0272733215acd82a684834647bb"
+    },
+    "TRADE_LOG.csv": {
+      "bytes": 632928,
+      "sha256": "8e5d30ba147ac5796ee6b40533106b0ae036cd8f420851cded3c59e7965ae13b"
+    },
+    "V3_1_1_CONSISTENCY.json": {
+      "bytes": 626,
+      "sha256": "14ab3861e52214bb3973f5288288b64a6339aa351ac4ec2b090a11fcb9cc139f"
+    }
+  },
+  "data_qualification": {
+    "adjustment": "AS_OF_DYNAMIC_FORWARD_FROM_GET_REHAB",
+    "audit_manifest_sha256": "f1f750867dd4a32eaf74d4d776dcf47002f0aa7f5b123db4177e57c4a1a266da",
+    "bar_label": "bar_end",
+    "bar_size": "5m",
+    "bars": 19470,
+    "cache_hit": true,
+    "data_sha256": "e5e3ab7cfa981be022388b7a54952a6f8fa29e2dc0043672edf4e84997940e2f",
+    "early_closes": [
+      "2025-07-03",
+      "2025-11-28",
+      "2025-12-24"
+    ],
+    "end": "2026-06-30",
+    "future_leak_checks": "PASS",
+    "one_minute_status": "NOT_AVAILABLE_NOT_REQUIRED",
+    "rehab_dates": [
+      "2025-09-19",
+      "2025-12-19",
+      "2026-03-20",
+      "2026-06-18"
+    ],
+    "sessions": 251,
+    "start": "2025-07-01",
+    "status": "PASS_5M_ONLY",
+    "symbol": "US.SPY",
+    "timezone": "America/New_York",
+    "train_bars": 14514,
+    "train_end": "2026-06-30",
+    "train_sessions": 187,
+    "train_start": "2025-10-01",
+    "volume_status": "PROHIBITED"
+  },
+  "engine_version": "C1_PHASE3_EDGE_ENGINE_V1",
+  "frozen_v3_1_1_sha256": "62686585aadb3bc56a0ee4c3c4cb539e5e21ec167674562e88d2a6fb615a5089",
+  "orders_accounts_positions_accessed": false,
+  "registry": {
+    "factor_count": 36,
+    "strategy_variant_count": 9
+  },
+  "source_hashes": {
+    "factor_research/phase3_edge_engine/__init__.py": "7a3f3f541fbc1c0dbc4b840d8db6375f37654c198e01815263e8bc841641426b",
+    "factor_research/phase3_edge_engine/contracts.py": "9cafae1265dad6d23f9b68c1f7e81ba671c169bb8649629e716418fee4b1444e",
+    "factor_research/phase3_edge_engine/data.py": "9cf97e543226e741f421e23ab0d18a28f1ecf950f9b6961e01ba7c7a7d54a3e2",
+    "factor_research/phase3_edge_engine/factors.py": "ce3c3e112491b4e6c5a3c2312275f4929b4595d636ca0552d718694373eddc95",
+    "factor_research/phase3_edge_engine/pipeline.py": "7b410f4a449ddfc15274fd3cb4715687a907ea1ad196b92d681ff9f0cc530e1b",
+    "factor_research/phase3_edge_engine/registry/FACTOR_REGISTRY.csv": "605312d8bd6fce1ec5a4517556e7a188311f55a0cedac4530b85be01f4f1ef54",
+    "factor_research/phase3_edge_engine/registry/STRATEGY_REGISTRY.csv": "896429882af0eff49dd989fbb8433edca2a0752401fe8ee4a00b4f0f0725b76c",
+    "factor_research/phase3_edge_engine/simulator.py": "834195adba15dc5e90b4c8538e23088447e3b88448a6f092470fdb3354d7ccef",
+    "factor_research/phase3_edge_engine/statistics.py": "df2c6c3067754a28c6a688497b4520a66987d12ffc9c6d4f2522e046a6d4a01b",
+    "run_research.py": "26668396daaea5d1f3daee399568b2d50ccafefc330e1074788abe7da8844c21"
+  },
+  "state_machine_consistency": {
+    "checks": {
+      "mean_net_within_0_75bp": true,
+      "position_busy_matches_521": true,
+      "s01_busy_only": true,
+      "total_trades_matches_1072": true
+    },
+    "local_net_mean_bps": {
+      "S01": -4.000010701908585,
+      "S02": -0.6545163082846311,
+      "S03": -4.04319634675701
+    },
+    "local_position_busy": 521,
+    "local_trade_counts": {
+      "S01": 808,
+      "S02": 183,
+      "S03": 81
+    },
+    "reference": {
+      "net_mean_bps_approx": {
+        "S01": -4.0,
+        "S02": -0.65,
+        "S03": -4.04
+      },
+      "position_busy": 521,
+      "source": "C1_V3_1_1_TRAIN_ACCEPTANCE.md",
+      "total_trades": 1072
+    },
+    "status": "PASS"
+  },
+  "study_partition": "TRAIN_EXPLORATORY",
+  "timings": {
+    "compute_seconds": 9.851814800000284,
+    "data_seconds": 0.08753210000577383,
+    "total_seconds": 9.939803100016434
+  },
+  "validation_oos_accessed": false
+}

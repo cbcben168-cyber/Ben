@@ -1,0 +1,292 @@
+{
+  "checks": [
+    {
+      "actual": {
+        "count": 36,
+        "ids": [
+          "F001",
+          "F002",
+          "F003",
+          "F004",
+          "F005",
+          "F006",
+          "F007",
+          "F008",
+          "F009",
+          "F010",
+          "F011",
+          "F012",
+          "F013",
+          "F014",
+          "F015",
+          "F016",
+          "F017",
+          "F018",
+          "F019",
+          "F020",
+          "F021",
+          "F022",
+          "F023",
+          "F024",
+          "F025",
+          "F026",
+          "F027",
+          "F028",
+          "F029",
+          "F030",
+          "F031",
+          "F032",
+          "F033",
+          "F034",
+          "F035",
+          "F036"
+        ]
+      },
+      "expected": {
+        "count": 36,
+        "ids": [
+          "F001",
+          "F002",
+          "F003",
+          "F004",
+          "F005",
+          "F006",
+          "F007",
+          "F008",
+          "F009",
+          "F010",
+          "F011",
+          "F012",
+          "F013",
+          "F014",
+          "F015",
+          "F016",
+          "F017",
+          "F018",
+          "F019",
+          "F020",
+          "F021",
+          "F022",
+          "F023",
+          "F024",
+          "F025",
+          "F026",
+          "F027",
+          "F028",
+          "F029",
+          "F030",
+          "F031",
+          "F032",
+          "F033",
+          "F034",
+          "F035",
+          "F036"
+        ]
+      },
+      "failure_reason": "",
+      "name": "factor_registry_complete",
+      "status": "PASS"
+    },
+    {
+      "actual": {
+        "count": 9,
+        "unique": 9
+      },
+      "expected": {
+        "count": 9,
+        "strategy_ids": [
+          "S01",
+          "S02",
+          "S03"
+        ],
+        "unique": 9
+      },
+      "failure_reason": "",
+      "name": "strategy_registry_complete",
+      "status": "PASS"
+    },
+    {
+      "actual": {
+        "missing": [],
+        "rows": 192,
+        "unexpected": []
+      },
+      "expected": {
+        "missing": [],
+        "rows": 192,
+        "unexpected": []
+      },
+      "failure_reason": "",
+      "name": "factor_registered_family_complete",
+      "status": "PASS"
+    },
+    {
+      "actual": {
+        "missing": [],
+        "rows": 27,
+        "unexpected": []
+      },
+      "expected": {
+        "missing": [],
+        "rows": 27,
+        "unexpected": []
+      },
+      "failure_reason": "",
+      "name": "strategy_registered_family_complete",
+      "status": "PASS"
+    },
+    {
+      "actual": {
+        "FACTOR_PREDICTION": 192,
+        "REGIME_TIME_DIAGNOSTIC": 941,
+        "STRATEGY_BASELINE_AND_FILTER": 27
+      },
+      "expected": {
+        "FACTOR_PREDICTION": 192,
+        "REGIME_TIME_DIAGNOSTIC": 941,
+        "STRATEGY_BASELINE_AND_FILTER": 27
+      },
+      "failure_reason": "",
+      "name": "registered_test_family_counts",
+      "status": "PASS"
+    },
+    {
+      "actual": {
+        "failures": []
+      },
+      "expected": {
+        "failures": []
+      },
+      "failure_reason": "",
+      "name": "directional_baseline_increment_identity",
+      "status": "PASS"
+    },
+    {
+      "actual": {
+        "failures": []
+      },
+      "expected": {
+        "failures": []
+      },
+      "failure_reason": "",
+      "name": "event_trade_day_counts_legal",
+      "status": "PASS"
+    },
+    {
+      "actual": {
+        "failures": []
+      },
+      "expected": {
+        "failures": []
+      },
+      "failure_reason": "",
+      "name": "eligible_statistics_finite_and_estimable",
+      "status": "PASS"
+    },
+    {
+      "actual": {
+        "failures": []
+      },
+      "expected": {
+        "failures": []
+      },
+      "failure_reason": "",
+      "name": "pvalues_and_holm_legal",
+      "status": "PASS"
+    },
+    {
+      "actual": {
+        "failures": []
+      },
+      "expected": {
+        "failures": []
+      },
+      "failure_reason": "",
+      "name": "simultaneous_intervals_contain_estimate",
+      "status": "PASS"
+    },
+    {
+      "actual": {
+        "failures": []
+      },
+      "expected": {
+        "failures": []
+      },
+      "failure_reason": "",
+      "name": "sample_status_and_nonpromotion",
+      "status": "PASS"
+    },
+    {
+      "actual": {
+        "failures": []
+      },
+      "expected": {
+        "failures": []
+      },
+      "failure_reason": "",
+      "name": "candidate_rule_matches_statistics",
+      "status": "PASS"
+    },
+    {
+      "actual": {
+        "baseline_rows_changed": 78,
+        "increment_rows_changed": 78,
+        "status": "PASS",
+        "unexpected_factor_changes": 0,
+        "unexpected_strategy_changes": 0
+      },
+      "expected": {
+        "baseline_rows_changed": 78,
+        "increment_rows_changed": 78,
+        "status": "PASS",
+        "unexpected_factor_changes": 0,
+        "unexpected_strategy_changes": 0
+      },
+      "failure_reason": "",
+      "name": "v2_v3_only_permitted_changes",
+      "status": "PASS"
+    },
+    {
+      "actual": {
+        "before_equals_after": true,
+        "declared_integrity": {
+          "status": "PASS",
+          "v1_mismatches": [],
+          "v2_mismatches": []
+        }
+      },
+      "expected": {
+        "before_equals_after": true,
+        "declared_integrity": {
+          "status": "PASS"
+        }
+      },
+      "failure_reason": "",
+      "name": "frozen_v1_v2_hashes_unchanged",
+      "status": "PASS"
+    },
+    {
+      "actual": 0,
+      "expected": 0,
+      "failure_reason": "",
+      "name": "frozen_train_candidate_count",
+      "status": "PASS"
+    },
+    {
+      "actual": {
+        "promoted_candidates": 0,
+        "statistics_status": "STATISTICS_PASS"
+      },
+      "expected": "zero promoted candidates whenever statistics status is not PASS",
+      "failure_reason": "",
+      "name": "statistics_failure_blocks_candidate_promotion",
+      "status": "PASS"
+    }
+  ],
+  "checks_failed": 0,
+  "checks_passed": 16,
+  "checks_total": 16,
+  "failure_reasons": [],
+  "inference_target": "DIRECTIONAL_MEAN_VS_ZERO",
+  "status": "STATISTICS_PASS"
+}

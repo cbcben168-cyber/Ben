@@ -1,0 +1,31 @@
+{
+  "counts_disclosed": false,
+  "exit_replay_called": false,
+  "family_id": "P4_PRIMARY_V1",
+  "family_size": 3,
+  "mechanisms": {
+    "P4_M01_ALL": {
+      "complete_signal_capacity": "CAPACITY_OK",
+      "daily_entitlement": "FIRST_COMPLETE_SIGNAL_CONSUMES_DAY",
+      "entry_eligible_capacity": "CAPACITY_OK",
+      "independent_signal_day_capacity": "CAPACITY_OK",
+      "warmup_status": "WARMUP_COMPLETE_ALL_SESSIONS"
+    },
+    "P4_M02_ALL": {
+      "complete_signal_capacity": "BELOW_MINIMUM_CAPACITY",
+      "daily_entitlement": "FIRST_COMPLETE_SIGNAL_CONSUMES_DAY",
+      "entry_eligible_capacity": "BELOW_MINIMUM_CAPACITY",
+      "independent_signal_day_capacity": "BELOW_MINIMUM_CAPACITY",
+      "warmup_status": "WARMUP_COMPLETE_ALL_SESSIONS"
+    },
+    "P4_M06_ALL": {
+      "complete_signal_capacity": "BELOW_MINIMUM_CAPACITY",
+      "daily_entitlement": "FIRST_COMPLETE_SIGNAL_CONSUMES_DAY",
+      "entry_eligible_capacity": "BELOW_MINIMUM_CAPACITY",
+      "independent_signal_day_capacity": "BELOW_MINIMUM_CAPACITY",
+      "warmup_status": "WARMUP_UNAVAILABLE_PRESENT"
+    }
+  },
+  "performance_statistics_called": false,
+  "status": "STRUCTURAL_GATE_PASS"
+}

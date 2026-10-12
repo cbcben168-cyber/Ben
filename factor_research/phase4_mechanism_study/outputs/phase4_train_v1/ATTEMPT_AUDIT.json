@@ -1,0 +1,23 @@
+{
+  "account_order_position_accessed": false,
+  "attempt_id": "P4_TRAIN_V1_ONE_SHOT",
+  "automatic_retry_allowed": false,
+  "candidate_count": 0,
+  "common_day_indices_sha256": "56c927fd4e0233cb3ee307b39128b10f91eba52ec1883c69b65d9b2e5a2a1921",
+  "completed_at_utc": "2026-10-12T18:22:19.376101+00:00",
+  "data_sha256": "e5e3ab7cfa981be022388b7a54952a6f8fa29e2dc0043672edf4e84997940e2f",
+  "engine_hash_sha256": "17b245e8d2ea070021c2bf69e4bf14eb1d499dc4bd10b59028bff4d0a00f8837",
+  "failure_reason": null,
+  "phase42_commit": "e6b8737f0cc5cbb7314a8f37e7e44be72d803ed6",
+  "real_train_run_count": 1,
+  "research_status": "RESEARCH_NO_EDGE",
+  "revealed_information_boundary": "TRAIN_RESULTS_AND_STATISTICS_REVEALED",
+  "rule_hash_sha256": "dc9b4201cbd4d11d9f7273f5bff0d31effed977f4f15522b4a051fac43a894cb",
+  "runner_source_sha256": "c45b2454c192bb241cb93bf1f81a2310fceeec8de06573df49da0904fa3a692b",
+  "runner_version": "PHASE4_TRAIN_RUNNER_V1",
+  "signal_count": 230,
+  "started_at_utc": "2026-10-12T18:22:14.505797+00:00",
+  "status": "PHASE4_3_TRAIN_COMPLETE",
+  "trade_count": 210,
+  "validation_oos_accessed": false
+}

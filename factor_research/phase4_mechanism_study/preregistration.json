@@ -1,0 +1,125 @@
+{
+  "schema_version": 1,
+  "status": "FROZEN_BEFORE_PHASE4_TRAIN_RESULTS",
+  "rule_hash_algorithm": "sha256(canonical-json(rules))",
+  "rule_hash_sha256": "dc9b4201cbd4d11d9f7273f5bff0d31effed977f4f15522b4a051fac43a894cb",
+  "code_hash_sha256": "17b245e8d2ea070021c2bf69e4bf14eb1d499dc4bd10b59028bff4d0a00f8837",
+  "rules": {
+    "data": {
+      "symbol": "US.SPY",
+      "bar_type": "K_5M",
+      "session": "RTH",
+      "time_label": "America/New_York bar end",
+      "train_start": "2025-10-01",
+      "train_end": "2026-06-30",
+      "train_sessions": 187,
+      "adjustment_basis": "AS_OF_DYNAMIC_FORWARD_FROM_GET_REHAB",
+      "allowed_columns": ["open", "high", "low", "close"],
+      "pretrain_price_warmup": false,
+      "missing_required_bar_policy": "BLOCK_RUN_DATA_INCOMPLETE"
+    },
+    "volatility": {
+      "intraday_tr_first_bar": "HIGH_MINUS_LOW",
+      "intraday_tr_other_bars": "MAX_HL_H_PREV_CLOSE_L_PREV_CLOSE_SAME_SESSION",
+      "intraday_atr_period": 20,
+      "intraday_atr_slice": "iloc[g-20:g]",
+      "intraday_atr_cross_session": true,
+      "intraday_atr_contains_overnight_gap": false,
+      "daily_tr": "MAX_HL_H_PREV_DAILY_CLOSE_L_PREV_DAILY_CLOSE",
+      "daily_atr_period": 20,
+      "daily_atr_slice": "iloc[k-20:k]",
+      "daily_atr_first_eligible_session_zero_based": 21,
+      "warmup_unavailable_policy": "NO_IMPUTATION"
+    },
+    "family": {
+      "id": "P4_PRIMARY_V1",
+      "size": 3,
+      "hypotheses": ["P4_M01_ALL", "P4_M02_ALL", "P4_M06_ALL"],
+      "directions": "LONG_SHORT_POOLED",
+      "deferred": ["P4_M03", "P4_M04", "P4_M05"]
+    },
+    "mechanisms": {
+      "P4_M01_ALL": {
+        "name": "Rolling-Range Rejection",
+        "range_slice": "day.iloc[j-12:j]",
+        "range_bars": 12,
+        "breach_atr": 0.1,
+        "stop_atr": 0.25,
+        "target": "FROZEN_RANGE_MIDPOINT",
+        "time_exit_bars": 6,
+        "first_regular_signal_clock": "10:35",
+        "first_train_session_signal_clock": "11:15"
+      },
+      "P4_M02_ALL": {
+        "name": "Compression Expansion",
+        "reference_slices": ["j-24:j-18", "j-18:j-12", "j-12:j-6"],
+        "compression_slice": "j-6:j",
+        "tr_reference_slice": "j-24:j",
+        "bars_per_box": 6,
+        "compression_ratio": 0.6,
+        "expansion_ratio": 1.5,
+        "breakout_atr": 0.1,
+        "stop_atr": 0.1,
+        "target_r": 1.5,
+        "time_exit_bars": 12,
+        "first_signal_clock": "11:35"
+      },
+      "P4_M06_ALL": {
+        "name": "True Gap Fill Reversal",
+        "gap_daily_atr": 0.5,
+        "signal_positions": [1, 2, 3, 4, 5],
+        "signal_clocks": ["09:40", "09:45", "09:50", "09:55", "10:00"],
+        "minimum_fill_fraction": 0.25,
+        "stop_atr": 0.1,
+        "target": "PREVIOUS_RTH_CLOSE",
+        "time_exit_bars": 12,
+        "first_eligible_train_session_zero_based": 21
+      }
+    },
+    "execution": {
+      "entry": "NEXT_SAME_SESSION_BAR_OPEN",
+      "daily_complete_signals": 1,
+      "canceled_signal_consumes_day": true,
+      "canceled_signal_is_trade": false,
+      "primary_path": "STOP_FIRST",
+      "sensitivity_path": "TARGET_FIRST",
+      "gap_stop_fill": "BAR_OPEN",
+      "gap_target_fill": "TARGET_PRICE_CAPPED",
+      "primary_cost_bps": 4.0,
+      "sensitivity_cost_bps": 2.0,
+      "robustness_cost_bps": 6.0,
+      "target_gross_must_exceed": 0.0004,
+      "non_positive_target_reason": "NON_POSITIVE_NET_TARGET",
+      "holding_window_source": "SCHEDULED_XNYS_CLOSE_AT_SIGNAL_TIME"
+    },
+    "overlap": {
+      "source": "FIRST_COMPLETE_SIGNALS_INCLUDING_CANCELLATIONS",
+      "same_session": true,
+      "same_direction": true,
+      "maximum_bar_distance_inclusive": 1,
+      "matching": "ONE_TO_ONE",
+      "metric": "M/(nA+nB-M)",
+      "high_overlap_threshold": 0.8,
+      "empty_union": "OVERLAP_NOT_COMPUTABLE"
+    },
+    "statistics": {
+      "estimand": "EQUALLY_WEIGHTED_PER_TRADE_NET_RETURN",
+      "calendar_days": 187,
+      "bootstrap_iterations": 2000,
+      "bootstrap_seed": 31415926,
+      "cluster_unit": "TRADING_DAY",
+      "common_day_indices": true,
+      "p_value": "TWO_SIDED_ABSOLUTE_T",
+      "multiplicity": ["HOLM_FULL_FAMILY", "MAX_ABS_T_SIMULTANEOUS_95_CI"],
+      "minimum_trades": 50,
+      "minimum_trading_days": 40,
+      "profit_factor_min_exclusive": 1.1,
+      "positive_months_min": 6,
+      "max_positive_month_share": 0.4,
+      "mean_net_6bp_min_exclusive": 0.0,
+      "zero_or_untestable_p_value": 1.0,
+      "allow_zero_candidates": true,
+      "research_status": "EXPLORATORY_SAME_TRAIN_SAMPLE"
+    }
+  }
+}

@@ -1,0 +1,67 @@
+{
+  "bootstrap_replicates": 5000,
+  "contract": "C1_TRAIN_FACTOR_DIAGNOSTIC_V1",
+  "dashboard_gate_upgrade": "PROHIBITED",
+  "edge_claim": "PROHIBITED",
+  "executable_strategy_net_return": "NOT_TESTED",
+  "factor_decisions": [
+    {
+      "adverse_horizons": 0,
+      "conclusion_cn": "暂不晋级：证据不足",
+      "definition": "C[0] > EMA20[0]",
+      "factor_id": "SPY_F001_CLOSE_GT_EMA20",
+      "factor_name_cn": "收盘价高于EMA20",
+      "familywise_horizons": 0,
+      "robust_horizons": 0
+    },
+    {
+      "adverse_horizons": 0,
+      "conclusion_cn": "暂不晋级：证据不足",
+      "definition": "EMA20[0] > EMA20[3]",
+      "factor_id": "SPY_F002_EMA20_RISING_3",
+      "factor_name_cn": "EMA20较三根K线前上升",
+      "familywise_horizons": 0,
+      "robust_horizons": 0
+    },
+    {
+      "adverse_horizons": 1,
+      "conclusion_cn": "暂不晋级：证据不足",
+      "definition": "C[-1] <= EMA20[-1] and C[0] > EMA20[0]",
+      "factor_id": "SPY_F003_CLOSE_CROSS_ABOVE_EMA20",
+      "factor_name_cn": "收盘价向上穿越EMA20",
+      "familywise_horizons": 0,
+      "robust_horizons": 0
+    },
+    {
+      "adverse_horizons": 0,
+      "conclusion_cn": "暂不晋级：证据不足",
+      "definition": "C[0] > max(H[-1],...,H[-5])",
+      "factor_id": "SPY_F004_CLOSE_BREAKS_PRIOR_5_HIGH",
+      "factor_name_cn": "收盘价突破前五根最高价",
+      "familywise_horizons": 0,
+      "robust_horizons": 0
+    },
+    {
+      "adverse_horizons": 0,
+      "conclusion_cn": "暂不晋级：证据不足",
+      "definition": "C[-2] < C[-1] < C[0]",
+      "factor_id": "SPY_F005_THREE_CLOSE_MOMENTUM",
+      "factor_name_cn": "连续三根收盘价走高",
+      "familywise_horizons": 0,
+      "robust_horizons": 0
+    },
+    {
+      "adverse_horizons": 0,
+      "conclusion_cn": "暂不晋级：证据不足",
+      "definition": "C[0] > O[0] and (C[0]-O[0])/(H[0]-L[0]) > 0.60",
+      "factor_id": "SPY_F006_STRONG_BULL_BODY",
+      "factor_name_cn": "强阳线实体超过振幅60%",
+      "familywise_horizons": 0,
+      "robust_horizons": 0
+    }
+  ],
+  "multiple_testing_family_size": 18,
+  "raw_run_status": "INCOMPLETE",
+  "supplemental_audit_status": "SUPPORTED",
+  "validation_oos": "NOT_RUN"
+}

@@ -1,0 +1,53 @@
+{
+  "artifacts": {
+    "ATTEMPT_AUDIT.json": {
+      "bytes": 1123,
+      "sha256": "ee826487e0e0d6296ed059078420f07c13a15fcb6d5bb4a6b9c2517f675bbd0c"
+    },
+    "PRE_REGISTRATION_SNAPSHOT.json": {
+      "bytes": 4830,
+      "sha256": "83f213cf1dcee949b8766d17bcab234e000065c73a6ce0d4ea5541502d8c9f06"
+    },
+    "REPORT_CN.md": {
+      "bytes": 3879,
+      "sha256": "6c47c301ec0cfd1e9809ad42bd52d573cd2446dae948831e90679a63b46fbe05"
+    },
+    "ROBUSTNESS_SUMMARY.csv": {
+      "bytes": 1650,
+      "sha256": "bf00cee3e57d89208dd819dfb2cbb0f474a22ec99fca7f15fa966185512e72c2"
+    },
+    "SIGNAL_AUDIT.csv": {
+      "bytes": 59298,
+      "sha256": "b382b92f5230872fc27b4f39cf65760137ed7917f6aff0f72616b6279702e911"
+    },
+    "STATISTICS_GATE.json": {
+      "bytes": 1149,
+      "sha256": "526c1d12b1d9b7477fd3e0caf50f32c700661c7f234f5a224327cd1a06029ddc"
+    },
+    "STRATEGY_RESULTS.csv": {
+      "bytes": 2290,
+      "sha256": "0d0ff321d52b13564846a17292f5f902f000ebc95c7a3d84798af2a576ca7c2c"
+    },
+    "TEST_REGISTRY.csv": {
+      "bytes": 2153,
+      "sha256": "047950aabec49797d7ce0fe7122d96323c9b64cade14c03d28a67241c23aedc0"
+    },
+    "TRADE_LOG.csv": {
+      "bytes": 74019,
+      "sha256": "b176014a27982a1892e948c7ed09610b12847a30c5fb8330192da6b217aa4c24"
+    }
+  },
+  "attempt_id": "P4_TRAIN_V1_ONE_SHOT",
+  "engine_hash_sha256": "17b245e8d2ea070021c2bf69e4bf14eb1d499dc4bd10b59028bff4d0a00f8837",
+  "input_hashes": {
+    "audit_manifest": "f1f750867dd4a32eaf74d4d776dcf47002f0aa7f5b123db4177e57c4a1a266da",
+    "ohlc": "e5e3ab7cfa981be022388b7a54952a6f8fa29e2dc0043672edf4e84997940e2f",
+    "rehab": "16a1bae16d562edffac364cbba2a6a26d72765e1eca57ab0c31189b37ceb17c4"
+  },
+  "phase42_commit": "e6b8737f0cc5cbb7314a8f37e7e44be72d803ed6",
+  "research_status": "RESEARCH_NO_EDGE",
+  "rule_hash_sha256": "dc9b4201cbd4d11d9f7273f5bff0d31effed977f4f15522b4a051fac43a894cb",
+  "runner_source_sha256": "c45b2454c192bb241cb93bf1f81a2310fceeec8de06573df49da0904fa3a692b",
+  "runner_version": "PHASE4_TRAIN_RUNNER_V1",
+  "status": "PHASE4_3_TRAIN_COMPLETE"
+}

@@ -1,0 +1,14 @@
+{
+  "attempt_id": "P4_STRUCTURAL_V1_ONE_SHOT",
+  "preflight_version": "PHASE4_STRUCTURAL_PREFLIGHT_V1",
+  "phase41_commit": "5651e8c1ff77344126a801b7bc1092b56360d529",
+  "phase41_rule_hash_sha256": "dc9b4201cbd4d11d9f7273f5bff0d31effed977f4f15522b4a051fac43a894cb",
+  "phase41_code_hash_sha256": "17b245e8d2ea070021c2bf69e4bf14eb1d499dc4bd10b59028bff4d0a00f8837",
+  "preflight_source_sha256": "d3edde168f4ac29c526c0a858dc713b681fb16fa8fdfc584a47d8928bfaf553d",
+  "data_sha256": "e5e3ab7cfa981be022388b7a54952a6f8fa29e2dc0043672edf4e84997940e2f",
+  "audit_manifest_sha256": "f1f750867dd4a32eaf74d4d776dcf47002f0aa7f5b123db4177e57c4a1a266da",
+  "rehab_sha256": "16a1bae16d562edffac364cbba2a6a26d72765e1eca57ab0c31189b37ceb17c4",
+  "output_directory": "outputs/phase4_structural_v1",
+  "status": "REGISTERED_NOT_STARTED",
+  "real_run_limit": 1
+}

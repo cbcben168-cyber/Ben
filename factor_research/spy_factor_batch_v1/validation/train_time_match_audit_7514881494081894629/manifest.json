@@ -1,0 +1,25 @@
+{
+  "contract": "C1_TRAIN_TIME_MATCH_POSTHOC_V1",
+  "status": "DIAGNOSTIC_ONLY",
+  "selection_timing": "ADDED_AFTER_PARTIAL_TRAIN_REVIEW",
+  "raw_run_sha256": "bda31dddd8fc878663ce6827f11cb336ab4508c0fe0459259d88e321827af742",
+  "raw_run_status_preserved": "INCOMPLETE",
+  "ema_supplement_status": "SUPPORTED",
+  "dashboard_gate_upgrade": "PROHIBITED",
+  "validation_oos_run": false,
+  "edge_claim": "PROHIBITED",
+  "artifacts": {
+    "REPORT_CN.md": {
+      "bytes": 4246,
+      "sha256": "50744dead98d5885c556083cfdaf07bd8d2440cf0e9c20a80d5cf41a0cb9cbf7"
+    },
+    "summary.json": {
+      "bytes": 17539,
+      "sha256": "f148e7c836a9a83998b4a92765928ca780fc65fe0180f1a719ce462b143dbd70"
+    },
+    "time_match_sensitivity.csv": {
+      "bytes": 5236,
+      "sha256": "9a81ef1d727eca6d2a05dc1937731c2f7d136d19ff004903aad23574024328fd"
+    }
+  }
+}

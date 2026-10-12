@@ -1,0 +1,53 @@
+{
+  "DATA_GATE": "PASS",
+  "ENGINE_GATE": "PASS",
+  "MULTIPLE_TESTING_GATE": "PASS",
+  "PREREGISTRATION_GATE": "PASS",
+  "REPRODUCIBILITY_GATE": "PASS",
+  "RESEARCH_STATUS": "RESEARCH_NO_EDGE",
+  "STATISTICS_GATE": "PASS",
+  "bootstrap_iterations": 2000,
+  "candidate_count": 0,
+  "checks": [
+    {
+      "name": "registered_family_exact",
+      "status": "PASS"
+    },
+    {
+      "name": "holm_family_size_three",
+      "status": "PASS"
+    },
+    {
+      "name": "bootstrap_iterations_frozen",
+      "status": "PASS"
+    },
+    {
+      "name": "common_day_index_present",
+      "status": "PASS"
+    },
+    {
+      "name": "statistics_engine_pass",
+      "status": "PASS"
+    },
+    {
+      "name": "no_unqualified_candidate",
+      "status": "PASS"
+    },
+    {
+      "name": "candidate_label_bounded",
+      "status": "PASS"
+    },
+    {
+      "name": "runner_source_hash_verified",
+      "status": "PASS"
+    }
+  ],
+  "common_day_indices_sha256": "56c927fd4e0233cb3ee307b39128b10f91eba52ec1883c69b65d9b2e5a2a1921",
+  "family_id": "P4_PRIMARY_V1",
+  "family_size": 3,
+  "hypotheses": [
+    "P4_M01_ALL",
+    "P4_M02_ALL",
+    "P4_M06_ALL"
+  ]
+}

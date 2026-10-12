@@ -1,8 +1,8 @@
 # Phase 4.3.2 implementation evidence
 
-- Recorded at: `2026-10-13T03:53:38.0256949+08:00`
+- Recorded at: `2026-10-13T03:58:44.8497351+08:00`
 - Branch: `codex/futu-factor-progress-dashboard-v1`
-- Verified HEAD: `03eab2410ab7738b06601452b28b42f979e7fbb7`
+- Verified HEAD: `4099b403971b5f942684b546c18ee36f1270bd68`
 - Phase 4.3.1 checkpoint: `a0d43e0380b78c96759e55dbddf5b77b44e4c648`
 - Python: `3.14.2`
 - pytest: `9.1.1`
@@ -41,8 +41,14 @@ py -3.14 -m pytest -q
 Result: exit code `0`.
 
 ```text
-380 passed in 120.01s (0:02:00)
+381 passed in 121.85s (0:02:01)
 ```
+
+The suite includes a synthetic future-corporate-action metamorphic test. With
+`factor_b=0`, appending a future multiplicative action scales all historical price
+and volatility coordinates while preserving M01/M02/M06 signal identity, replay
+status, exit reasons, and relative returns. This is distinct from merely appending
+future bars and does not claim invariance for additive adjustments.
 
 ## Frozen V1 preservation
 

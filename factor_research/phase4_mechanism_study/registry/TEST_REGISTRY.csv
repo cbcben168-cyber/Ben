@@ -1,0 +1,9 @@
+gate_id,requirement,status
+PREREGISTRATION_GATE,Machine-readable frozen contract with deterministic rule hash,PASS
+RULE_HASH_GATE,Canonical rules hash recomputes exactly,PASS
+SYNTHETIC_TEST_GATE,All Phase 4.1 tests use artificial prices only,PASS
+LOOKAHEAD_GATE,Prefix invariance and historical-window boundaries,PASS
+STATE_MACHINE_GATE,First complete daily signal consumes entitlement,PASS
+EXECUTION_CONTRACT_GATE,Geometry cost schedule and path rules,PASS
+STATISTICS_CONTRACT_GATE,Full family common-calendar inference and 6bp rule,PASS
+WRITE_SCOPE_GATE,Only phase4_mechanism_study files changed,PASS

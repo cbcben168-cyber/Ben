@@ -260,6 +260,7 @@ def _artifact_manifest(output_dir: Path) -> dict[str, dict[str, Any]]:
 
 def run_one_shot(
     *,
+    authorization_token: str | None = None,
     registration_path: Path | None = None,
     output_dir: Path | None = None,
     data_path: Path | None = None,
@@ -267,6 +268,8 @@ def run_one_shot(
     registry_path: Path | None = None,
     now: Callable[[], str] | None = None,
 ) -> str:
+    if authorization_token != AUTHORIZATION_TOKEN:
+        raise CorrectedStructuralPreflightError("REAL_CORRECTED_PREFLIGHT_NOT_AUTHORIZED")
     package = _package_dir()
     registration = verify_corrected_preflight_identity(registration_path)
     output = output_dir or package / OUTPUT_DIRECTORY
@@ -396,7 +399,7 @@ def main(argv: Iterable[str] | None = None) -> int:
             "REAL_CORRECTED_PREFLIGHT_DISABLED; require "
             f"--authorize-one-shot-preflight {AUTHORIZATION_TOKEN}"
         )
-    print(run_one_shot())
+    print(run_one_shot(authorization_token=args.authorize_one_shot_preflight))
     return 0
 
 

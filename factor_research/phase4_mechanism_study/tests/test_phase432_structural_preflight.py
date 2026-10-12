@@ -15,6 +15,7 @@ from factor_research.phase4_mechanism_study.phase432_structural_preflight import
     CorrectedStructuralPreflightError,
     claim_attempt,
     main,
+    run_one_shot,
     source_hashes,
     verify_corrected_preflight_identity,
 )
@@ -59,6 +60,13 @@ def test_cli_cannot_execute_without_exact_corrected_preflight_authorization() ->
     with pytest.raises(SystemExit):
         main(["--authorize-one-shot-preflight", "WRONG"])
     assert AUTHORIZATION_TOKEN == ATTEMPT_ID
+
+
+def test_direct_one_shot_call_fails_before_creating_output_without_authorization(tmp_path: Path) -> None:
+    output = tmp_path / "phase4_structural_v2"
+    with pytest.raises(CorrectedStructuralPreflightError, match="NOT_AUTHORIZED"):
+        run_one_shot(authorization_token="WRONG", output_dir=output)
+    assert not output.exists()
 
 
 def test_production_source_uses_numeric_adapter_and_never_reads_old_capacity_result() -> None:

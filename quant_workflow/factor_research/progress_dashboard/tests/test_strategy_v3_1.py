@@ -561,6 +561,32 @@ def test_inference_executes_all_114_tests_and_records_insufficiency():
     estimated = [row for row in result["results"] if row["status"] == "ESTIMATED"]
     assert estimated
     assert all("holm_p_value" in row and "simultaneous_ci_low" in row for row in estimated)
+    fixed = [
+        row
+        for row in result["results"]
+        if row["family"] in {
+            "REGIME_INCREMENT",
+            "TIME_INCREMENT",
+            "REGIME_TIME_INTERACTION",
+            "F001_F006_FILTER_INCREMENT",
+        }
+    ]
+    assert len(fixed) == 78
+    assert all(
+        row["analysis_scope"] == "FIXED_OPPORTUNITY_SET_DESCRIPTIVE"
+        and row["counterfactual_status"] == "COUNTERFACTUAL_NOT_SIMULATED"
+        and row["position_release_resimulated"] is False
+        for row in fixed
+    )
+    s01_long_f001 = next(
+        row for row in fixed if row["test_id"] == "S01_LONG_F001"
+    )
+    assert s01_long_f001["matched_mean"] == pytest.approx(0.001)
+    assert s01_long_f001["unmatched_mean"] is None
+    baseline = next(
+        row for row in result["results"] if row["test_id"] == "S01_LONG"
+    )
+    assert "counterfactual_status" not in baseline
 
 
 def test_v31_import_is_atomic_visible_and_rejects_wrong_entry_label(tmp_path):
@@ -576,6 +602,23 @@ def test_v31_import_is_atomic_visible_and_rejects_wrong_entry_label(tmp_path):
     assert research["batches"][0]["strategy_version"] == "FUTU_C1_STRATEGY_BATCH_TRAIN_V3_1"
     assert len(research["inference_results"]) == 114
     assert len(research["inference_families"]) == 6
+    assert research["position_busy_count"] == 0
+    fixed = next(
+        row
+        for row in research["inference_results"]
+        if row["test_id"] == "S02_LONG_09:35-10:30"
+    )
+    assert fixed["counterfactual_status"] == "COUNTERFACTUAL_NOT_SIMULATED"
+    assert fixed["matched_mean"] == pytest.approx(-0.0104)
+    metric = next(
+        row
+        for row in research["metrics"]
+        if row["strategy_id"] == "S02" and row["direction"] == "LONG"
+    )
+    assert metric["path_uncertain_exit_count"] == 1
+    assert metric["mfe_mae_scope"] == "FULL_EXIT_BAR_RANGE_UPPER_BOUND"
+    assert "未重演持仓释放" in research["fixed_opportunity_notice"]
+    assert "完整退出K线" in research["mfe_mae_notice"]
 
     bad = _write_fixture(tmp_path / "RunLog_V31_BAD.csv", bad_entry_label=True)
     parsed = parse_runlog(bad, allow_fixtures=True)

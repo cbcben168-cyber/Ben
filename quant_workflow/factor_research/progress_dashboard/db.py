@@ -10,6 +10,8 @@ import sqlite3
 from typing import Any
 
 from .stats import (
+    compute_fixed_opportunity_diagnostics,
+    compute_mfe_mae_path_diagnostics,
     compute_statistics,
     compute_strategy_inference,
     compute_strategy_metrics,
@@ -1494,6 +1496,8 @@ class Database:
                 "status": "NOT_TESTED", "warning": "尚未导入 Strategy-First V3.1.1 TRAIN 数据。",
                 "batches": [], "metrics": [], "candidate_metrics": [], "tests": [], "event_units": [],
                 "inference_results": [], "inference_families": [],
+                "fixed_opportunity_notice": None, "mfe_mae_notice": None,
+                "position_busy_count": 0,
             }
         latest = batches[0]["batch_instance_id"]
         metrics = [
@@ -1529,6 +1533,38 @@ class Database:
                 (latest,),
             ).fetchall()
         ]
+        stored_trades: list[dict[str, Any]] = []
+        for row in self._rows(
+            connection.execute(
+                """
+                SELECT strategy_id, direction, trade_date_et, net_return,
+                       exit_reason, ambiguous, context_json
+                FROM strategy_trades WHERE batch_instance_id=?
+                """,
+                (latest,),
+            ).fetchall()
+        ):
+            context = json.loads(row.pop("context_json"))
+            row.update(context)
+            stored_trades.append(row)
+        fixed_diagnostics = compute_fixed_opportunity_diagnostics(stored_trades)
+        for row in inference_results:
+            if row["test_id"] in fixed_diagnostics:
+                row.update(fixed_diagnostics[row["test_id"]])
+        path_diagnostics = compute_mfe_mae_path_diagnostics(stored_trades)
+        for row in metrics:
+            row.update(
+                path_diagnostics.get((row["strategy_id"], row["direction"]), {})
+            )
+        position_busy_count = int(
+            connection.execute(
+                """
+                SELECT COUNT(*) FROM strategy_entry_rejections
+                WHERE batch_instance_id=? AND reason='POSITION_BUSY'
+                """,
+                (latest,),
+            ).fetchone()[0]
+        )
         units = self._rows(
             connection.execute(
                 "SELECT event_unit, COUNT(*) AS signal_count, COUNT(DISTINCT substr(signal_time_et,1,10)) AS trading_days FROM strategy_signals WHERE batch_instance_id=? GROUP BY event_unit ORDER BY event_unit",
@@ -1575,7 +1611,7 @@ class Database:
         return {
             "status": batches[0]["run_status"],
             "warning": (
-                "V3.1.1 TRAIN 补充研究展示；同时区间与 Holm 已执行，但 TRAIN 仍不构成 Edge。"
+                "V3.1.1 TRAIN 已导入；114项检验已执行。Regime、时段和过滤器增量未重演持仓释放，只能作固定机会集描述，不能构成 Edge。"
                 if batches[0]["strategy_version"] == "FUTU_C1_STRATEGY_BATCH_TRAIN_V3_1_1"
                 else "V3.1 历史数据继续兼容；新正式 TRAIN 应使用V3.1.1。"
                 if batches[0]["strategy_version"] == "FUTU_C1_STRATEGY_BATCH_TRAIN_V3_1"
@@ -1585,6 +1621,13 @@ class Database:
             "tests": tests, "event_units": units,
             "inference_results": inference_results,
             "inference_families": inference_families,
+            "position_busy_count": position_busy_count,
+            "fixed_opportunity_notice": (
+                f"固定机会集诊断：未重演持仓释放；{position_busy_count}条 POSITION_BUSY 不在过滤后反事实成交序列中。"
+            ),
+            "mfe_mae_notice": (
+                "MFE/MAE 使用完整退出K线高低范围；STOP、TARGET及GAP_STOP可能包含假定退出后的价格，不能视为严格可实现路径。"
+            ),
         }
 
     def dashboard_snapshot(
@@ -1712,7 +1755,7 @@ class Database:
             )
         elif strategy_research["status"] == "VALIDATED":
             summary["next_action"] = (
-                "审阅 S01–S03 扣成本结果、聚类区间和样本覆盖；未经另行批准不要运行 Validation/OOS。"
+                "把过滤器结果保留为固定机会集诊断；如需评价真实过滤策略，先独立重演持仓释放与 POSITION_BUSY。不要运行 Validation/OOS。"
             )
         return {
             "summary": summary,

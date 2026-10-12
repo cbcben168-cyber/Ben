@@ -7,6 +7,130 @@ from statistics import mean, median, pstdev
 from itertools import combinations
 
 
+FIXED_OPPORTUNITY_FAMILIES = {
+    "REGIME_INCREMENT",
+    "TIME_INCREMENT",
+    "REGIME_TIME_INTERACTION",
+    "F001_F006_FILTER_INCREMENT",
+}
+
+
+def compute_mfe_mae_path_diagnostics(trades: list[dict]) -> dict[tuple[str, str], dict]:
+    """Describe exit-bar path limits without changing recorded MFE/MAE values."""
+    grouped: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    for trade in trades:
+        grouped[(str(trade["strategy_id"]), str(trade["direction"]))].append(trade)
+    return {
+        key: {
+            "path_uncertain_exit_count": sum(
+                str(item.get("exit_reason")) in {"STOP", "TARGET", "GAP_STOP"}
+                for item in items
+            ),
+            "same_bar_ambiguous_count": sum(bool(item.get("ambiguous")) for item in items),
+            "gap_stop_count": sum(item.get("exit_reason") == "GAP_STOP" for item in items),
+            "mfe_mae_scope": "FULL_EXIT_BAR_RANGE_UPPER_BOUND",
+            "mfe_mae_path_status": "EXIT_BAR_SEQUENCE_UNKNOWN",
+        }
+        for key, items in grouped.items()
+    }
+
+
+def compute_fixed_opportunity_diagnostics(trades: list[dict]) -> dict[str, dict]:
+    """Summarize frozen executed trades; this does not replay released positions."""
+    grouped: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    for trade in trades:
+        grouped[(str(trade["strategy_id"]), str(trade["direction"]))].append(trade)
+    diagnostics: dict[str, dict] = {}
+
+    def add(test_id: str, items: list[dict], predicate) -> None:
+        matched = [item for item in items if predicate(item)]
+        unmatched = [item for item in items if not predicate(item)]
+        diagnostics[test_id] = {
+            "analysis_scope": "FIXED_OPPORTUNITY_SET_DESCRIPTIVE",
+            "counterfactual_status": "COUNTERFACTUAL_NOT_SIMULATED",
+            "position_release_resimulated": False,
+            "matched_count": len(matched),
+            "unmatched_count": len(unmatched),
+            "matched_mean": (
+                mean(float(item["net_return"]) for item in matched) if matched else None
+            ),
+            "unmatched_mean": (
+                mean(float(item["net_return"]) for item in unmatched)
+                if unmatched else None
+            ),
+        }
+
+    for strategy_id in ("S01", "S02", "S03"):
+        for direction in ("LONG", "SHORT"):
+            items = grouped.get((strategy_id, direction), [])
+            aligned_preopen = (
+                (lambda item: item.get("preopen_regime") == "BULL")
+                if direction == "LONG"
+                else (lambda item: item.get("preopen_regime") == "BEAR")
+            )
+            gap_aligned = (
+                (lambda item: item.get("gap_regime") == "GAP_UP")
+                if direction == "LONG"
+                else (lambda item: item.get("gap_regime") == "GAP_DOWN")
+            )
+            regime_tests = {
+                "S01": (
+                    ("PREOPEN_ALIGNED", aligned_preopen),
+                    ("VOL_NORMAL", lambda item: item.get("vol_regime") == "NORMAL"),
+                ),
+                "S02": (
+                    ("GAP_ALIGNED", gap_aligned),
+                    ("PREOPEN_ALIGNED", aligned_preopen),
+                ),
+                "S03": (
+                    ("PREOPEN_NEUTRAL", lambda item: item.get("preopen_regime") == "NEUTRAL"),
+                    ("VOL_NORMAL", lambda item: item.get("vol_regime") == "NORMAL"),
+                ),
+            }[strategy_id]
+            for label, predicate in regime_tests:
+                add(f"{strategy_id}_{direction}_{label}", items, predicate)
+
+            for bucket in ("09:35-10:30", "10:30-12:00", "12:00-14:00", "14:00-15:55"):
+                add(
+                    f"{strategy_id}_{direction}_{bucket}",
+                    items,
+                    lambda item, bucket=bucket: item.get("time_bucket") == bucket,
+                )
+
+            if strategy_id == "S01":
+                interaction = lambda item, aligned_preopen=aligned_preopen: (
+                    aligned_preopen(item) and item.get("vol_regime") == "NORMAL"
+                )
+                interaction_label = "PREOPEN_ALIGNED_X_VOL_NORMAL"
+            elif strategy_id == "S02":
+                interaction = lambda item, gap_aligned=gap_aligned: (
+                    gap_aligned(item) and item.get("time_bucket") == "09:35-10:30"
+                )
+                interaction_label = "GAP_ALIGNED_X_OPENING_BUCKET"
+            else:
+                interaction = lambda item: (
+                    item.get("preopen_regime") == "NEUTRAL"
+                    and item.get("time_bucket") in {"10:30-12:00", "12:00-14:00"}
+                )
+                interaction_label = "PREOPEN_NEUTRAL_X_1030_1400"
+            add(
+                f"{strategy_id}_{direction}_{interaction_label}",
+                items,
+                interaction,
+            )
+
+            for factor_index in range(6):
+                add(
+                    f"{strategy_id}_{direction}_F{factor_index + 1:03d}",
+                    items,
+                    lambda item, factor_index=factor_index: (
+                        len(str(item.get("factor_filters", ""))) == 6
+                        and str(item["factor_filters"])[factor_index] == "1"
+                    ),
+                )
+    return diagnostics
+
+
 def compute_strategy_metrics(
     trades: list[dict], *, bootstrap_replicates: int = 2000, seed_key: str = "strategy-v3"
 ) -> list[dict]:
@@ -42,8 +166,7 @@ def compute_strategy_metrics(
                 sampled = [days[rng.randrange(len(days))] for _ in days]
                 sample = [value for day in sampled for value in by_day[day]]
                 bootstrap_means.append(mean(sample))
-        rows.append(
-            {
+        row = {
                 "strategy_id": strategy_id,
                 "direction": direction,
                 "trade_count": len(items),
@@ -66,8 +189,13 @@ def compute_strategy_metrics(
                     {"month": month, "trades": len(values), "net_mean": mean(values), "net_sum": sum(values)}
                     for month, values in sorted(by_month.items())
                 ],
-            }
+        }
+        row.update(
+            compute_mfe_mae_path_diagnostics(items).get(
+                (strategy_id, direction), {}
+            )
         )
+        rows.append(row)
     return rows
 
 
@@ -428,6 +556,10 @@ def compute_strategy_inference(
                 "adjustment": "MAX_T_PLUS_HOLM",
             }
         )
+    fixed_diagnostics = compute_fixed_opportunity_diagnostics(trades)
+    for row in results:
+        if row["family"] in FIXED_OPPORTUNITY_FAMILIES:
+            row.update(fixed_diagnostics[row["test_id"]])
     return {
         "results": results,
         "families": family_summaries,

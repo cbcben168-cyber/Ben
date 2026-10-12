@@ -103,7 +103,7 @@
     <div class="panel-head"><div><h2>C1 Strategy-First V3.1.1</h2><span class="muted">S01 趋势回踩、S02 开盘区间突破、S03 震荡回归；TRAIN 不等于 Edge。</span></div></div>
     <div id="strategyWarning" class="notice">正在读取第二批研究状态…</div>
     <div class="table-wrap"><table><thead><tr>
-      <th>策略</th><th>方向</th><th>交易数 / 交易日 / 执行覆盖</th><th>扣成本净期望</th><th>PF</th><th>复合单位资金回撤</th><th>MFE / MAE</th><th>日聚类95%区间</th><th>路径不确定</th>
+      <th>策略</th><th>方向</th><th>交易数 / 交易日 / 执行覆盖</th><th>扣成本净期望</th><th>PF</th><th>复合单位资金回撤</th><th>范围型 MFE / MAE</th><th>日聚类95%区间</th><th>退出K线路径限制</th>
     </tr></thead><tbody id="strategyRows"></tbody></table></div>
     <div class="panel-body"><h3>F007–F012 条件收益（与策略净收益分开）</h3></div>
     <div class="table-wrap"><table><thead><tr>
@@ -112,8 +112,8 @@
     <div id="strategyRegistry" class="panel-body muted"></div>
     <details class="advanced"><summary>正式统计检验（max-|t| 同时区间与 Holm）</summary>
       <div class="table-wrap"><table><thead><tr>
-        <th>检验族 / 检验</th><th>样本 / 日数 / 覆盖</th><th>配对增量</th>
-        <th>普通95%区间</th><th>同时95%区间</th><th>Holm p</th><th>状态</th>
+        <th>检验族 / 检验</th><th>样本 / 日数 / 覆盖</th><th>保留组 / 排除组</th><th>估计值</th>
+        <th>普通95%区间</th><th>同时95%区间</th><th>Holm p</th><th>统计状态</th><th>研究口径</th>
       </tr></thead><tbody id="strategyInferenceRows"></tbody></table></div>
     </details>
   </section>
@@ -194,7 +194,7 @@
       <td><b>${esc(x.strategy_id)}</b></td><td>${esc(x.direction)}</td><td>${esc(x.trade_count)} / ${esc(x.trading_days)} / ${rate(x.execution_coverage)}</td>
       <td>${pct(x.net_mean)}</td><td>${isNil(x.profit_factor)?'未测试':Number(x.profit_factor).toFixed(2)}</td><td>${pct(x.max_drawdown)}</td>
       <td>${pct(x.mfe_mean)} / ${pct(x.mae_mean)}</td><td>${pct(x.cluster_ci_low)} 至 ${pct(x.cluster_ci_high)}</td>
-      <td>${esc(x.ambiguous_count)} 笔</td></tr>`).join(''):'<tr><td colspan="9" class="empty">尚未测试：等待一次完整 V3.1.1 TRAIN CSV。</td></tr>';
+      <td>${esc(x.path_uncertain_exit_count??0)} 笔范围不确定<br>${esc(x.same_bar_ambiguous_count??x.ambiguous_count??0)} 笔同柱双触发</td></tr>`).join(''):'<tr><td colspan="9" class="empty">尚未测试：等待一次完整 V3.1.1 TRAIN CSV。</td></tr>';
     document.getElementById('candidateRows').innerHTML=research.candidate_metrics.length?research.candidate_metrics.map(x=>`<tr>
       <td><b>${esc(x.candidate_id)}</b></td><td>${esc(x.direction)}</td><td>${esc(x.event_unit)}</td><td>${esc(x.horizon_minutes)} 分钟</td>
       <td>${esc(x.n)} / ${esc(x.trading_days)}</td><td>${pct(x.raw_mean)}</td><td>${pct(x.directional_mean)}</td>
@@ -202,16 +202,17 @@
     const units=research.event_units.map(x=>`${esc(x.event_unit)}：${esc(x.signal_count)} 个信号 / ${esc(x.trading_days)} 日`).join('；');
     const tests=research.tests.map(x=>`${esc(x.layer)} ${esc(x.family)}（${esc(x.family_size)}，${esc(x.adjustment)}）`).join('；');
     const families=(research.inference_families||[]).map(x=>`${esc(x.family)}：已登记 ${esc(x.actual_tests)}/${esc(x.expected_tests)}，可估计 ${esc(x.estimable_tests)}，max-|t| 临界值 ${isNil(x.max_t_critical_95)?'不可估计':Number(x.max_t_critical_95).toFixed(3)}`).join('；');
-    document.getElementById('strategyRegistry').innerHTML=`<b>事件单位分开显示：</b>${units||'尚无数据'}<br><b>预注册检验族：</b>${tests||'等待导入；合同已冻结'}<br><b>实际执行：</b>${families||'尚未执行'}`;
+    document.getElementById('strategyRegistry').innerHTML=`<b>事件单位分开显示：</b>${units||'尚无数据'}<br><b>预注册检验族：</b>${tests||'等待导入；合同已冻结'}<br><b>实际执行：</b>${families||'尚未执行'}<br><b>过滤器边界：</b>${esc(research.fixed_opportunity_notice||'尚无数据')}<br><b>MFE/MAE边界：</b>${esc(research.mfe_mae_notice||'尚无数据')}`;
     const inference=research.inference_results||[];
-    document.getElementById('strategyInferenceRows').innerHTML=inference.length?inference.map(x=>`<tr>
+    document.getElementById('strategyInferenceRows').innerHTML=inference.length?inference.map(x=>{const fixed=x.counterfactual_status==='COUNTERFACTUAL_NOT_SIMULATED';return `<tr>
       <td><b>${esc(x.family)}</b><br>${esc(x.test_id)}</td>
       <td>${esc(x.sample_count)} / ${esc(x.trading_days)} / ${rate(x.coverage)}</td>
+      <td>${fixed?`保留 ${bp(isNil(x.matched_mean)?null:x.matched_mean*10000)}（${esc(x.matched_count)}）<br>排除 ${bp(isNil(x.unmatched_mean)?null:x.unmatched_mean*10000)}（${esc(x.unmatched_count)}）`:'不适用'}</td>
       <td>${bp(isNil(x.estimate)?null:x.estimate*10000)}</td>
       <td>${pct(x.cluster_ci_low)} 至 ${pct(x.cluster_ci_high)}</td>
       <td>${pct(x.simultaneous_ci_low)} 至 ${pct(x.simultaneous_ci_high)}</td>
       <td>${isNil(x.holm_p_value)?'不可估计':Number(x.holm_p_value).toFixed(4)}</td>
-      <td>${esc(x.status)}</td></tr>`).join(''):'<tr><td colspan="7" class="empty">尚未执行正式统计检验。</td></tr>';
+      <td>${esc(x.status)}</td><td>${fixed?'固定机会集描述；未重演持仓释放':'正式基准或候选筛选'}</td></tr>`}).join(''):'<tr><td colspan="9" class="empty">尚未执行正式统计检验。</td></tr>';
   }
 
   function renderComparison(comparison,factors){

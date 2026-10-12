@@ -157,6 +157,10 @@ def test_strategy_metrics_include_cost_path_risk_pf_drawdown_and_cluster_ci():
     assert row["mfe_mean"] == pytest.approx(0.011)
     assert row["mae_mean"] == pytest.approx(0.0045)
     assert row["ambiguous_count"] == 1
+    assert row["path_uncertain_exit_count"] == 2
+    assert row["same_bar_ambiguous_count"] == 1
+    assert row["mfe_mae_scope"] == "FULL_EXIT_BAR_RANGE_UPPER_BOUND"
+    assert row["mfe_mae_path_status"] == "EXIT_BAR_SEQUENCE_UNKNOWN"
     assert row["cluster_ci_low"] is not None and row["cluster_ci_high"] is not None
 
 
@@ -212,3 +216,5 @@ def test_dashboard_template_separates_strategy_research_from_factor_ranking():
     assert "C1 Strategy-First V3" in content
     assert "不同事件单位不可直接排行" in content or "事件单位分开显示" in content
     assert "TRAIN 不等于 Edge" in content
+    assert "范围型 MFE / MAE" in content
+    assert "固定机会集描述；未重演持仓释放" in content

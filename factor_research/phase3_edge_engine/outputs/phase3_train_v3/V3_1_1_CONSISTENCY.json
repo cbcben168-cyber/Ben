@@ -1,0 +1,30 @@
+{
+  "checks": {
+    "mean_net_within_0_75bp": true,
+    "position_busy_matches_521": true,
+    "s01_busy_only": true,
+    "total_trades_matches_1072": true
+  },
+  "local_net_mean_bps": {
+    "S01": -4.000010701908585,
+    "S02": -0.6545163082846311,
+    "S03": -4.04319634675701
+  },
+  "local_position_busy": 521,
+  "local_trade_counts": {
+    "S01": 808,
+    "S02": 183,
+    "S03": 81
+  },
+  "reference": {
+    "net_mean_bps_approx": {
+      "S01": -4.0,
+      "S02": -0.65,
+      "S03": -4.04
+    },
+    "position_busy": 521,
+    "source": "C1_V3_1_1_TRAIN_ACCEPTANCE.md",
+    "total_trades": 1072
+  },
+  "status": "PASS"
+}

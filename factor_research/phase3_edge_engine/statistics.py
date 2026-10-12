@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import hashlib
+from typing import Any
 
 import numpy as np
 import pandas as pd
 
 from .contracts import BOOTSTRAP_ITERATIONS, BOOTSTRAP_SEED, COST_SCENARIOS_BPS, FactorSpec
+
+
+INFERENCE_TARGET = "DIRECTIONAL_MEAN_VS_ZERO"
 
 
 def _seed(label: str) -> int:
@@ -182,7 +186,13 @@ def factor_results(events: pd.DataFrame, data: pd.DataFrame, specs: list[FactorS
                     f"factor-{factor_id}-{direction}-{horizon}",
                     calendar_days,
                 )
-                baseline = float(train[f"return_h{horizon}"].mean())
+                baseline_raw_market = float(train[f"return_h{horizon}"].mean())
+                if spec.direction == "REGIME":
+                    baseline_directional = np.nan
+                    comparison_baseline = baseline_raw_market
+                else:
+                    baseline_directional = baseline_raw_market * int(direction)
+                    comparison_baseline = baseline_directional
                 rows.append({
                     "factor_id": factor_id,
                     "category": spec.category,
@@ -194,10 +204,14 @@ def factor_results(events: pd.DataFrame, data: pd.DataFrame, specs: list[FactorS
                     "directional_mean": summary["mean"] if spec.direction != "REGIME" else np.nan,
                     "median": float(values.median()) if len(values) else np.nan,
                     "positive_rate": float((values > 0).mean()) if len(values) else np.nan,
-                    "baseline_mean": baseline,
-                    "increment": summary["mean"] - baseline if spec.direction != "REGIME" else float(raw.mean()) - baseline,
+                    "baseline_raw_market": baseline_raw_market,
+                    "baseline_directional": baseline_directional,
+                    "baseline_mean": comparison_baseline,
+                    "increment": summary["mean"] - comparison_baseline,
+                    "inference_target": INFERENCE_TARGET,
                     "cluster_ci_low": summary["ci_low"],
                     "cluster_ci_high": summary["ci_high"],
+                    "standard_error": summary["se"],
                     "estimate": summary["mean"],
                     "se": summary["se"],
                     "_cluster_days": summary["_cluster_days"],
@@ -288,6 +302,8 @@ def strategy_results(trades: pd.DataFrame, calendar_days: list[str] | pd.Series 
             "mae_mean": float(group["mae"].mean()),
             "cluster_ci_low": summary["ci_low"],
             "cluster_ci_high": summary["ci_high"],
+            "standard_error": summary["se"],
+            "inference_target": "NET_MEAN_VS_ZERO",
             "ambiguous_paths": int(group["ambiguous_path"].sum()),
             "path_uncertain_exits": int(group["path_uncertain"].sum()),
             "positive_months": int((monthly > 0).sum()),
@@ -409,3 +425,302 @@ def test_registry(factor_rows: pd.DataFrame, strategy_rows: pd.DataFrame, regime
         {"family": "REGIME_TIME_DIAGNOSTIC", "actual_tests": len(regime_rows), "cluster_unit": "TRADING_DAY", "multiplicity": "DESCRIPTIVE_PRE_REGISTERED_DIMENSIONS", "attempt_version": "PHASE3_V2"},
     ]
     return pd.DataFrame(records)
+
+
+def _same_number(left: Any, right: Any, tolerance: float = 1e-12) -> bool:
+    if pd.isna(left) or pd.isna(right):
+        return bool(pd.isna(left) and pd.isna(right))
+    return bool(np.isclose(float(left), float(right), rtol=0.0, atol=tolerance))
+
+
+def _gate_record(name: str, actual: Any, expected: Any, passed: bool, reason: str = "") -> dict:
+    return {
+        "name": name,
+        "actual": actual,
+        "expected": expected,
+        "status": "PASS" if passed else "FAIL",
+        "failure_reason": "" if passed else reason,
+    }
+
+
+def _finalize_statistics_gate(checks: list[dict]) -> dict:
+    failed = [item for item in checks if item["status"] != "PASS"]
+    return {
+        "status": "STATISTICS_PASS" if not failed else "STATISTICS_FAIL",
+        "inference_target": INFERENCE_TARGET,
+        "checks_total": len(checks),
+        "checks_passed": len(checks) - len(failed),
+        "checks_failed": len(failed),
+        "failure_reasons": [f"{item['name']}:{item['failure_reason']}" for item in failed],
+        "checks": checks,
+    }
+
+
+def append_statistics_gate_check(
+    gate: dict,
+    name: str,
+    actual: Any,
+    expected: Any,
+    passed: bool,
+    reason: str = "",
+) -> dict:
+    return _finalize_statistics_gate([
+        *gate.get("checks", []),
+        _gate_record(name, actual, expected, passed, reason),
+    ])
+
+
+def statistics_integrity_gate(
+    factor_rows: pd.DataFrame,
+    strategy_rows: pd.DataFrame,
+    regime_rows: pd.DataFrame,
+    factor_specs: list[FactorSpec],
+    strategy_specs: list,
+    registered_tests: pd.DataFrame,
+    expected_factor_keys: set[tuple[str, str, int]],
+    expected_strategy_keys: set[tuple[str, str]],
+) -> dict:
+    """Return deterministic, machine-readable statistical acceptance evidence."""
+    checks: list[dict] = []
+
+    factor_ids = [item.factor_id for item in factor_specs]
+    expected_factor_ids = [f"F{number:03d}" for number in range(1, 37)]
+    variant_ids = [item.variant_id for item in strategy_specs]
+    checks.append(_gate_record(
+        "factor_registry_complete",
+        {"count": len(factor_ids), "ids": factor_ids},
+        {"count": 36, "ids": expected_factor_ids},
+        factor_ids == expected_factor_ids,
+        "factor registry is incomplete or reordered",
+    ))
+    checks.append(_gate_record(
+        "strategy_registry_complete",
+        {"count": len(variant_ids), "unique": len(set(variant_ids))},
+        {"count": 9, "unique": 9, "strategy_ids": ["S01", "S02", "S03"]},
+        len(variant_ids) == 9
+        and len(set(variant_ids)) == 9
+        and {item.strategy_id for item in strategy_specs} == {"S01", "S02", "S03"},
+        "strategy registry is incomplete or duplicated",
+    ))
+
+    actual_factor_keys = {
+        (str(row.factor_id), str(row.direction), int(row.horizon_minutes))
+        for row in factor_rows.itertuples()
+    }
+    actual_strategy_keys = {
+        (str(row.variant_id), str(row.direction)) for row in strategy_rows.itertuples()
+    }
+    checks.append(_gate_record(
+        "factor_registered_family_complete",
+        {
+            "rows": len(actual_factor_keys),
+            "missing": sorted(expected_factor_keys - actual_factor_keys),
+            "unexpected": sorted(actual_factor_keys - expected_factor_keys),
+        },
+        {"rows": len(expected_factor_keys), "missing": [], "unexpected": []},
+        actual_factor_keys == expected_factor_keys and len(factor_rows) == len(expected_factor_keys),
+        "factor result keys do not match the frozen registered family",
+    ))
+    checks.append(_gate_record(
+        "strategy_registered_family_complete",
+        {
+            "rows": len(actual_strategy_keys),
+            "missing": sorted(expected_strategy_keys - actual_strategy_keys),
+            "unexpected": sorted(actual_strategy_keys - expected_strategy_keys),
+        },
+        {"rows": len(expected_strategy_keys), "missing": [], "unexpected": []},
+        actual_strategy_keys == expected_strategy_keys and len(strategy_rows) == len(expected_strategy_keys),
+        "strategy result keys do not match the frozen registered family",
+    ))
+
+    test_counts = {
+        str(row.family): int(row.actual_tests) for row in registered_tests.itertuples()
+    }
+    expected_test_counts = {
+        "FACTOR_PREDICTION": len(expected_factor_keys),
+        "STRATEGY_BASELINE_AND_FILTER": len(expected_strategy_keys),
+        "REGIME_TIME_DIAGNOSTIC": len(regime_rows),
+    }
+    checks.append(_gate_record(
+        "registered_test_family_counts",
+        test_counts,
+        expected_test_counts,
+        test_counts == expected_test_counts,
+        "registered test family is missing or has the wrong size",
+    ))
+
+    spec_map = {item.factor_id: item for item in factor_specs}
+    baseline_failures: list[str] = []
+    for row in factor_rows.itertuples():
+        spec = spec_map[str(row.factor_id)]
+        raw_baseline = row.baseline_raw_market
+        if not np.isfinite(raw_baseline):
+            baseline_failures.append(f"{row.factor_id}|{row.direction}|{row.horizon_minutes}:RAW_BASELINE")
+            continue
+        if spec.direction == "REGIME":
+            expected_directional = np.nan
+            comparison = raw_baseline
+            estimate = row.raw_mean
+        else:
+            sign = 1 if row.direction == "LONG" else -1
+            expected_directional = raw_baseline * sign
+            comparison = expected_directional
+            estimate = row.directional_mean
+        if not _same_number(row.baseline_directional, expected_directional):
+            baseline_failures.append(f"{row.factor_id}|{row.direction}|{row.horizon_minutes}:DIRECTIONAL_BASELINE")
+        if not _same_number(row.baseline_mean, comparison):
+            baseline_failures.append(f"{row.factor_id}|{row.direction}|{row.horizon_minutes}:COMPAT_BASELINE")
+        expected_increment = np.nan if pd.isna(estimate) else float(estimate) - float(comparison)
+        if not _same_number(row.increment, expected_increment):
+            baseline_failures.append(f"{row.factor_id}|{row.direction}|{row.horizon_minutes}:INCREMENT")
+        if row.inference_target != INFERENCE_TARGET:
+            baseline_failures.append(f"{row.factor_id}|{row.direction}|{row.horizon_minutes}:INFERENCE_TARGET")
+    checks.append(_gate_record(
+        "directional_baseline_increment_identity",
+        {"failures": baseline_failures},
+        {"failures": []},
+        not baseline_failures,
+        "directional baseline, compatibility baseline, increment, or inference target is inconsistent",
+    ))
+
+    count_failures: list[str] = []
+    for row in factor_rows.itertuples():
+        if int(row.events) < 0 or int(row.trading_days) < 0 or int(row.trading_days) > 187 or int(row.trading_days) > int(row.events):
+            count_failures.append(f"FACTOR:{row.factor_id}|{row.direction}|{row.horizon_minutes}")
+    for row in strategy_rows.itertuples():
+        if int(row.trades) < 0 or int(row.trading_days) < 0 or int(row.trading_days) > 187 or int(row.trading_days) > int(row.trades):
+            count_failures.append(f"STRATEGY:{row.variant_id}|{row.direction}")
+    checks.append(_gate_record(
+        "event_trade_day_counts_legal",
+        {"failures": count_failures},
+        {"failures": []},
+        not count_failures,
+        "event, trade, or trading-day count is outside the legal range",
+    ))
+
+    metric_failures: list[str] = []
+    for row in factor_rows.itertuples():
+        key = f"FACTOR:{row.factor_id}|{row.direction}|{row.horizon_minutes}"
+        estimate = row.raw_mean if spec_map[str(row.factor_id)].direction == "REGIME" else row.directional_mean
+        inferential = [
+            row.standard_error, row.cluster_ci_low, row.cluster_ci_high,
+            row.simultaneous_ci_low, row.simultaneous_ci_high,
+            row.raw_p_value, row.holm_p_value,
+        ]
+        if row.sample_status == "ELIGIBLE" and (
+            not np.isfinite(estimate) or not all(np.isfinite(item) for item in inferential)
+            or float(row.standard_error) <= 0
+        ):
+            metric_failures.append(key)
+    for row in strategy_rows.itertuples():
+        key = f"STRATEGY:{row.variant_id}|{row.direction}"
+        inferential = [
+            row.net_mean, row.standard_error, row.cluster_ci_low, row.cluster_ci_high,
+            row.simultaneous_ci_low, row.simultaneous_ci_high,
+            row.raw_p_value, row.holm_p_value,
+        ]
+        if row.sample_status == "ELIGIBLE" and (
+            not all(np.isfinite(item) for item in inferential) or float(row.standard_error) <= 0
+        ):
+            metric_failures.append(key)
+    checks.append(_gate_record(
+        "eligible_statistics_finite_and_estimable",
+        {"failures": metric_failures},
+        {"failures": []},
+        not metric_failures,
+        "an eligible row has a missing, infinite, or non-positive inferential statistic",
+    ))
+
+    pvalue_failures: list[str] = []
+    interval_failures: list[str] = []
+    for prefix, frame, estimate_column in (
+        ("FACTOR", factor_rows, "estimate"),
+        ("STRATEGY", strategy_rows, "net_mean"),
+    ):
+        for row in frame.to_dict("records"):
+            key = (
+                f"{prefix}:{row.get('factor_id')}|{row.get('direction')}|{row.get('horizon_minutes')}"
+                if prefix == "FACTOR"
+                else f"{prefix}:{row.get('variant_id')}|{row.get('direction')}"
+            )
+            raw_p = row.get("raw_p_value", np.nan)
+            holm_p = row.get("holm_p_value", np.nan)
+            if np.isfinite(raw_p) or np.isfinite(holm_p):
+                if not (
+                    np.isfinite(raw_p) and np.isfinite(holm_p)
+                    and 0 <= float(raw_p) <= 1 and 0 <= float(holm_p) <= 1
+                    and float(holm_p) + 1e-15 >= float(raw_p)
+                ):
+                    pvalue_failures.append(key)
+            if prefix == "FACTOR":
+                spec = spec_map[str(row["factor_id"])]
+                estimate = row["raw_mean"] if spec.direction == "REGIME" else row["directional_mean"]
+            else:
+                estimate = row[estimate_column]
+            low = row.get("simultaneous_ci_low", np.nan)
+            high = row.get("simultaneous_ci_high", np.nan)
+            if np.isfinite(low) or np.isfinite(high):
+                if not (
+                    np.isfinite(estimate) and np.isfinite(low) and np.isfinite(high)
+                    and float(low) <= float(estimate) <= float(high)
+                ):
+                    interval_failures.append(key)
+    checks.append(_gate_record(
+        "pvalues_and_holm_legal",
+        {"failures": pvalue_failures},
+        {"failures": []},
+        not pvalue_failures,
+        "p-value is outside [0,1] or Holm p-value is below the raw p-value",
+    ))
+    checks.append(_gate_record(
+        "simultaneous_intervals_contain_estimate",
+        {"failures": interval_failures},
+        {"failures": []},
+        not interval_failures,
+        "simultaneous confidence interval does not contain its estimate",
+    ))
+
+    sample_failures: list[str] = []
+    for row in factor_rows.itertuples():
+        expected = "ELIGIBLE" if int(row.events) >= 50 and int(row.trading_days) >= 40 else "INSUFFICIENT_SAMPLE"
+        if row.sample_status != expected:
+            sample_failures.append(f"FACTOR:{row.factor_id}|{row.direction}|{row.horizon_minutes}")
+    for row in strategy_rows.itertuples():
+        minimum_trades = 30 if str(row.variant_id).startswith("S02") else 50
+        minimum_days = 30 if str(row.variant_id).startswith("S02") else 40
+        expected = "ELIGIBLE" if int(row.trades) >= minimum_trades and int(row.trading_days) >= minimum_days else "INSUFFICIENT_SAMPLE"
+        if row.sample_status != expected or (
+            expected == "INSUFFICIENT_SAMPLE" and row.candidate_status == "TRAIN_CANDIDATE"
+        ):
+            sample_failures.append(f"STRATEGY:{row.variant_id}|{row.direction}")
+    checks.append(_gate_record(
+        "sample_status_and_nonpromotion",
+        {"failures": sample_failures},
+        {"failures": []},
+        not sample_failures,
+        "sample status is incorrect or insufficient evidence was promoted",
+    ))
+
+    candidate_failures: list[str] = []
+    for row in strategy_rows.itertuples():
+        qualifies = (
+            row.sample_status == "ELIGIBLE"
+            and np.isfinite(row.simultaneous_ci_low)
+            and float(row.simultaneous_ci_low) > 0
+            and np.isfinite(row.profit_factor)
+            and float(row.profit_factor) > 1.10
+            and int(row.positive_months) >= 6
+            and np.isfinite(row.max_positive_month_share)
+            and float(row.max_positive_month_share) <= 0.40
+        )
+        expected = "TRAIN_CANDIDATE" if qualifies else "NO_EVIDENCE"
+        if row.candidate_status != expected:
+            candidate_failures.append(f"{row.variant_id}|{row.direction}")
+    checks.append(_gate_record(
+        "candidate_rule_matches_statistics",
+        {"failures": candidate_failures},
+        {"failures": []},
+        not candidate_failures,
+        "candidate status does not match the frozen statistical admission rule",
+    ))
+    return _finalize_statistics_gate(checks)

@@ -11,7 +11,6 @@ import pandas as pd
 
 from .contracts import (
     BOOTSTRAP_ITERATIONS,
-    ENGINE_VERSION,
     load_factor_registry,
     load_strategy_registry,
 )
@@ -20,17 +19,20 @@ from .factors import build_factor_events, build_features, compute_factor_matrix
 from .parity import audit_trade_parity
 from .simulator import build_strategy_signals, replay_strategies
 from .statistics import (
+    append_statistics_gate_check,
     factor_correlation,
     factor_results,
     regime_time_results,
     robustness_results,
     strategy_results,
+    statistics_integrity_gate,
     test_registry,
 )
 
 
 PACKAGE_DIR = Path(__file__).resolve().parent
 REPO_ROOT = PACKAGE_DIR.parents[1]
+ENGINE_VERSION = "C1_PHASE3_EDGE_ENGINE_V3"
 DEFAULT_DATA = REPO_ROOT / "factor_research" / "spy_factor_batch_v1" / "validation" / "train_ema_supplement_7514881494081894629" / "opend_5m_ohlc.csv"
 DEFAULT_AUDIT_MANIFEST = DEFAULT_DATA.with_name("manifest.json")
 DEFAULT_RUNLOG = Path.home() / "Downloads" / "RunLog_7515075067183327779_20261011234812.csv"
@@ -38,6 +40,9 @@ FACTOR_REGISTRY = PACKAGE_DIR / "registry" / "FACTOR_REGISTRY.csv"
 STRATEGY_REGISTRY = PACKAGE_DIR / "registry" / "STRATEGY_REGISTRY.csv"
 FROZEN_V3 = REPO_ROOT / "factor_research" / "spy_factor_batch_v1" / "SPY_C1_STRATEGY_BATCH_TRAIN_V3_1_1.py"
 PHASE3_V1_OUTPUT = PACKAGE_DIR / "outputs" / "phase3_train_v1"
+PHASE3_V2_OUTPUT = PACKAGE_DIR / "outputs" / "phase3_train_v2"
+PHASE3_V3_OUTPUT = PACKAGE_DIR / "outputs" / "phase3_train_v3"
+PROTECTED_OUTPUT_DIRS = {PHASE3_V1_OUTPUT.resolve(), PHASE3_V2_OUTPUT.resolve()}
 
 
 def _clean(value: Any) -> Any:
@@ -63,6 +68,52 @@ def _atomic_text(path: Path, text: str) -> None:
 
 def _write_csv(path: Path, frame: pd.DataFrame) -> None:
     _atomic_text(path, frame.to_csv(index=False, lineterminator="\n", float_format="%.12g"))
+
+
+def _validate_output_target(output_dir: Path) -> None:
+    resolved = output_dir.resolve()
+    if resolved in PROTECTED_OUTPUT_DIRS:
+        raise RuntimeError(f"PROTECTED_OUTPUT_PATH:{resolved}")
+    if resolved.exists():
+        raise RuntimeError(f"OUTPUT_DIRECTORY_ALREADY_EXISTS:{resolved}")
+
+
+def _directory_hashes(path: Path) -> dict[str, str]:
+    return {
+        str(item.relative_to(path)).replace("\\", "/"): sha256_file(item)
+        for item in sorted(path.rglob("*"), key=lambda value: str(value))
+        if item.is_file()
+    }
+
+
+def _frozen_history_snapshot() -> dict:
+    v1_hashes = _directory_hashes(PHASE3_V1_OUTPUT)
+    v2_hashes = _directory_hashes(PHASE3_V2_OUTPUT)
+    v2_manifest = json.loads((PHASE3_V2_OUTPUT / "manifest.json").read_text(encoding="utf-8"))
+    declared_v1 = v2_manifest.get("phase3_v1_artifact_hashes", {})
+    declared_v2 = {
+        name: item["sha256"] for name, item in v2_manifest.get("artifacts", {}).items()
+    }
+    v1_mismatches = sorted(
+        name for name in set(v1_hashes) | set(declared_v1)
+        if v1_hashes.get(name) != declared_v1.get(name)
+    )
+    v2_actual_without_manifest = {
+        name: value for name, value in v2_hashes.items() if name != "manifest.json"
+    }
+    v2_mismatches = sorted(
+        name for name in set(v2_actual_without_manifest) | set(declared_v2)
+        if v2_actual_without_manifest.get(name) != declared_v2.get(name)
+    )
+    return {
+        "v1": v1_hashes,
+        "v2": v2_hashes,
+        "declared_integrity": {
+            "status": "PASS" if not v1_mismatches and not v2_mismatches else "FAIL",
+            "v1_mismatches": v1_mismatches,
+            "v2_mismatches": v2_mismatches,
+        },
+    }
 
 
 def _consistency(strategy: pd.DataFrame, audit: pd.DataFrame) -> dict:
@@ -115,6 +166,8 @@ def _include_zero_trade_variants(result: pd.DataFrame, specs: list) -> pd.DataFr
             "mae_mean": np.nan,
             "cluster_ci_low": np.nan,
             "cluster_ci_high": np.nan,
+            "standard_error": np.nan,
+            "inference_target": "NET_MEAN_VS_ZERO",
             "ambiguous_paths": 0,
             "path_uncertain_exits": 0,
             "positive_months": 0,
@@ -146,7 +199,7 @@ def _version_comparison(
         current[selected],
         on=keys,
         how="outer",
-        suffixes=("_v1", "_v2"),
+        suffixes=("_v2", "_v3"),
         indicator=True,
         validate="one_to_one",
     )
@@ -154,8 +207,8 @@ def _version_comparison(
         raise RuntimeError(f"VERSION_COMPARISON_KEY_MISMATCH:{previous_path.name}")
     merged = merged.drop(columns="_merge")
     for metric in metrics:
-        left = f"{metric}_v1"
-        right = f"{metric}_v2"
+        left = f"{metric}_v2"
+        right = f"{metric}_v3"
         if left not in merged or right not in merged:
             continue
         if pd.api.types.is_numeric_dtype(merged[left]) and pd.api.types.is_numeric_dtype(merged[right]):
@@ -163,51 +216,146 @@ def _version_comparison(
     return merged.sort_values(keys).reset_index(drop=True)
 
 
-def _change_report(factor_comparison: pd.DataFrame, strategy_comparison: pd.DataFrame) -> str:
-    factor_estimate_changes = int((
-        (factor_comparison["raw_mean_delta"].abs().fillna(0) > 1e-12)
-        | (factor_comparison["directional_mean_delta"].abs().fillna(0) > 1e-12)
-    ).sum())
-    factor_ci_changes = int((
-        (factor_comparison["cluster_ci_low_delta"].abs().fillna(0) > 1e-12)
-        | (factor_comparison["cluster_ci_high_delta"].abs().fillna(0) > 1e-12)
-        | (factor_comparison["simultaneous_ci_low_delta"].abs().fillna(0) > 1e-12)
-        | (factor_comparison["simultaneous_ci_high_delta"].abs().fillna(0) > 1e-12)
-    ).sum())
-    factor_p_changes = int((
-        (factor_comparison["raw_p_value_delta"].abs().fillna(0) > 1e-12)
-        | (factor_comparison["holm_p_value_delta"].abs().fillna(0) > 1e-12)
-    ).sum())
+def _value_equal(left: Any, right: Any) -> bool:
+    if pd.isna(left) or pd.isna(right):
+        return bool(pd.isna(left) and pd.isna(right))
+    if isinstance(left, (int, float, np.integer, np.floating)) and isinstance(
+        right, (int, float, np.integer, np.floating)
+    ):
+        return bool(np.isclose(float(left), float(right), rtol=1e-9, atol=1e-12))
+    return str(left) == str(right)
+
+
+def _unexpected_changes(
+    previous: pd.DataFrame,
+    current: pd.DataFrame,
+    keys: list[str],
+    allowed_columns: set[str],
+) -> list[str]:
+    common = [column for column in previous.columns if column in current.columns]
+    compared = [column for column in common if column not in set(keys) | allowed_columns]
+    merged = previous[keys + compared].merge(
+        current[keys + compared],
+        on=keys,
+        how="outer",
+        suffixes=("_v2", "_v3"),
+        indicator=True,
+        validate="one_to_one",
+    )
+    failures: list[str] = []
+    for row in merged.to_dict("records"):
+        identity = "|".join(str(row[key]) for key in keys)
+        if row["_merge"] != "both":
+            failures.append(f"{identity}:KEY_{row['_merge'].upper()}")
+            continue
+        for column in compared:
+            if not _value_equal(row[f"{column}_v2"], row[f"{column}_v3"]):
+                failures.append(f"{identity}:{column}")
+    return failures
+
+
+def _v2_v3_integrity(factor_result: pd.DataFrame, strategy_result: pd.DataFrame) -> dict:
+    factor_v2 = pd.read_csv(PHASE3_V2_OUTPUT / "FACTOR_RESULTS.csv")
+    strategy_v2 = pd.read_csv(PHASE3_V2_OUTPUT / "STRATEGY_RESULTS.csv")
+    factor_failures = _unexpected_changes(
+        factor_v2,
+        factor_result,
+        ["factor_id", "direction", "horizon_minutes"],
+        {"baseline_mean", "increment"},
+    )
+    strategy_failures = _unexpected_changes(
+        strategy_v2,
+        strategy_result,
+        ["variant_id", "direction"],
+        set(),
+    )
+    factor_comparison = _version_comparison(
+        PHASE3_V2_OUTPUT / "FACTOR_RESULTS.csv",
+        factor_result,
+        ["factor_id", "direction", "horizon_minutes"],
+        [
+            "events", "trading_days", "raw_mean", "directional_mean", "baseline_mean",
+            "increment", "cluster_ci_low", "cluster_ci_high", "simultaneous_ci_low",
+            "simultaneous_ci_high", "raw_p_value", "holm_p_value", "rank",
+        ],
+    )
+    strategy_comparison = _version_comparison(
+        PHASE3_V2_OUTPUT / "STRATEGY_RESULTS.csv",
+        strategy_result,
+        ["variant_id", "direction"],
+        [
+            "trades", "trading_days", "gross_mean", "net_mean", "profit_factor",
+            "cluster_ci_low", "cluster_ci_high", "simultaneous_ci_low",
+            "simultaneous_ci_high", "raw_p_value", "holm_p_value", "candidate_status",
+        ],
+    )
+    short = factor_comparison["direction"] == "SHORT"
+    baseline_changes = int((factor_comparison["baseline_mean_delta"].abs().fillna(0) > 1e-12).sum())
+    increment_changes = int((factor_comparison["increment_delta"].abs().fillna(0) > 1e-12).sum())
+    short_rows = int(short.sum())
+    new_fields = {
+        "baseline_raw_market", "baseline_directional", "inference_target", "standard_error",
+    }
+    required_new_fields_present = new_fields.issubset(factor_result.columns)
+    candidate_v2 = int((strategy_v2["candidate_status"] == "TRAIN_CANDIDATE").sum())
+    candidate_v3 = int((strategy_result["candidate_status"] == "TRAIN_CANDIDATE").sum())
+    expected_changes = (
+        baseline_changes == short_rows
+        and increment_changes == short_rows
+        and required_new_fields_present
+        and candidate_v2 == candidate_v3 == 0
+    )
+    status = "PASS" if not factor_failures and not strategy_failures and expected_changes else "FAIL"
+    return {
+        "status": status,
+        "factor_rows": len(factor_result),
+        "strategy_rows": len(strategy_result),
+        "short_rows": short_rows,
+        "baseline_rows_changed": baseline_changes,
+        "increment_rows_changed": increment_changes,
+        "required_new_fields_present": required_new_fields_present,
+        "candidate_count_v2": candidate_v2,
+        "candidate_count_v3": candidate_v3,
+        "unexpected_factor_changes": factor_failures,
+        "unexpected_strategy_changes": strategy_failures,
+        "factor_comparison": factor_comparison,
+        "strategy_comparison": strategy_comparison,
+    }
+
+
+def _change_report(integrity: dict) -> str:
+    strategy_comparison = integrity["strategy_comparison"]
     all_rows = strategy_comparison[strategy_comparison["direction"] == "ALL"].copy()
     lines = []
     for row in all_rows.itertuples(index=False):
         lines.append(
-            f"- {row.variant_id}：交易 {int(row.trades_v1)}→{int(row.trades_v2)}；"
-            f"平均净收益 {row.net_mean_v1*10000:+.4f}→{row.net_mean_v2*10000:+.4f}bp；"
-            f"同时区间 [{row.simultaneous_ci_low_v1*10000:+.4f}, {row.simultaneous_ci_high_v1*10000:+.4f}]→"
-            f"[{row.simultaneous_ci_low_v2*10000:+.4f}, {row.simultaneous_ci_high_v2*10000:+.4f}]bp；"
-            f"Holm p {row.holm_p_value_v1:.6g}→{row.holm_p_value_v2:.6g}；"
-            f"候选 {row.candidate_status_v1}→{row.candidate_status_v2}。"
+            f"- {row.variant_id}：交易 {int(row.trades_v2)}→{int(row.trades_v3)}；"
+            f"平均净收益 {row.net_mean_v2*10000:+.4f}→{row.net_mean_v3*10000:+.4f}bp；"
+            f"PF {row.profit_factor_v2:.4f}→{row.profit_factor_v3:.4f}；"
+            f"候选 {row.candidate_status_v2}→{row.candidate_status_v3}。"
         )
-    before_candidates = int((all_rows["candidate_status_v1"] == "TRAIN_CANDIDATE").sum())
-    after_candidates = int((all_rows["candidate_status_v2"] == "TRAIN_CANDIDATE").sum())
-    return f"""# C1 Phase 3 V1→V2 修复差异报告
+    return f"""# C1 Phase 3 V2→V3 统计完整性修复差异报告
 
 ## 结论
 
+- 差异 Gate：`{integrity['status']}`。
 - 冻结研究对象不变：36个因子、9个策略版本、同一TRAIN、同一信号与交易规则。
-- 因子检验行：{len(factor_comparison)}；点估计变化行：{factor_estimate_changes}；区间变化行：{factor_ci_changes}；p值变化行：{factor_p_changes}。
-- 策略检验行：{len(strategy_comparison)}；逐项完整差异见 `STRATEGY_RESULTS_V1_V2.csv`。
-- TRAIN_CANDIDATE：{before_candidates}→{after_candidates}；允许修复后仍为0。
-- V1产物保持冻结；V2只修复统计重抽样、多重检验、复权身份与逐笔一致性 Gate。
+- 因子检验行：{integrity['factor_rows']}；Short 行：{integrity['short_rows']}。
+- `baseline_mean` 允许变化行：{integrity['baseline_rows_changed']}；`increment` 允许变化行：{integrity['increment_rows_changed']}。
+- 新增字段完整：`{str(integrity['required_new_fields_present']).lower()}`。
+- 非预期因子变化：{len(integrity['unexpected_factor_changes'])}；非预期策略变化：{len(integrity['unexpected_strategy_changes'])}。
+- TRAIN_CANDIDATE：{integrity['candidate_count_v2']}→{integrity['candidate_count_v3']}。
 
 ## 九个策略版本（ALL方向）
 
 {chr(10).join(lines)}
 
-## 解释边界
+## 统计解释
 
-区间和p值变化来自统计口径修复，不是新增因子、阈值优化或访问Validation/OOS。交易数与平均净收益若发生变化，应视为非预期回归并阻止交付。
+- V3 将 Short 的比较基准方向化；REGIME 继续对比原始无条件市场收益。
+- `INFERENCE_TARGET = DIRECTIONAL_MEAN_VS_ZERO`；现有 CI/p-value 不解释为 increment 显著性。
+- 只有 Short baseline/increment、新字段、Gate证据、版本哈希和运行耗时允许变化。
+- 任一信号、交易、净收益、PF、方向均值、rank、CI/p-value或候选变化均阻断验收。
 """
 
 
@@ -223,6 +371,9 @@ def _research_plan(factor_count: int, strategy_count: int) -> str:
 - 成本：主口径往返4bp，敏感性2bp和6bp。
 - 统计：交易日聚类 bootstrap {BOOTSTRAP_ITERATIONS} 次；同一检验族 max-|t| 同时区间与 Holm 调整。
 - 统计估计量：每笔交易/事件等权；每次 bootstrap 抽取完整交易日后重新计算该估计量；同一检验族共用交易日索引。
+- 因子基准：Long 使用原始市场基准，Short 使用取反后的方向化市场基准，REGIME 使用原始市场基准。
+- 推断目标：`DIRECTIONAL_MEAN_VS_ZERO`；现有 CI/p-value 不用于检验 increment。
+- 统计验收：`STATISTICS_PASS` 只能由 `STATISTICS_GATE.json` 的全部确定性检查共同产生。
 - 重演资格：必须通过冻结真实 V3.1.1 RunLog 的逐信号、逐决策、逐交易严格比对，否则 `PARITY_FAIL`。
 - 研究偏差：本 TRAIN 已多次用于研究，所有新结果均为 `EXPLORATORY_SAME_TRAIN_SAMPLE`，不能构成独立 Edge、Validation 或 OOS 证据。
 - 晋级：允许零候选；只有样本、同时区间、PF、月度稳定性和集中度全部通过才可标记 `TRAIN_CANDIDATE`。
@@ -273,13 +424,17 @@ def _report(
     regime: pd.DataFrame,
     consistency: dict,
     parity: dict,
+    statistics_gate: dict,
+    acceptance_status: str,
+    v2_v3_integrity: dict,
+    research_status: str,
     qualification: dict,
     timings: dict,
     duplicates: int,
 ) -> str:
     all_strategies = strategy_result[strategy_result["direction"] == "ALL"].copy()
     candidates = all_strategies[all_strategies["candidate_status"] == "TRAIN_CANDIDATE"]
-    engine_status = "ENGINE_PASS" if consistency["status"] == "PASS" and parity["status"] == "TRADE_PARITY_PASS" else "ENGINE_FAIL"
+    engine_status = "ENGINE_PASS" if consistency["status"] == "PASS" else "ENGINE_FAIL"
     top_regime = regime[(regime["entity_type"] == "STRATEGY") & (regime["status"] == "EXPLORATORY_ELIGIBLE")].sort_values("net_mean", ascending=False).head(5)
     strategy_lines = []
     for row in all_strategies.sort_values("variant_id").itertuples():
@@ -295,19 +450,30 @@ def _report(
         f"- {row.variant_id} / {row.dimension}={row.value}：{row.trades}笔，净期望 {row.net_mean*10000:+.2f}bp（探索性，同一TRAIN样本）。"
         for row in top_regime.itertuples()
     ] or ["- 没有达到最低样本门槛的正向 Regime/Time 现象。"]
-    return f"""# C1 Phase 3 批量 Edge 研究报告
+    return f"""# C1 Phase 3 V3 统计完整性修复报告
 
 ## 执行结论
 
+- DATA QUALIFICATION：`{qualification['status']}`。
 - ENGINE：`{engine_status}`。
-- STATISTICS：`STATISTICS_PASS`。
+- STATISTICS：`{statistics_gate['status']}`（{statistics_gate['checks_passed']}/{statistics_gate['checks_total']}项检查通过）。
 - TRADE PARITY：`{parity['status']}`。
-- RESEARCH：`{'RESEARCH_NO_EDGE' if candidates.empty else 'TRAIN_CANDIDATES_PRESENT'}`。
+- V2→V3 DIFF：`{v2_v3_integrity['status']}`。
+- ACCEPTANCE：`{acceptance_status}`。
+- RESEARCH：`{research_status}`。
 - 实际注册并计算：{len(factor_specs)}个价格类候选因子；数据不合格候选未纳入。
 - 数据资格：`{qualification['status']}`，19,470根缓存全部命中；没有使用1分钟、Volume、VWAP或账户数据。
 - V3.1.1汇总一致性：`{consistency['status']}`；严格逐笔一致性：`{parity['status']}`。任一不通过，本报告的策略排名和晋级结论一律 fail-closed。
 - 高重合因子对：{duplicates}组（|phi|≥0.80），已标记而不是重复计为独立假设。
 - 满足 TRAIN_CANDIDATE：{len(candidates)}个；TRAIN 结果不能升级为已验证 Edge。
+
+## 统计口径与 Gate
+
+- `baseline_raw_market`：相同 horizon 的 TRAIN 无条件标的收益均值。
+- `baseline_directional`：Long 为原始市场基准、Short 为其相反数；REGIME 标记为不适用。
+- 兼容字段 `baseline_mean`：V3 中始终代表实际用于 increment 的比较基准。
+- `INFERENCE_TARGET = DIRECTIONAL_MEAN_VS_ZERO`；当前 CI/p-value 不是 increment 显著性检验。
+- Gate 失败会清除可用候选晋级并令 CLI 非零退出；详细证据见 `STATISTICS_GATE.json`。
 
 ## 策略及过滤后独立重演
 
@@ -348,7 +514,9 @@ def run_pipeline(
     output_dir: Path,
     runlog_path: Path = DEFAULT_RUNLOG,
 ) -> dict:
+    _validate_output_target(output_dir)
     started = perf_counter()
+    frozen_history_before = _frozen_history_snapshot()
     factor_specs = load_factor_registry(FACTOR_REGISTRY)
     strategy_specs = load_strategy_registry(STRATEGY_REGISTRY)
     data_started = perf_counter()
@@ -378,6 +546,77 @@ def run_pipeline(
         trades,
         signal_audit,
     )
+    factor_v2 = pd.read_csv(PHASE3_V2_OUTPUT / "FACTOR_RESULTS.csv")
+    strategy_v2 = pd.read_csv(PHASE3_V2_OUTPUT / "STRATEGY_RESULTS.csv")
+    expected_factor_keys = {
+        (str(row.factor_id), str(row.direction), int(row.horizon_minutes))
+        for row in factor_v2.itertuples()
+    }
+    expected_strategy_keys = {
+        (str(row.variant_id), str(row.direction)) for row in strategy_v2.itertuples()
+    }
+    statistics_gate = statistics_integrity_gate(
+        factor_result,
+        strategy_result,
+        regime,
+        factor_specs,
+        strategy_specs,
+        tests,
+        expected_factor_keys,
+        expected_strategy_keys,
+    )
+    v2_v3_integrity = _v2_v3_integrity(factor_result, strategy_result)
+    statistics_gate = append_statistics_gate_check(
+        statistics_gate,
+        "v2_v3_only_permitted_changes",
+        {
+            "status": v2_v3_integrity["status"],
+            "unexpected_factor_changes": len(v2_v3_integrity["unexpected_factor_changes"]),
+            "unexpected_strategy_changes": len(v2_v3_integrity["unexpected_strategy_changes"]),
+            "baseline_rows_changed": v2_v3_integrity["baseline_rows_changed"],
+            "increment_rows_changed": v2_v3_integrity["increment_rows_changed"],
+        },
+        {
+            "status": "PASS",
+            "unexpected_factor_changes": 0,
+            "unexpected_strategy_changes": 0,
+            "baseline_rows_changed": 78,
+            "increment_rows_changed": 78,
+        },
+        v2_v3_integrity["status"] == "PASS",
+        "V2→V3 contains an unapproved numerical or key change",
+    )
+    frozen_history_after_compute = _frozen_history_snapshot()
+    history_unchanged = (
+        frozen_history_before == frozen_history_after_compute
+        and frozen_history_before["declared_integrity"]["status"] == "PASS"
+    )
+    statistics_gate = append_statistics_gate_check(
+        statistics_gate,
+        "frozen_v1_v2_hashes_unchanged",
+        {
+            "before_equals_after": frozen_history_before == frozen_history_after_compute,
+            "declared_integrity": frozen_history_before["declared_integrity"],
+        },
+        {"before_equals_after": True, "declared_integrity": {"status": "PASS"}},
+        history_unchanged,
+        "frozen V1/V2 artifacts changed or no longer match their declared hashes",
+    )
+    pre_gate_candidates = int((
+        (strategy_result["direction"] == "ALL")
+        & (strategy_result["candidate_status"] == "TRAIN_CANDIDATE")
+    ).sum())
+    statistics_gate = append_statistics_gate_check(
+        statistics_gate,
+        "frozen_train_candidate_count",
+        pre_gate_candidates,
+        0,
+        pre_gate_candidates == 0,
+        "V3 candidate count changed from the frozen zero-candidate conclusion",
+    )
+
+    if statistics_gate["status"] != "STATISTICS_PASS":
+        strategy_result["candidate_status"] = "STATISTICS_GATE_FAIL"
     if consistency["status"] != "PASS":
         strategy_result["candidate_status"] = "BLOCKED_STATE_MACHINE_MISMATCH"
     if parity["status"] != "TRADE_PARITY_PASS":
@@ -386,33 +625,41 @@ def run_pipeline(
         (strategy_result["direction"] == "ALL")
         & (strategy_result["candidate_status"] == "TRAIN_CANDIDATE")
     ].copy()
-    factor_comparison = _version_comparison(
-        PHASE3_V1_OUTPUT / "FACTOR_RESULTS.csv",
-        factor_result,
-        ["factor_id", "direction", "horizon_minutes"],
-        [
-            "events", "trading_days", "raw_mean", "directional_mean",
-            "cluster_ci_low", "cluster_ci_high", "simultaneous_ci_low",
-            "simultaneous_ci_high", "raw_p_value", "holm_p_value",
-        ],
+    blocked_candidate_count = int(len(shortlist))
+    candidate_alignment = (
+        statistics_gate["status"] == "STATISTICS_PASS" or blocked_candidate_count == 0
     )
-    strategy_comparison = _version_comparison(
-        PHASE3_V1_OUTPUT / "STRATEGY_RESULTS.csv",
-        strategy_result,
-        ["variant_id", "direction"],
-        [
-            "trades", "trading_days", "gross_mean", "net_mean",
-            "cluster_ci_low", "cluster_ci_high", "simultaneous_ci_low",
-            "simultaneous_ci_high", "raw_p_value", "holm_p_value",
-            "candidate_status",
-        ],
+    statistics_gate = append_statistics_gate_check(
+        statistics_gate,
+        "statistics_failure_blocks_candidate_promotion",
+        {"statistics_status": statistics_gate["status"], "promoted_candidates": blocked_candidate_count},
+        "zero promoted candidates whenever statistics status is not PASS",
+        candidate_alignment,
+        "a failed statistics Gate left a promotable candidate",
     )
+
     compute_seconds = perf_counter() - compute_started
     timings = {
         "data_seconds": data_seconds,
         "compute_seconds": compute_seconds,
         "total_seconds": perf_counter() - started,
     }
+
+    data_pass = qualification["status"] == "PASS_5M_ONLY"
+    engine_status = "ENGINE_PASS" if consistency["status"] == "PASS" else "ENGINE_FAIL"
+    acceptance_pass = (
+        data_pass
+        and engine_status == "ENGINE_PASS"
+        and parity["status"] == "TRADE_PARITY_PASS"
+        and statistics_gate["status"] == "STATISTICS_PASS"
+        and v2_v3_integrity["status"] == "PASS"
+        and history_unchanged
+    )
+    acceptance_status = "ACCEPTANCE_PASS" if acceptance_pass else "ACCEPTANCE_FAIL"
+    if acceptance_pass:
+        research_status = "RESEARCH_NO_EDGE" if shortlist.empty else "TRAIN_CANDIDATES_PRESENT"
+    else:
+        research_status = "RESEARCH_BLOCKED_BY_ACCEPTANCE_GATE"
 
     output_dir.mkdir(parents=True, exist_ok=True)
     _atomic_text(output_dir / "RESEARCH_PLAN.md", _research_plan(len(factor_specs), len(strategy_specs)))
@@ -431,13 +678,35 @@ def run_pipeline(
     _atomic_text(output_dir / "V3_1_1_CONSISTENCY.json", json.dumps(_clean(consistency), ensure_ascii=False, indent=2, sort_keys=True) + "\n")
     _write_csv(output_dir / "V3_1_1_TRADE_PARITY.csv", parity_detail)
     _atomic_text(output_dir / "V3_1_1_TRADE_PARITY.json", json.dumps(_clean(parity), ensure_ascii=False, indent=2, sort_keys=True) + "\n")
-    _write_csv(output_dir / "FACTOR_RESULTS_V1_V2.csv", factor_comparison)
-    _write_csv(output_dir / "STRATEGY_RESULTS_V1_V2.csv", strategy_comparison)
-    _atomic_text(output_dir / "CHANGE_AUDIT_CN.md", _change_report(factor_comparison, strategy_comparison))
+    _write_csv(output_dir / "FACTOR_RESULTS_V2_V3.csv", v2_v3_integrity["factor_comparison"])
+    _write_csv(output_dir / "STRATEGY_RESULTS_V2_V3.csv", v2_v3_integrity["strategy_comparison"])
+    _atomic_text(output_dir / "V2_V3_CHANGE_AUDIT_CN.md", _change_report(v2_v3_integrity))
+    _atomic_text(
+        output_dir / "STATISTICS_GATE.json",
+        json.dumps(_clean(statistics_gate), ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+    )
     duplicates = int(correlations["duplicate_flag"].sum())
+    v2_v3_summary = {
+        key: value for key, value in v2_v3_integrity.items()
+        if key not in {"factor_comparison", "strategy_comparison"}
+    }
     _atomic_text(
         output_dir / "REPORT_CN.md",
-        _report(factor_specs, factor_result, strategy_result, regime, consistency, parity, qualification, timings, duplicates),
+        _report(
+            factor_specs,
+            factor_result,
+            strategy_result,
+            regime,
+            consistency,
+            parity,
+            statistics_gate,
+            acceptance_status,
+            v2_v3_summary,
+            research_status,
+            qualification,
+            timings,
+            duplicates,
+        ),
     )
 
     artifacts = {}
@@ -452,10 +721,13 @@ def run_pipeline(
         "orders_accounts_positions_accessed": False,
         "data_qualification": qualification,
         "state_machine_consistency": consistency,
-        "engine_status": "ENGINE_PASS" if consistency["status"] == "PASS" and parity["status"] == "TRADE_PARITY_PASS" else "ENGINE_FAIL",
-        "statistics_status": "STATISTICS_PASS",
+        "engine_status": engine_status,
+        "statistics_status": statistics_gate["status"],
+        "statistics_gate": statistics_gate,
         "trade_parity": parity,
-        "research_status": "RESEARCH_NO_EDGE" if shortlist.empty else "TRAIN_CANDIDATES_PRESENT",
+        "v2_v3_integrity": v2_v3_summary,
+        "acceptance_status": acceptance_status,
+        "research_status": research_status,
         "registry": {"factor_count": len(factor_specs), "strategy_variant_count": len(strategy_specs)},
         "timings": timings,
         "source_hashes": {str(path.relative_to(REPO_ROOT)).replace("\\", "/"): sha256_file(path) for path in source_files},
@@ -466,11 +738,9 @@ def run_pipeline(
             "opend_rehab": sha256_file(audit_manifest_path.parent / "opend_rehab.csv"),
             "v3_1_1_runlog": sha256_file(runlog_path) if runlog_path.is_file() else None,
         },
-        "phase3_v1_artifact_hashes": {
-            path.name: sha256_file(path)
-            for path in sorted(PHASE3_V1_OUTPUT.iterdir(), key=lambda item: item.name)
-            if path.is_file()
-        },
+        "phase3_v1_artifact_hashes": frozen_history_after_compute["v1"],
+        "phase3_v2_artifact_hashes": frozen_history_after_compute["v2"],
+        "frozen_history_integrity": frozen_history_after_compute["declared_integrity"],
         "artifacts": artifacts,
     }
     _atomic_text(output_dir / "manifest.json", json.dumps(_clean(manifest), ensure_ascii=False, indent=2, sort_keys=True) + "\n")

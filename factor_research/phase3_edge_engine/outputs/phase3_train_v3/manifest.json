@@ -1,0 +1,609 @@
+{
+  "acceptance_status": "ACCEPTANCE_PASS",
+  "artifacts": {
+    "CANDIDATE_SHORTLIST.csv": {
+      "bytes": 388,
+      "sha256": "fffb09ebcbf0f955803cd17e5addc9040d874bd4dead3fe540a7e48918ec7c09"
+    },
+    "DATA_QUALIFICATION.md": {
+      "bytes": 1426,
+      "sha256": "86e11101f927b736d978f1a0e2756d61dadcba46bfe3b66318caabb39970c768"
+    },
+    "FACTOR_CORRELATION.csv": {
+      "bytes": 42281,
+      "sha256": "9856e8d117da1340475014aabbebe7ddcb0ce05f905900b244990b61fa21778d"
+    },
+    "FACTOR_REGISTRY.csv": {
+      "bytes": 9334,
+      "sha256": "605312d8bd6fce1ec5a4517556e7a188311f55a0cedac4530b85be01f4f1ef54"
+    },
+    "FACTOR_RESULTS.csv": {
+      "bytes": 67176,
+      "sha256": "b29eb286a06039ddc625c3ec33e27d0a490ebd37ff5722a8d1c86718aa755f70"
+    },
+    "FACTOR_RESULTS_V2_V3.csv": {
+      "bytes": 102016,
+      "sha256": "355b7e0d4d6da77c5eb70e737055267e93b17c5364913148c39392bcc651bd10"
+    },
+    "REGIME_TIME_MATRIX.csv": {
+      "bytes": 95947,
+      "sha256": "359f16626c2068ebf11ea8048052acac70c212b6d6ca13703305d6a8b22a1351"
+    },
+    "REPORT_CN.md": {
+      "bytes": 4122,
+      "sha256": "aab92a37a8f4a01c4cfe55901d8d0542a24db2477625a77ebd30f8ed056c06c9"
+    },
+    "RESEARCH_PLAN.md": {
+      "bytes": 1707,
+      "sha256": "a1dd2243c4329ece5a2fa752b87e40bc41bbb02d3610bacf667b9860d9c9796a"
+    },
+    "ROBUSTNESS_SUMMARY.csv": {
+      "bytes": 1749,
+      "sha256": "916280b8fd5481d1b3c7a758b43aa368915e3e7e2f75801a42f99ef080ef26b3"
+    },
+    "SIGNAL_REPLAY_AUDIT.csv": {
+      "bytes": 374817,
+      "sha256": "751b0e3678f7ff1f526675b33114bff1f01ddad1ba7818d33687a721094fa4f6"
+    },
+    "STATISTICS_GATE.json": {
+      "bytes": 6054,
+      "sha256": "f03513d9268fb2aa4e673998ef5602d6aec5d45ea47853683211dcdd361c704a"
+    },
+    "STRATEGY_REGISTRY.csv": {
+      "bytes": 1678,
+      "sha256": "896429882af0eff49dd989fbb8433edca2a0752401fe8ee4a00b4f0f0725b76c"
+    },
+    "STRATEGY_RESULTS.csv": {
+      "bytes": 10192,
+      "sha256": "11003cb1b7cf39a9da084010c3eea12f9f387d9c125189b3decf85af577a8a18"
+    },
+    "STRATEGY_RESULTS_V2_V3.csv": {
+      "bytes": 14182,
+      "sha256": "1ec13540bada780fa4804fcf146d1f18ddd06082f804f6079bd9557fcaf86187"
+    },
+    "TEST_REGISTRY.csv": {
+      "bytes": 331,
+      "sha256": "b363c34e708b1eb123eeb2c45a1005b48a47854f5743f91f10c6c9020c2c94bb"
+    },
+    "TRADE_LOG.csv": {
+      "bytes": 632928,
+      "sha256": "8e5d30ba147ac5796ee6b40533106b0ae036cd8f420851cded3c59e7965ae13b"
+    },
+    "V2_V3_CHANGE_AUDIT_CN.md": {
+      "bytes": 2035,
+      "sha256": "2dc2661a35822c301e77878203bd972bec2064d88a6168e093214556ca95396d"
+    },
+    "V3_1_1_CONSISTENCY.json": {
+      "bytes": 626,
+      "sha256": "14ab3861e52214bb3973f5288288b64a6339aa351ac4ec2b090a11fcb9cc139f"
+    },
+    "V3_1_1_TRADE_PARITY.csv": {
+      "bytes": 272164,
+      "sha256": "4b7c49e9c7b48a54061069f956b3c3d13b27521de6aa4ae7a70f5a4dc16dc785"
+    },
+    "V3_1_1_TRADE_PARITY.json": {
+      "bytes": 1473,
+      "sha256": "7cd8d4dd171fd046c4c9876f60591afd01abad9df6e81a195be5e8e576ee8067"
+    }
+  },
+  "data_qualification": {
+    "adjustment": "AS_OF_DYNAMIC_FORWARD_FROM_GET_REHAB",
+    "audit_manifest_sha256": "f1f750867dd4a32eaf74d4d776dcf47002f0aa7f5b123db4177e57c4a1a266da",
+    "bar_label": "bar_end",
+    "bar_size": "5m",
+    "bars": 19470,
+    "cache_hit": true,
+    "data_sha256": "e5e3ab7cfa981be022388b7a54952a6f8fa29e2dc0043672edf4e84997940e2f",
+    "early_closes": [
+      "2025-07-03",
+      "2025-11-28",
+      "2025-12-24"
+    ],
+    "end": "2026-06-30",
+    "future_leak_checks": "PASS",
+    "one_minute_status": "NOT_AVAILABLE_NOT_REQUIRED",
+    "rehab_dates": [
+      "2025-09-19",
+      "2025-12-19",
+      "2026-03-20",
+      "2026-06-18"
+    ],
+    "rehab_factors": [
+      {
+        "ex_div_date": "2025-09-19",
+        "forward_adj_factor_a": 0.99723,
+        "forward_adj_factor_b": 0.0,
+        "per_cash_div": 1.83111
+      },
+      {
+        "ex_div_date": "2025-12-19",
+        "forward_adj_factor_a": 0.99705,
+        "forward_adj_factor_b": 0.0,
+        "per_cash_div": 1.99337
+      },
+      {
+        "ex_div_date": "2026-03-20",
+        "forward_adj_factor_a": 0.99727,
+        "forward_adj_factor_b": 0.0,
+        "per_cash_div": 1.797
+      },
+      {
+        "ex_div_date": "2026-06-18",
+        "forward_adj_factor_a": 0.99743,
+        "forward_adj_factor_b": 0.0,
+        "per_cash_div": 1.90352
+      }
+    ],
+    "rehab_sha256": "16a1bae16d562edffac364cbba2a6a26d72765e1eca57ab0c31189b37ceb17c4",
+    "sessions": 251,
+    "start": "2025-07-01",
+    "status": "PASS_5M_ONLY",
+    "symbol": "US.SPY",
+    "timezone": "America/New_York",
+    "train_bars": 14514,
+    "train_end": "2026-06-30",
+    "train_sessions": 187,
+    "train_start": "2025-10-01",
+    "volume_status": "PROHIBITED"
+  },
+  "engine_status": "ENGINE_PASS",
+  "engine_version": "C1_PHASE3_EDGE_ENGINE_V3",
+  "frozen_history_integrity": {
+    "status": "PASS",
+    "v1_mismatches": [],
+    "v2_mismatches": []
+  },
+  "frozen_v3_1_1_sha256": "62686585aadb3bc56a0ee4c3c4cb539e5e21ec167674562e88d2a6fb615a5089",
+  "input_hashes": {
+    "audit_manifest": "f1f750867dd4a32eaf74d4d776dcf47002f0aa7f5b123db4177e57c4a1a266da",
+    "ohlc": "e5e3ab7cfa981be022388b7a54952a6f8fa29e2dc0043672edf4e84997940e2f",
+    "opend_rehab": "16a1bae16d562edffac364cbba2a6a26d72765e1eca57ab0c31189b37ceb17c4",
+    "v3_1_1_runlog": "6523875e998a79f17a1047937f70dbe2b383486caa50d53d91e70a1183acd840"
+  },
+  "orders_accounts_positions_accessed": false,
+  "phase3_v1_artifact_hashes": {
+    "CANDIDATE_SHORTLIST.csv": "38a31f3a6cf798aebc795c5c7f9092285875a8cf558dde64fb3df8133f7e70d5",
+    "DATA_QUALIFICATION.md": "b22760c5e6f8e1ef746a7487c0562ec32366623397910875d38620a2c750d8cd",
+    "FACTOR_CORRELATION.csv": "9856e8d117da1340475014aabbebe7ddcb0ce05f905900b244990b61fa21778d",
+    "FACTOR_REGISTRY.csv": "605312d8bd6fce1ec5a4517556e7a188311f55a0cedac4530b85be01f4f1ef54",
+    "FACTOR_RESULTS.csv": "aa0742dc9f428d4c71463a6dee0b6f796d98424a74d4487be64a237386a9adc2",
+    "REGIME_TIME_MATRIX.csv": "359f16626c2068ebf11ea8048052acac70c212b6d6ca13703305d6a8b22a1351",
+    "REPORT_CN.md": "ba093265a1324e86112a173993afec6af856a36b967368b69b6e2aebd086dcae",
+    "RESEARCH_PLAN.md": "872ec9908400362643a86bccce5ba256dd452b12c82bbaf9b3c440ceb66ea2bb",
+    "ROBUSTNESS_SUMMARY.csv": "916280b8fd5481d1b3c7a758b43aa368915e3e7e2f75801a42f99ef080ef26b3",
+    "SIGNAL_REPLAY_AUDIT.csv": "751b0e3678f7ff1f526675b33114bff1f01ddad1ba7818d33687a721094fa4f6",
+    "STRATEGY_REGISTRY.csv": "896429882af0eff49dd989fbb8433edca2a0752401fe8ee4a00b4f0f0725b76c",
+    "STRATEGY_RESULTS.csv": "44b84a1dacdacc1760fa6d5c4af8b4244cdc35d7bbae419fd86a4d7f7c729c26",
+    "TEST_REGISTRY.csv": "15692c12990142f1b06349f340f1bf4129a0f0272733215acd82a684834647bb",
+    "TRADE_LOG.csv": "8e5d30ba147ac5796ee6b40533106b0ae036cd8f420851cded3c59e7965ae13b",
+    "V3_1_1_CONSISTENCY.json": "14ab3861e52214bb3973f5288288b64a6339aa351ac4ec2b090a11fcb9cc139f",
+    "manifest.json": "93e7453efbeb54b3f9877ac360714954af6ef3d625aae47587e3565cceb7e636"
+  },
+  "phase3_v2_artifact_hashes": {
+    "CANDIDATE_SHORTLIST.csv": "38a31f3a6cf798aebc795c5c7f9092285875a8cf558dde64fb3df8133f7e70d5",
+    "CHANGE_AUDIT_CN.md": "34b579d69cbb01b175f5c8e49d00c32919088071084677d0791456d59fc1183a",
+    "DATA_QUALIFICATION.md": "86e11101f927b736d978f1a0e2756d61dadcba46bfe3b66318caabb39970c768",
+    "FACTOR_CORRELATION.csv": "9856e8d117da1340475014aabbebe7ddcb0ce05f905900b244990b61fa21778d",
+    "FACTOR_REGISTRY.csv": "605312d8bd6fce1ec5a4517556e7a188311f55a0cedac4530b85be01f4f1ef54",
+    "FACTOR_RESULTS.csv": "f51c002b626cd5ebc6c4e5ae0044ba52a1b4450e8c396c0397f9ce56bcd924de",
+    "FACTOR_RESULTS_V1_V2.csv": "ffc24e5c6e78408d83fddc929b364a2e25aab7ea2c998120c6896352fe106590",
+    "REGIME_TIME_MATRIX.csv": "359f16626c2068ebf11ea8048052acac70c212b6d6ca13703305d6a8b22a1351",
+    "REPORT_CN.md": "c31a05983410a21c2df42da40602c9a57761e0ed2568a02727cad9bd66649795",
+    "RESEARCH_PLAN.md": "734b435167abf464daa53ed590fcfa3730af962f25ee98e4c08785ede4180e24",
+    "ROBUSTNESS_SUMMARY.csv": "916280b8fd5481d1b3c7a758b43aa368915e3e7e2f75801a42f99ef080ef26b3",
+    "SIGNAL_REPLAY_AUDIT.csv": "751b0e3678f7ff1f526675b33114bff1f01ddad1ba7818d33687a721094fa4f6",
+    "STRATEGY_REGISTRY.csv": "896429882af0eff49dd989fbb8433edca2a0752401fe8ee4a00b4f0f0725b76c",
+    "STRATEGY_RESULTS.csv": "824aa414362719ff2fed29a1319e924d9b7d4aa05da2b08cd1b89cb9441cc244",
+    "STRATEGY_RESULTS_V1_V2.csv": "6da8f5f23aa42d96414a45d45fcb9bab36bc42182bdc869d7ef57e324f35a3db",
+    "TEST_REGISTRY.csv": "b363c34e708b1eb123eeb2c45a1005b48a47854f5743f91f10c6c9020c2c94bb",
+    "TRADE_LOG.csv": "8e5d30ba147ac5796ee6b40533106b0ae036cd8f420851cded3c59e7965ae13b",
+    "V3_1_1_CONSISTENCY.json": "14ab3861e52214bb3973f5288288b64a6339aa351ac4ec2b090a11fcb9cc139f",
+    "V3_1_1_TRADE_PARITY.csv": "4b7c49e9c7b48a54061069f956b3c3d13b27521de6aa4ae7a70f5a4dc16dc785",
+    "V3_1_1_TRADE_PARITY.json": "7cd8d4dd171fd046c4c9876f60591afd01abad9df6e81a195be5e8e576ee8067",
+    "manifest.json": "bcbbe822d6741dcf36ad69a42adb151f2388880cdf53bec0581aea8c4389eec8"
+  },
+  "registry": {
+    "factor_count": 36,
+    "strategy_variant_count": 9
+  },
+  "research_status": "RESEARCH_NO_EDGE",
+  "source_hashes": {
+    "factor_research/phase3_edge_engine/__init__.py": "7a3f3f541fbc1c0dbc4b840d8db6375f37654c198e01815263e8bc841641426b",
+    "factor_research/phase3_edge_engine/contracts.py": "f45abfc13ffc44471596a217ffd3b3e93f25fd39dee751803b554f8f87e19133",
+    "factor_research/phase3_edge_engine/data.py": "43e6b1fa1e8f982045dcbcbdaf0629a43b9ef332df0bb697505c9bd770e713f7",
+    "factor_research/phase3_edge_engine/factors.py": "ce3c3e112491b4e6c5a3c2312275f4929b4595d636ca0552d718694373eddc95",
+    "factor_research/phase3_edge_engine/parity.py": "6b62cf92d1d0bde4761a182fe7d0e7affa12466db72106e4a128e5c359d79339",
+    "factor_research/phase3_edge_engine/pipeline.py": "79318d52113747262f10b5ffbaf20f35536c6301ba411bbddb5541155cafdb6b",
+    "factor_research/phase3_edge_engine/registry/FACTOR_REGISTRY.csv": "605312d8bd6fce1ec5a4517556e7a188311f55a0cedac4530b85be01f4f1ef54",
+    "factor_research/phase3_edge_engine/registry/STRATEGY_REGISTRY.csv": "896429882af0eff49dd989fbb8433edca2a0752401fe8ee4a00b4f0f0725b76c",
+    "factor_research/phase3_edge_engine/simulator.py": "834195adba15dc5e90b4c8538e23088447e3b88448a6f092470fdb3354d7ccef",
+    "factor_research/phase3_edge_engine/statistics.py": "08e6ae6c7942fe2525d200f3f721105b8db69cd55479228ce5bfd6141db6be58",
+    "run_research.py": "71c29644edf7b6fa9f7728b1f99aaed20b051841076e479232cfe513d158e25c"
+  },
+  "state_machine_consistency": {
+    "checks": {
+      "mean_net_within_0_75bp": true,
+      "position_busy_matches_521": true,
+      "s01_busy_only": true,
+      "total_trades_matches_1072": true
+    },
+    "local_net_mean_bps": {
+      "S01": -4.000010701908585,
+      "S02": -0.6545163082846311,
+      "S03": -4.04319634675701
+    },
+    "local_position_busy": 521,
+    "local_trade_counts": {
+      "S01": 808,
+      "S02": 183,
+      "S03": 81
+    },
+    "reference": {
+      "net_mean_bps_approx": {
+        "S01": -4.0,
+        "S02": -0.65,
+        "S03": -4.04
+      },
+      "position_busy": 521,
+      "source": "C1_V3_1_1_TRAIN_ACCEPTANCE.md",
+      "total_trades": 1072
+    },
+    "status": "PASS"
+  },
+  "statistics_gate": {
+    "checks": [
+      {
+        "actual": {
+          "count": 36,
+          "ids": [
+            "F001",
+            "F002",
+            "F003",
+            "F004",
+            "F005",
+            "F006",
+            "F007",
+            "F008",
+            "F009",
+            "F010",
+            "F011",
+            "F012",
+            "F013",
+            "F014",
+            "F015",
+            "F016",
+            "F017",
+            "F018",
+            "F019",
+            "F020",
+            "F021",
+            "F022",
+            "F023",
+            "F024",
+            "F025",
+            "F026",
+            "F027",
+            "F028",
+            "F029",
+            "F030",
+            "F031",
+            "F032",
+            "F033",
+            "F034",
+            "F035",
+            "F036"
+          ]
+        },
+        "expected": {
+          "count": 36,
+          "ids": [
+            "F001",
+            "F002",
+            "F003",
+            "F004",
+            "F005",
+            "F006",
+            "F007",
+            "F008",
+            "F009",
+            "F010",
+            "F011",
+            "F012",
+            "F013",
+            "F014",
+            "F015",
+            "F016",
+            "F017",
+            "F018",
+            "F019",
+            "F020",
+            "F021",
+            "F022",
+            "F023",
+            "F024",
+            "F025",
+            "F026",
+            "F027",
+            "F028",
+            "F029",
+            "F030",
+            "F031",
+            "F032",
+            "F033",
+            "F034",
+            "F035",
+            "F036"
+          ]
+        },
+        "failure_reason": "",
+        "name": "factor_registry_complete",
+        "status": "PASS"
+      },
+      {
+        "actual": {
+          "count": 9,
+          "unique": 9
+        },
+        "expected": {
+          "count": 9,
+          "strategy_ids": [
+            "S01",
+            "S02",
+            "S03"
+          ],
+          "unique": 9
+        },
+        "failure_reason": "",
+        "name": "strategy_registry_complete",
+        "status": "PASS"
+      },
+      {
+        "actual": {
+          "missing": [],
+          "rows": 192,
+          "unexpected": []
+        },
+        "expected": {
+          "missing": [],
+          "rows": 192,
+          "unexpected": []
+        },
+        "failure_reason": "",
+        "name": "factor_registered_family_complete",
+        "status": "PASS"
+      },
+      {
+        "actual": {
+          "missing": [],
+          "rows": 27,
+          "unexpected": []
+        },
+        "expected": {
+          "missing": [],
+          "rows": 27,
+          "unexpected": []
+        },
+        "failure_reason": "",
+        "name": "strategy_registered_family_complete",
+        "status": "PASS"
+      },
+      {
+        "actual": {
+          "FACTOR_PREDICTION": 192,
+          "REGIME_TIME_DIAGNOSTIC": 941,
+          "STRATEGY_BASELINE_AND_FILTER": 27
+        },
+        "expected": {
+          "FACTOR_PREDICTION": 192,
+          "REGIME_TIME_DIAGNOSTIC": 941,
+          "STRATEGY_BASELINE_AND_FILTER": 27
+        },
+        "failure_reason": "",
+        "name": "registered_test_family_counts",
+        "status": "PASS"
+      },
+      {
+        "actual": {
+          "failures": []
+        },
+        "expected": {
+          "failures": []
+        },
+        "failure_reason": "",
+        "name": "directional_baseline_increment_identity",
+        "status": "PASS"
+      },
+      {
+        "actual": {
+          "failures": []
+        },
+        "expected": {
+          "failures": []
+        },
+        "failure_reason": "",
+        "name": "event_trade_day_counts_legal",
+        "status": "PASS"
+      },
+      {
+        "actual": {
+          "failures": []
+        },
+        "expected": {
+          "failures": []
+        },
+        "failure_reason": "",
+        "name": "eligible_statistics_finite_and_estimable",
+        "status": "PASS"
+      },
+      {
+        "actual": {
+          "failures": []
+        },
+        "expected": {
+          "failures": []
+        },
+        "failure_reason": "",
+        "name": "pvalues_and_holm_legal",
+        "status": "PASS"
+      },
+      {
+        "actual": {
+          "failures": []
+        },
+        "expected": {
+          "failures": []
+        },
+        "failure_reason": "",
+        "name": "simultaneous_intervals_contain_estimate",
+        "status": "PASS"
+      },
+      {
+        "actual": {
+          "failures": []
+        },
+        "expected": {
+          "failures": []
+        },
+        "failure_reason": "",
+        "name": "sample_status_and_nonpromotion",
+        "status": "PASS"
+      },
+      {
+        "actual": {
+          "failures": []
+        },
+        "expected": {
+          "failures": []
+        },
+        "failure_reason": "",
+        "name": "candidate_rule_matches_statistics",
+        "status": "PASS"
+      },
+      {
+        "actual": {
+          "baseline_rows_changed": 78,
+          "increment_rows_changed": 78,
+          "status": "PASS",
+          "unexpected_factor_changes": 0,
+          "unexpected_strategy_changes": 0
+        },
+        "expected": {
+          "baseline_rows_changed": 78,
+          "increment_rows_changed": 78,
+          "status": "PASS",
+          "unexpected_factor_changes": 0,
+          "unexpected_strategy_changes": 0
+        },
+        "failure_reason": "",
+        "name": "v2_v3_only_permitted_changes",
+        "status": "PASS"
+      },
+      {
+        "actual": {
+          "before_equals_after": true,
+          "declared_integrity": {
+            "status": "PASS",
+            "v1_mismatches": [],
+            "v2_mismatches": []
+          }
+        },
+        "expected": {
+          "before_equals_after": true,
+          "declared_integrity": {
+            "status": "PASS"
+          }
+        },
+        "failure_reason": "",
+        "name": "frozen_v1_v2_hashes_unchanged",
+        "status": "PASS"
+      },
+      {
+        "actual": 0,
+        "expected": 0,
+        "failure_reason": "",
+        "name": "frozen_train_candidate_count",
+        "status": "PASS"
+      },
+      {
+        "actual": {
+          "promoted_candidates": 0,
+          "statistics_status": "STATISTICS_PASS"
+        },
+        "expected": "zero promoted candidates whenever statistics status is not PASS",
+        "failure_reason": "",
+        "name": "statistics_failure_blocks_candidate_promotion",
+        "status": "PASS"
+      }
+    ],
+    "checks_failed": 0,
+    "checks_passed": 16,
+    "checks_total": 16,
+    "failure_reasons": [],
+    "inference_target": "DIRECTIONAL_MEAN_VS_ZERO",
+    "status": "STATISTICS_PASS"
+  },
+  "statistics_status": "STATISTICS_PASS",
+  "study_partition": "TRAIN_EXPLORATORY",
+  "timings": {
+    "compute_seconds": 12.207735800009686,
+    "data_seconds": 0.08972379998886026,
+    "total_seconds": 12.317113799974322
+  },
+  "trade_parity": {
+    "allowed_differences": [
+      "signal_id encoding differs; canonical stable identity must match one-to-one",
+      "raw prices use as-of dynamic basis and are converted to the frozen final forward-adjusted basis",
+      "raw STOP plus ambiguous=true maps to AMBIGUOUS_STOP_FIRST",
+      "MFE/MAE are excluded because the frozen RunLog records full exit-bar range upper bounds"
+    ],
+    "ambiguous_reason_normalizations": 8,
+    "errors": [],
+    "expected_counts": {
+      "rejections": 521,
+      "signals": 1593,
+      "trades": 1072
+    },
+    "matched_rejections": 521,
+    "matched_signals": 1593,
+    "matched_trades": 1072,
+    "max_abs_differences": {
+      "entry_price": 0.0,
+      "exit_price": 6.821210263296962e-13,
+      "gross_return": 7.945033519973776e-16,
+      "net_return": 7.945033519973776e-16,
+      "signal_price": 0.0,
+      "stop_price": 2.2737367544323206e-13,
+      "target_price": 6.821210263296962e-13
+    },
+    "observed_counts": {
+      "offline_decisions": 1593,
+      "offline_signals": 1593,
+      "offline_trades": 1072,
+      "raw_rejections": 521,
+      "raw_signals": 1593,
+      "raw_trades": 1072
+    },
+    "price_abs_tolerance": 1e-09,
+    "price_basis": "FINAL_FORWARD_ADJUSTED",
+    "return_abs_tolerance": 1e-12,
+    "source_bytes": 19442669,
+    "source_file": "RunLog_7515075067183327779_20261011234812.csv",
+    "source_sha256": "6523875e998a79f17a1047937f70dbe2b383486caa50d53d91e70a1183acd840",
+    "stable_identity": "strategy_id|signal_time_et|direction",
+    "status": "TRADE_PARITY_PASS"
+  },
+  "v2_v3_integrity": {
+    "baseline_rows_changed": 78,
+    "candidate_count_v2": 0,
+    "candidate_count_v3": 0,
+    "factor_rows": 192,
+    "increment_rows_changed": 78,
+    "required_new_fields_present": true,
+    "short_rows": 78,
+    "status": "PASS",
+    "strategy_rows": 27,
+    "unexpected_factor_changes": [],
+    "unexpected_strategy_changes": []
+  },
+  "validation_oos_accessed": false
+}

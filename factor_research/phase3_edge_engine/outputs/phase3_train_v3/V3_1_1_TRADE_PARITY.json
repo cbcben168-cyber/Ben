@@ -1,0 +1,43 @@
+{
+  "allowed_differences": [
+    "signal_id encoding differs; canonical stable identity must match one-to-one",
+    "raw prices use as-of dynamic basis and are converted to the frozen final forward-adjusted basis",
+    "raw STOP plus ambiguous=true maps to AMBIGUOUS_STOP_FIRST",
+    "MFE/MAE are excluded because the frozen RunLog records full exit-bar range upper bounds"
+  ],
+  "ambiguous_reason_normalizations": 8,
+  "errors": [],
+  "expected_counts": {
+    "rejections": 521,
+    "signals": 1593,
+    "trades": 1072
+  },
+  "matched_rejections": 521,
+  "matched_signals": 1593,
+  "matched_trades": 1072,
+  "max_abs_differences": {
+    "entry_price": 0.0,
+    "exit_price": 6.821210263296962e-13,
+    "gross_return": 7.945033519973776e-16,
+    "net_return": 7.945033519973776e-16,
+    "signal_price": 0.0,
+    "stop_price": 2.2737367544323206e-13,
+    "target_price": 6.821210263296962e-13
+  },
+  "observed_counts": {
+    "offline_decisions": 1593,
+    "offline_signals": 1593,
+    "offline_trades": 1072,
+    "raw_rejections": 521,
+    "raw_signals": 1593,
+    "raw_trades": 1072
+  },
+  "price_abs_tolerance": 1e-09,
+  "price_basis": "FINAL_FORWARD_ADJUSTED",
+  "return_abs_tolerance": 1e-12,
+  "source_bytes": 19442669,
+  "source_file": "RunLog_7515075067183327779_20261011234812.csv",
+  "source_sha256": "6523875e998a79f17a1047937f70dbe2b383486caa50d53d91e70a1183acd840",
+  "stable_identity": "strategy_id|signal_time_et|direction",
+  "status": "TRADE_PARITY_PASS"
+}

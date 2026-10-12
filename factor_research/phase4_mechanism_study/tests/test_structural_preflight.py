@@ -9,6 +9,7 @@ import exchange_calendars
 import pytest
 
 from factor_research.phase4_mechanism_study.contracts import FAMILY, Phase4ContractError
+from factor_research.phase4_mechanism_study.lifecycle import verify_post_checkpoint_identity
 from factor_research.phase4_mechanism_study.mechanisms import Signal
 from factor_research.phase4_mechanism_study.overlap import pair_overlap
 from factor_research.phase4_mechanism_study.structural_preflight import (
@@ -31,10 +32,11 @@ def _signal(hypothesis: str, day: str, position: int, direction: int = 1) -> Sig
 
 
 def test_preflight_has_independent_frozen_identity_and_python314_dependencies() -> None:
-    registration = verify_preflight_identity()
+    registration = verify_post_checkpoint_identity()
     assert registration["attempt_id"] == ATTEMPT_ID
     assert registration["preflight_version"] == PREFLIGHT_VERSION
     assert registration["phase41_code_hash_sha256"] == PHASE41_CODE_HASH
+    assert registration["phase41_checkpoint_relation"] == "ANCESTOR_OR_EQUAL"
     assert sys.version_info[:2] == (3, 14)
     assert exchange_calendars.__version__ == "4.13.2"
 
@@ -96,12 +98,12 @@ def test_jaccard_exact_point_eight_is_blocked_and_bar_distance_boundary_is_inclu
 
 
 def test_registration_or_source_hash_mismatch_blocks_execution(tmp_path: Path) -> None:
-    registration = verify_preflight_identity()
+    registration = verify_post_checkpoint_identity()
     registration["preflight_source_sha256"] = "0" * 64
     altered = tmp_path / "preflight_registration.json"
     altered.write_text(json.dumps(registration), encoding="utf-8")
     with pytest.raises(StructuralPreflightError, match="PREFLIGHT_SOURCE_HASH_MISMATCH"):
-        verify_preflight_identity(altered, verify_git=False)
+        verify_post_checkpoint_identity(altered)
 
 
 def test_one_shot_attempt_directory_rejects_second_claim(tmp_path: Path) -> None:

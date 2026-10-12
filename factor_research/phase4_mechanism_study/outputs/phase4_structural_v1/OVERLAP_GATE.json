@@ -1,0 +1,23 @@
+{
+  "exact_jaccard_disclosed": false,
+  "matching": "SAME_SESSION_SAME_DIRECTION_BAR_DISTANCE_LE_1_ONE_TO_ONE",
+  "pairs": [
+    {
+      "category": "PASS_BELOW_0_80",
+      "hypothesis_a": "P4_M01_ALL",
+      "hypothesis_b": "P4_M02_ALL"
+    },
+    {
+      "category": "PASS_BELOW_0_80",
+      "hypothesis_a": "P4_M01_ALL",
+      "hypothesis_b": "P4_M06_ALL"
+    },
+    {
+      "category": "PASS_BELOW_0_80",
+      "hypothesis_a": "P4_M02_ALL",
+      "hypothesis_b": "P4_M06_ALL"
+    }
+  ],
+  "status": "PASS",
+  "threshold": "JACCARD_GE_0_80_BLOCKS"
+}

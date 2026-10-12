@@ -1,0 +1,23 @@
+{
+  "adjustment_basis": "AS_OF_DYNAMIC_FORWARD_FROM_GET_REHAB",
+  "bar_label": "bar_end",
+  "bar_size": "5m",
+  "early_closes": [
+    "2025-11-28",
+    "2025-12-24"
+  ],
+  "input_hashes": {
+    "audit_manifest": "f1f750867dd4a32eaf74d4d776dcf47002f0aa7f5b123db4177e57c4a1a266da",
+    "ohlc": "e5e3ab7cfa981be022388b7a54952a6f8fa29e2dc0043672edf4e84997940e2f",
+    "rehab": "16a1bae16d562edffac364cbba2a6a26d72765e1eca57ab0c31189b37ceb17c4"
+  },
+  "status": "DATA_GATE_PASS",
+  "symbol": "US.SPY",
+  "timezone": "America/New_York",
+  "train_bars": 14514,
+  "train_end": "2026-06-30",
+  "train_only_numeric_parse": true,
+  "train_sessions": 187,
+  "train_start": "2025-10-01",
+  "validation_oos_accessed": false
+}

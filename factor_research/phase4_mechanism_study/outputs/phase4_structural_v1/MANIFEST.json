@@ -1,0 +1,28 @@
+{
+  "artifacts": {
+    "ATTEMPT_AUDIT.json": {
+      "bytes": 903,
+      "sha256": "c1e76afe16327808791adc62571c917fafa33d46236f61d3f92a3f4ca8b72eb5"
+    },
+    "DATA_QUALIFICATION.json": {
+      "bytes": 712,
+      "sha256": "259bbff9cd09f602443d702cb762367d07e0b511962107cd4a9f70778d75466b"
+    },
+    "OVERLAP_GATE.json": {
+      "bytes": 554,
+      "sha256": "b4da00a59c317fda1b73492311e49eb148c740c331921bca959ed405e1e8b0df"
+    },
+    "REPORT_CN.md": {
+      "bytes": 784,
+      "sha256": "1b154a58b89cc3786adf00cca6664c47ed630dd42ba50ad40834d6e032dd8107"
+    },
+    "STRUCTURAL_GATE.json": {
+      "bytes": 1176,
+      "sha256": "1f805e5a8a545f52a2eb453b37de0eeaa7737e13f5296ee4ecebce9d4c1d2774"
+    }
+  },
+  "attempt_id": "P4_STRUCTURAL_V1_ONE_SHOT",
+  "preflight_version": "PHASE4_STRUCTURAL_PREFLIGHT_V1",
+  "result_hash_sha256": "5aa17767486cc4d7025e0b88e2df8b5150b5b35a33a616a000ec3143e5e4d5ee",
+  "status": "PHASE4_2_STRUCTURAL_READY"
+}

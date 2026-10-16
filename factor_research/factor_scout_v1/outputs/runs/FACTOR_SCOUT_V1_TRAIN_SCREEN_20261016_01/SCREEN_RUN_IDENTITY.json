@@ -1,0 +1,72 @@
+{
+  "run_id": "FACTOR_SCOUT_V1_TRAIN_SCREEN_20261016_01",
+  "stage": "TRAIN_EXPLORATORY_SCREEN_ONLY",
+  "evidence_label": "EXPLORATORY_SCREEN_ONLY",
+  "data_qualification": {
+    "status": "DATA_GATE_PASS_EXPLORATORY_PIT_APPROXIMATION",
+    "symbol": "US.SPY",
+    "bar_size": "5m",
+    "session": "XNYS_RTH",
+    "train_start": "2025-10-01",
+    "train_end": "2026-06-30",
+    "train_sessions": 187,
+    "train_bars": 14514,
+    "source_price_basis": "AUTYPE_NONE_RAW",
+    "analysis_price_basis": "FROZEN_RETROSPECTIVE_FINAL_BASIS_THROUGH_TRAIN_END",
+    "pit_status": "PIT_APPROXIMATION_UNVERIFIED",
+    "bar_availability_basis": "BAR_END_LABEL_AS_AVAILABILITY_PROXY",
+    "confirmatory_use_allowed": false,
+    "rehab_snapshot_generated_at_utc": "2026-10-11T03:31:32.831279+00:00",
+    "rehab_events": [
+      {
+        "ex_div_date": "2025-09-19",
+        "affected_rows": 0
+      },
+      {
+        "ex_div_date": "2025-12-19",
+        "affected_rows": 4332
+      },
+      {
+        "ex_div_date": "2026-03-20",
+        "affected_rows": 9054
+      },
+      {
+        "ex_div_date": "2026-06-18",
+        "affected_rows": 13890
+      }
+    ],
+    "input_hashes": {
+      "ohlc": "e5e3ab7cfa981be022388b7a54952a6f8fa29e2dc0043672edf4e84997940e2f",
+      "rehab": "16a1bae16d562edffac364cbba2a6a26d72765e1eca57ab0c31189b37ceb17c4",
+      "manifest": "f1f750867dd4a32eaf74d4d776dcf47002f0aa7f5b123db4177e57c4a1a266da"
+    },
+    "validation_oos_accessed": false,
+    "opend_accessed": false
+  },
+  "factor_ids": [
+    "F01",
+    "F02",
+    "F03",
+    "F04",
+    "F05",
+    "F06"
+  ],
+  "forward_contract": "NEXT_BAR_OPEN_TO_SIXTH_BAR_CLOSE_AND_UNANNUALIZED_RV",
+  "baseline_contract": "SAME_ANCHOR_ALL_ELIGIBLE_AND_NO_SIGNAL",
+  "stability_contract": "GLOBAL_CHRONOLOGICAL_60_40_TRAIN_INTERNAL",
+  "capacity_contract": "EVENTS_GE_50_AND_UNIQUE_DAYS_GE_40_SCHEDULING_HINT",
+  "passes": {
+    "data_reads": 1,
+    "feature_passes": 1,
+    "forward_passes": 1
+  },
+  "source_sha256": {
+    "core.py": "b07ed8d9ed91cbaaeb3ddf150c92a84bf00679555234b9d1fb6b85c1f0e3be38",
+    "screen.py": "0c5ca6c1584ad8e1a547f10598810142d07b329181dccaf5ed2033728a576336",
+    "FACTOR_REGISTRY.csv": "ef872ae07ff8ac1c2f0f78d46730248032fa4f83072754a13f6166a4934d092c"
+  },
+  "real_train_read": true,
+  "validation_oos_read": false,
+  "opend_accessed": false,
+  "confirmatory_use_allowed": false
+}

@@ -1,0 +1,5 @@
+evidence_label,factor_id,name,target_type,status,decision,reason,selection_basis
+SYNTHETIC_DEMO,F01,Opening Drive Persistence,DIRECTION,REVIEW,RETAIN,Mechanism and PIT inputs are defined; synthetic verification only,STATIC_REVIEW_ONLY_NOT_MARKET_RESULT
+SYNTHETIC_DEMO,F02,Opening Volatility Persistence,VOLATILITY,REVIEW,RETAIN,Formula is defined; must remain separate from directional ranking,STATIC_REVIEW_ONLY_NOT_MARKET_RESULT
+SYNTHETIC_DEMO,F04,Previous-Day Close Location,STATE,REVIEW,RETAIN,Previous complete session is observable at the anchor,STATIC_REVIEW_ONLY_NOT_MARKET_RESULT
+SYNTHETIC_DEMO,F06,Midday Range Position,DIRECTION,REVIEW,RETAIN,Fixed-anchor cumulative range location is PIT-feasible,STATIC_REVIEW_ONLY_NOT_MARKET_RESULT

@@ -1,0 +1,21 @@
+{
+  "run_id": "FACTOR_SCOUT_V1_PHASE_A_SYNTHETIC_DEMO_V1",
+  "evidence_label": "SYNTHETIC_DEMO",
+  "input_kind": "MANUALLY_GENERATED_5M_OHLC",
+  "input_sha256": "7d576a8170c641f47ff9d5f00018308979b87d6587fe5b098fcb9e6d1467c60a",
+  "row_count": 2028,
+  "session_count": 26,
+  "source_sha256": {
+    "core.py": "35017aaaa2dd8263e4fd9bc7e047245d8564578e56245e7a192ba22285e9d01b",
+    "screen.py": "73a0b0b3538ed9cdd76336f6265ffa039ca742a29cfd67d10ac91b2928d7aa02",
+    "FACTOR_REGISTRY.csv": "ef872ae07ff8ac1c2f0f78d46730248032fa4f83072754a13f6166a4934d092c"
+  },
+  "passes": {
+    "data_reads": 1,
+    "feature_passes": 1,
+    "forward_passes": 1
+  },
+  "real_train_read": false,
+  "validation_oos_read": false,
+  "forbidden_labels_emitted": false
+}

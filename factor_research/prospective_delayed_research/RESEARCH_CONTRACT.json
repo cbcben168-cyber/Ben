@@ -1,0 +1,106 @@
+{
+  "contract_id": "MF038_MF043_A2_PROSPECTIVE_DELAYED_ENGINEERING_V1_20261023",
+  "status": "ENGINEERING_FROZEN",
+  "mode": "SYNTHETIC_ENGINEERING_ONLY",
+  "frozen_at_utc": "2026-10-22T17:42:43Z",
+  "freeze_clock_status": "LOCAL_UTC_UNQUALIFIED_REAL_COLLECTION_REQUIRES_SEPARATE_PROOF",
+  "code_sha256": "fa613cd9c9a77abbc64ff8f112767802636f9131213f88908991b58ace8bd62a",
+  "math_ast_sha256": {
+    "rearm": "d87d67a2617d70b939745ffa9acce1da3f1a146fda6b4cc6db511563826b0851",
+    "signals": "b280658d552ce3f4e66f70d98a6db8d5f2dc73215599da030733260d0c6bd7e3",
+    "predict": "ea77ad9643b917c3cb138ba5f1bb926134046934fb32c9f29b920e6cd15b10dd",
+    "target": "89c12df535cc56e918d3cf5a74a987a49ac3ef0154d5013ad6b40f4c02c8094d"
+  },
+  "baseline": {
+    "collector_sha256": "dafebdd417d133761b4bc072264a28936d6469f212a16cd02796bb0f47a5902e",
+    "contract_sha256": "eea86e04d5edc04d28612721627b0a69c1a476fc9919a04685ffed69b5554ac8",
+    "run_manifest_sha256": "ea382b92ad4b927f0d282d97e2dfc1e0d378604339e8f8a263d4c4b35300e464",
+    "verdict": "HISTORICAL_REPLAY_ENGINEERING_PASS",
+    "pr35_commit": "0810446d22ca84ef36394789739396f98fc42c0e"
+  },
+  "authorization": {
+    "real_opend": false,
+    "scheduler": false,
+    "formal_research_run": false,
+    "phase4": false,
+    "trading": false
+  },
+  "symbol": "US.SPY",
+  "calendar": "XNYS",
+  "timestamp_semantics": "RTH_5M_BAR_END",
+  "internal_timezone": "UTC",
+  "report_timezone": "America/New_York",
+  "horizons": [
+    3,
+    6,
+    12
+  ],
+  "primary_horizon": 6,
+  "buffer_bars": 1,
+  "deadline_rule": "PREDICTION_AND_READY_RECEIPTS_FSYNC_UPPER_TIME_STRICTLY_BEFORE_ANCHOR_PLUS_5_MINUTES",
+  "clock_uncertainty_max_seconds": 1.0,
+  "sample_start": "FIRST_FULL_XNYS_SESSION_STRICTLY_AFTER_ENGINEERING_FREEZE_AND_SEPARATELY_AUTHORIZED_REAL_PREFLIGHT",
+  "warmup": "POST_FREEZE_ONLY_NO_LEGACY_HISTORY_BACKFILL",
+  "MF038": {
+    "anchor_et": "10:00",
+    "prior": 20,
+    "qualified_only": true,
+    "same_regime": true,
+    "formula": "median(prior RV_h)*clip(current OR/median(prior OR),0.5,2.0)",
+    "minimum_paired_sessions": 300
+  },
+  "MF043": {
+    "ols_bars": 24,
+    "atr_bars": 20,
+    "q": 0.5,
+    "r_squared": 0.6,
+    "prior_sessions": 60,
+    "minimum_valid_references": 40,
+    "include_blackout_references": true,
+    "same_regime": true,
+    "rearm": "SESSION_START_OR_OBSERVED_ZERO_REARMS_BOTH_SIDES",
+    "minimum_events": 300,
+    "minimum_sessions": 100,
+    "minimum_each_side": 100
+  },
+  "corporate_actions": "EX_DATE_AND_ADJACENT_XNYS_SESSIONS_BLACKOUT_SAME_REGIME_LOOKBACK_AND_REFERENCES",
+  "revision_policy": "APPEND_INVALIDATION_KEEP_OLD_PREDICTION_NO_RETRY",
+  "recovery_policy": "PARTIAL_OR_EXISTING_ATTEMPT_FAIL_CLOSED_NO_RESUME",
+  "synthetic_eligibility": "NEVER_REAL_PROSPECTIVE_ELIGIBLE",
+  "real_qualification": "SEALED_BEFORE_TARGET_START_INPUT_COMPLETION_AND_ACTUAL_AVAILABILITY_PROVEN_LABEL_FETCH_AFTER_SEAL_CROSS_RESTART_ORDER_NOT_ASSUMED",
+  "late_data": "PRESERVE_FAILURE_NO_TARGET_SHIFT_NO_BACKFILL",
+  "phase4_future_gates": {
+    "separate_contract_freeze_and_authorization": true,
+    "common_endpoint": true,
+    "maximum": "EARLIER_OF_24_MONTHS_OR_504_SCHEDULED_XNYS_SESSIONS",
+    "stopping_inputs": "COUNTS_AND_DATA_QUALITY_ONLY",
+    "holm_fwer": 0.05,
+    "hypotheses": [
+      "MF038",
+      "MF043"
+    ],
+    "blocked_p": 1.0,
+    "bootstrap_draws": 2000,
+    "signflip_draws": 20000,
+    "no_interim_effect_analysis": true,
+    "no_auto_promotion_from_A2": true
+  },
+  "outputs": [
+    "EVENTS.jsonl",
+    "RECEIPTS.jsonl",
+    "MANIFEST.json"
+  ],
+  "dependencies": [
+    "numpy",
+    "pandas",
+    "exchange-calendars",
+    "tzdata",
+    "pytest (tests only)"
+  ],
+  "runtime_versions": {
+    "numpy": "2.5.1",
+    "pandas": "3.0.3",
+    "exchange-calendars": "4.13.2",
+    "tzdata": "2026.3"
+  }
+}

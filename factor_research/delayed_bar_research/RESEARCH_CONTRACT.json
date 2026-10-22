@@ -1,0 +1,81 @@
+{
+  "contract_id": "MF038_MF043_DELAYED_BAR_RESEARCH_V1_20261022",
+  "mode": "HISTORICAL_REPLAY_ONLY",
+  "authorization": "User approved A: three new files, synthetic tests and one cached replay; no Phase 4, OpenD, clock experiment or trading",
+  "factors": ["MF038", "MF043"],
+  "timezone": "America/New_York",
+  "calendar": "XNYS",
+  "timestamp_semantics": "RTH_5M_BAR_END",
+  "warmup_start": "2018-10-11",
+  "scoring_start": "2019-01-01",
+  "end": "2024-12-31",
+  "horizons": [3, 6, 12],
+  "primary_horizon": 6,
+  "buffer_bars": 1,
+  "MF038": {
+    "anchor_et": "10:00",
+    "reference_count": 20,
+    "reference_rule": "Last 20 scoring-qualified, non-blackout, same-clock same-regime sessions with matured outcomes, matching Phase 2 _f02_scores; 2018 is not added to this reference",
+    "forecast": "median(prior RV_h) * clip(current OR / median(prior OR), 0.5, 2.0)",
+    "exposure_is_not_prediction": true,
+    "minimum_paired_sessions_for_future_independent_study": 300
+  },
+  "MF043": {
+    "ols_bars": 24,
+    "atr_bars": 20,
+    "atr_rule": "Simple rolling mean of true range across completed RTH bars; first bar of each session uses high-low; history may cross sessions inside one regime",
+    "q": 0.5,
+    "r_squared": 0.6,
+    "formula": "abs(24 * OLS_slope(log(close))) / (ATR20 / close) * R_squared",
+    "rearm": "Reset both sides at session start or an observed zero signal; each side emits once while armed",
+    "reference_window": 60,
+    "minimum_references": 40,
+    "reference_rule": "Previous 60 sessions at the same bar ordinal and regime, including blackout sessions as in Phase 2; at least 40 finite matured targets",
+    "score": "side * (log(last_target_close / first_target_open) - median(prior R_h)) * 10000",
+    "minimum_events_for_future_independent_study": 300,
+    "minimum_sessions_for_future_independent_study": 100,
+    "minimum_events_per_side_for_future_independent_study": 100
+  },
+  "corporate_actions": "Exclude ex-date and immediately adjacent XNYS sessions; require same-regime factor lookback and references; retrospective adjusted prices are sensitivity only",
+  "inference": {
+    "unit": "Arithmetic mean of eligible event scores within each XNYS session",
+    "bootstrap_draws": 2000,
+    "signflip_draws": 20000,
+    "seed": 20261017,
+    "historical_factor_ordinals": {"MF038": 37, "MF043": 42},
+    "holm_family": ["MF038", "MF043"],
+    "alpha": 0.05,
+    "blocked_p": 1.0,
+    "holm_is": "New descriptive two-factor family; does not replace original historical BY q values",
+    "stability": ["chronological_halves", "chronological_thirds", "year", "leave_one_year_out", "annual_absolute_session_contribution", "side", "h3_h12", "raw_adjusted_sign"]
+  },
+  "parity_tolerance": {"rtol": 1e-12, "atol": 1e-12},
+  "evidence": {
+    "class": "HISTORICAL_REPLAY",
+    "pit_status": "PIT_APPROXIMATION_UNVERIFIED",
+    "bar_available_at": "UNKNOWN",
+    "provider_publication_at": "UNKNOWN",
+    "local_clock": "UNVERIFIED",
+    "completion_basis": "Identity-bound historical closed XNYS sessions, not historical arrival proof",
+    "deadline_status": "NOT_PROVEN",
+    "confirmatory_use_allowed": false,
+    "forward_pass_allowed": false,
+    "clock_v3_status_changes_allowed": false,
+    "future_collection": "Not implemented or authorized. Forming bars, successor placeholders and late revisions cannot establish completion or a 10:05 deadline. Prospective delayed and live evidence need independent authorization."
+  },
+  "source_manifests": {
+    "factor_research/factor_batch_screen/data_materialized/PHASE2B_DATA_2018_2024_01/DATA_ADAPTER_MANIFEST.json": "cb5e89c8814e07350d48059a3cbab9cf0bb65528b445cbb910ef6e7cb4323625",
+    "factor_research/factor_batch_screen/outputs/runs/PHASE2B_HISTORICAL_EXPLORATORY_2019_2024_20261018_01/OUTPUT_MANIFEST.json": "e372a208fad234caded1bf9bd9296d8f35df8c8cfca58410ed7b3b826d4c670e",
+    "factor_research/factor_batch_screen/outputs/audits/FINAL_GATE_AUDIT_20261018_01/AUDIT_MANIFEST.json": "cd0144da60122b65d78b9aa4bd8b9058a571904d913cc02d6d9251a2b94c4a73"
+  },
+  "runtime_dependencies": ["numpy", "pandas", "exchange-calendars", "tzdata", "pytest (tests only)"],
+  "standalone": "No imports from untracked legacy research modules; local immutable cache is required only for replay, not synthetic tests",
+  "implementation_plan": [
+    "Write failing synthetic tests for formula, references, buffer exclusion, prefix invariance, version validation and immutable output",
+    "Implement standalone causal predictor and separate post-seal label evaluator",
+    "Run pytest using the existing dependency-complete Python runtime",
+    "Run exactly one new cached replay, with immutable attempt reservation and raw/adjusted parity acceptance",
+    "Verify protected tree hashes, commit only the three approved files on the synchronized default base, push and create PR"
+  ],
+  "replay_run_id": "DELAYED_BAR_RESEARCH_REPLAY_2019_2024_20261022_01"
+}

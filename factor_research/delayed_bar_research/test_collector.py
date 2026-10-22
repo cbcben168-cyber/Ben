@@ -108,6 +108,24 @@ def test_calendar_covers_dst_early_close_and_rejects_whole_session_gap():
         collector.validate(clean.loc[clean.session_date.ne(day)])
 
 
+def test_csv_roundtrip_accepts_exact_grid_across_datetime_precision_units():
+    from io import StringIO
+    original = bars(2)
+    reread = pd.read_csv(StringIO(original.to_csv(index=False)))
+    reread["timestamp"] = pd.to_datetime(reread.timestamp, utc=True).dt.as_unit("us")
+    clean = collector.validate(reread)
+    assert clean.timestamp.tolist() == original.timestamp.tolist()
+    # A real off-grid nanosecond must still be rejected after precision normalization.
+    shifted = original.copy()
+    shifted.loc[4, "timestamp"] += pd.Timedelta(nanoseconds=1)
+    with pytest.raises(ValueError, match="SESSION_GRID"):
+        collector.validate(shifted)
+
+
+def test_valid_single_session_does_not_require_a_cached_calendar():
+    assert len(collector.validate(bars(1))) == 78
+
+
 def test_regime_crossing_disables_factor_lookback():
     frame = bars(2)
     frame.loc[78:, "corporate_action_regime_id"] = "R1"

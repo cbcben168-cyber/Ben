@@ -114,12 +114,13 @@ def validate(frame):
     require((f.high >= f[["open", "close", "low"]].max(axis=1)).all() and
             (f.low <= f[["open", "close", "high"]].min(axis=1)).all(), "INVALID_OHLC")
     require(f.corporate_action_regime_id.notna().all() and f.corporate_action_regime_id.astype(str).str.strip().ne("").all(), "MISSING_REGIME")
-    cal = xc.get_calendar("XNYS", start=f.session_date.min(), end=f.session_date.max())
+    calendar_end = (pd.Timestamp(f.session_date.max())+pd.Timedelta(days=1)).date().isoformat()
+    cal = xc.get_calendar("XNYS", start=f.session_date.min(), end=calendar_end)
     expected_days = cal.sessions_in_range(f.session_date.min(), f.session_date.max()).strftime("%Y-%m-%d").tolist()
     require(f.session_date.drop_duplicates().tolist() == expected_days, "SESSION_GRID")
     for day, group in f.groupby("session_date", sort=False):
         expected = pd.date_range(cal.session_open(day)+pd.Timedelta(minutes=5), cal.session_close(day), freq="5min")
-        require(pd.DatetimeIndex(group.timestamp).equals(expected), "SESSION_GRID:"+day)
+        require(pd.DatetimeIndex(group.timestamp).as_unit("ns").equals(expected.as_unit("ns")), "SESSION_GRID:"+day)
         require(group.corporate_action_regime_id.nunique() == 1, "INTRADAY_REGIME_CHANGE")
     return f
 

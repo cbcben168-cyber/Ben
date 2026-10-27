@@ -1,0 +1,201 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="14" failures="7" skipped="0" tests="21" time="0.423" timestamp="2026-10-28T03:24:20.244596+08:00" hostname="DESKTOP-5DD8A2F"><testcase classname="tests.test_live_entry" name="test_default_has_no_live_authority" time="0.001"><failure message="ModuleNotFoundError: No module named 'live_entry'">def test_default_has_no_live_authority():
+&gt;       from live_entry import main
+E       ModuleNotFoundError: No module named 'live_entry'
+
+tests\test_live_entry.py:10: ModuleNotFoundError</failure></testcase><testcase classname="tests.test_live_entry" name="test_no_authorization_never_connects" time="0.001"><error message="failed on setup with &quot;FileNotFoundError: [WinError 3] 系统找不到指定的路径。: 'C:\\Users\\cbcbe\\.codex\\worktrees\\futu-factor-progress-dashboard-v1\\Futu\\factor_research\\d2_live_integration\\artifacts\\red_tmp'&quot;">self = WindowsPath('C:/Users/cbcbe/.codex/worktrees/futu-factor-progress-dashboard-v1/Futu/factor_research/d2_live_integration/artifacts/red_tmp')
+mode = 448, parents = False, exist_ok = False
+
+    def mkdir(self, mode=0o777, parents=False, exist_ok=False):
+        """
+        Create a new directory at this given path.
+        """
+        try:
+&gt;           os.mkdir(self, mode)
+E           FileNotFoundError: [WinError 3] 系统找不到指定的路径。: 'C:\\Users\\cbcbe\\.codex\\worktrees\\futu-factor-progress-dashboard-v1\\Futu\\factor_research\\d2_live_integration\\artifacts\\red_tmp'
+
+C:\Users\cbcbe\AppData\Local\Programs\Python\Python314\Lib\pathlib\__init__.py:1011: FileNotFoundError</error></testcase><testcase classname="tests.test_live_entry" name="test_mismatched_authority_denied[run_id-OLD_RUN-AUTHORITY_IDENTITY_MISMATCH]" time="0.000"><error message="failed on setup with &quot;FileNotFoundError: [WinError 3] 系统找不到指定的路径。: 'C:\\Users\\cbcbe\\.codex\\worktrees\\futu-factor-progress-dashboard-v1\\Futu\\factor_research\\d2_live_integration\\artifacts\\red_tmp'&quot;">self = WindowsPath('C:/Users/cbcbe/.codex/worktrees/futu-factor-progress-dashboard-v1/Futu/factor_research/d2_live_integration/artifacts/red_tmp')
+mode = 448, parents = False, exist_ok = False
+
+    def mkdir(self, mode=0o777, parents=False, exist_ok=False):
+        """
+        Create a new directory at this given path.
+        """
+        try:
+&gt;           os.mkdir(self, mode)
+E           FileNotFoundError: [WinError 3] 系统找不到指定的路径。: 'C:\\Users\\cbcbe\\.codex\\worktrees\\futu-factor-progress-dashboard-v1\\Futu\\factor_research\\d2_live_integration\\artifacts\\red_tmp'
+
+C:\Users\cbcbe\AppData\Local\Programs\Python\Python314\Lib\pathlib\__init__.py:1011: FileNotFoundError</error></testcase><testcase classname="tests.test_live_entry" name="test_mismatched_authority_denied[live_authorized-False-AUTHORITY_IDENTITY_MISMATCH]" time="0.000"><error message="failed on setup with &quot;FileNotFoundError: [WinError 3] 系统找不到指定的路径。: 'C:\\Users\\cbcbe\\.codex\\worktrees\\futu-factor-progress-dashboard-v1\\Futu\\factor_research\\d2_live_integration\\artifacts\\red_tmp'&quot;">self = WindowsPath('C:/Users/cbcbe/.codex/worktrees/futu-factor-progress-dashboard-v1/Futu/factor_research/d2_live_integration/artifacts/red_tmp')
+mode = 448, parents = False, exist_ok = False
+
+    def mkdir(self, mode=0o777, parents=False, exist_ok=False):
+        """
+        Create a new directory at this given path.
+        """
+        try:
+&gt;           os.mkdir(self, mode)
+E           FileNotFoundError: [WinError 3] 系统找不到指定的路径。: 'C:\\Users\\cbcbe\\.codex\\worktrees\\futu-factor-progress-dashboard-v1\\Futu\\factor_research\\d2_live_integration\\artifacts\\red_tmp'
+
+C:\Users\cbcbe\AppData\Local\Programs\Python\Python314\Lib\pathlib\__init__.py:1011: FileNotFoundError</error></testcase><testcase classname="tests.test_live_entry" name="test_mismatched_authority_denied[source_sha256-0000000000000000000000000000000000000000000000000000000000000000-SOURCE_IDENTITY_MISMATCH]" time="0.000"><error message="failed on setup with &quot;FileNotFoundError: [WinError 3] 系统找不到指定的路径。: 'C:\\Users\\cbcbe\\.codex\\worktrees\\futu-factor-progress-dashboard-v1\\Futu\\factor_research\\d2_live_integration\\artifacts\\red_tmp'&quot;">self = WindowsPath('C:/Users/cbcbe/.codex/worktrees/futu-factor-progress-dashboard-v1/Futu/factor_research/d2_live_integration/artifacts/red_tmp')
+mode = 448, parents = False, exist_ok = False
+
+    def mkdir(self, mode=0o777, parents=False, exist_ok=False):
+        """
+        Create a new directory at this given path.
+        """
+        try:
+&gt;           os.mkdir(self, mode)
+E           FileNotFoundError: [WinError 3] 系统找不到指定的路径。: 'C:\\Users\\cbcbe\\.codex\\worktrees\\futu-factor-progress-dashboard-v1\\Futu\\factor_research\\d2_live_integration\\artifacts\\red_tmp'
+
+C:\Users\cbcbe\AppData\Local\Programs\Python\Python314\Lib\pathlib\__init__.py:1011: FileNotFoundError</error></testcase><testcase classname="tests.test_live_entry" name="test_mismatched_authority_denied[policy_sha256-0000000000000000000000000000000000000000000000000000000000000000-POLICY_IDENTITY_MISMATCH]" time="0.000"><error message="failed on setup with &quot;FileNotFoundError: [WinError 3] 系统找不到指定的路径。: 'C:\\Users\\cbcbe\\.codex\\worktrees\\futu-factor-progress-dashboard-v1\\Futu\\factor_research\\d2_live_integration\\artifacts\\red_tmp'&quot;">self = WindowsPath('C:/Users/cbcbe/.codex/worktrees/futu-factor-progress-dashboard-v1/Futu/factor_research/d2_live_integration/artifacts/red_tmp')
+mode = 448, parents = False, exist_ok = False
+
+    def mkdir(self, mode=0o777, parents=False, exist_ok=False):
+        """
+        Create a new directory at this given path.
+        """
+        try:
+&gt;           os.mkdir(self, mode)
+E           FileNotFoundError: [WinError 3] 系统找不到指定的路径。: 'C:\\Users\\cbcbe\\.codex\\worktrees\\futu-factor-progress-dashboard-v1\\Futu\\factor_research\\d2_live_integration\\artifacts\\red_tmp'
+
+C:\Users\cbcbe\AppData\Local\Programs\Python\Python314\Lib\pathlib\__init__.py:1011: FileNotFoundError</error></testcase><testcase classname="tests.test_live_entry" name="test_mismatched_authority_denied[contract_sha256-0000000000000000000000000000000000000000000000000000000000000000-CONTRACT_IDENTITY_MISMATCH]" time="0.001"><error message="failed on setup with &quot;FileNotFoundError: [WinError 3] 系统找不到指定的路径。: 'C:\\Users\\cbcbe\\.codex\\worktrees\\futu-factor-progress-dashboard-v1\\Futu\\factor_research\\d2_live_integration\\artifacts\\red_tmp'&quot;">self = WindowsPath('C:/Users/cbcbe/.codex/worktrees/futu-factor-progress-dashboard-v1/Futu/factor_research/d2_live_integration/artifacts/red_tmp')
+mode = 448, parents = False, exist_ok = False
+
+    def mkdir(self, mode=0o777, parents=False, exist_ok=False):
+        """
+        Create a new directory at this given path.
+        """
+        try:
+&gt;           os.mkdir(self, mode)
+E           FileNotFoundError: [WinError 3] 系统找不到指定的路径。: 'C:\\Users\\cbcbe\\.codex\\worktrees\\futu-factor-progress-dashboard-v1\\Futu\\factor_research\\d2_live_integration\\artifacts\\red_tmp'
+
+C:\Users\cbcbe\AppData\Local\Programs\Python\Python314\Lib\pathlib\__init__.py:1011: FileNotFoundError</error></testcase><testcase classname="tests.test_live_entry" name="test_mismatched_authority_denied[window-value5-WINDOW_IDENTITY_MISMATCH]" time="0.001"><error message="failed on setup with &quot;FileNotFoundError: [WinError 3] 系统找不到指定的路径。: 'C:\\Users\\cbcbe\\.codex\\worktrees\\futu-factor-progress-dashboard-v1\\Futu\\factor_research\\d2_live_integration\\artifacts\\red_tmp'&quot;">self = WindowsPath('C:/Users/cbcbe/.codex/worktrees/futu-factor-progress-dashboard-v1/Futu/factor_research/d2_live_integration/artifacts/red_tmp')
+mode = 448, parents = False, exist_ok = False
+
+    def mkdir(self, mode=0o777, parents=False, exist_ok=False):
+        """
+        Create a new directory at this given path.
+        """
+        try:
+&gt;           os.mkdir(self, mode)
+E           FileNotFoundError: [WinError 3] 系统找不到指定的路径。: 'C:\\Users\\cbcbe\\.codex\\worktrees\\futu-factor-progress-dashboard-v1\\Futu\\factor_research\\d2_live_integration\\artifacts\\red_tmp'
+
+C:\Users\cbcbe\AppData\Local\Programs\Python\Python314\Lib\pathlib\__init__.py:1011: FileNotFoundError</error></testcase><testcase classname="tests.test_live_entry" name="test_mismatched_authority_denied[sealed_at_utc-2026-10-27T19:35:00+00:00-SEAL_DEADLINE_MISSED]" time="0.001"><error message="failed on setup with &quot;FileNotFoundError: [WinError 3] 系统找不到指定的路径。: 'C:\\Users\\cbcbe\\.codex\\worktrees\\futu-factor-progress-dashboard-v1\\Futu\\factor_research\\d2_live_integration\\artifacts\\red_tmp'&quot;">self = WindowsPath('C:/Users/cbcbe/.codex/worktrees/futu-factor-progress-dashboard-v1/Futu/factor_research/d2_live_integration/artifacts/red_tmp')
+mode = 448, parents = False, exist_ok = False
+
+    def mkdir(self, mode=0o777, parents=False, exist_ok=False):
+        """
+        Create a new directory at this given path.
+        """
+        try:
+&gt;           os.mkdir(self, mode)
+E           FileNotFoundError: [WinError 3] 系统找不到指定的路径。: 'C:\\Users\\cbcbe\\.codex\\worktrees\\futu-factor-progress-dashboard-v1\\Futu\\factor_research\\d2_live_integration\\artifacts\\red_tmp'
+
+C:\Users\cbcbe\AppData\Local\Programs\Python\Python314\Lib\pathlib\__init__.py:1011: FileNotFoundError</error></testcase><testcase classname="tests.test_live_entry" name="test_mismatched_authority_denied[risk_acceptance_inherited-True-OLD_RISK_ACCEPTANCE_FORBIDDEN]" time="0.000"><error message="failed on setup with &quot;FileNotFoundError: [WinError 3] 系统找不到指定的路径。: 'C:\\Users\\cbcbe\\.codex\\worktrees\\futu-factor-progress-dashboard-v1\\Futu\\factor_research\\d2_live_integration\\artifacts\\red_tmp'&quot;">self = WindowsPath('C:/Users/cbcbe/.codex/worktrees/futu-factor-progress-dashboard-v1/Futu/factor_research/d2_live_integration/artifacts/red_tmp')
+mode = 448, parents = False, exist_ok = False
+
+    def mkdir(self, mode=0o777, parents=False, exist_ok=False):
+        """
+        Create a new directory at this given path.
+        """
+        try:
+&gt;           os.mkdir(self, mode)
+E           FileNotFoundError: [WinError 3] 系统找不到指定的路径。: 'C:\\Users\\cbcbe\\.codex\\worktrees\\futu-factor-progress-dashboard-v1\\Futu\\factor_research\\d2_live_integration\\artifacts\\red_tmp'
+
+C:\Users\cbcbe\AppData\Local\Programs\Python\Python314\Lib\pathlib\__init__.py:1011: FileNotFoundError</error></testcase><testcase classname="tests.test_live_entry" name="test_expired_window_denied" time="0.001"><error message="failed on setup with &quot;FileNotFoundError: [WinError 3] 系统找不到指定的路径。: 'C:\\Users\\cbcbe\\.codex\\worktrees\\futu-factor-progress-dashboard-v1\\Futu\\factor_research\\d2_live_integration\\artifacts\\red_tmp'&quot;">self = WindowsPath('C:/Users/cbcbe/.codex/worktrees/futu-factor-progress-dashboard-v1/Futu/factor_research/d2_live_integration/artifacts/red_tmp')
+mode = 448, parents = False, exist_ok = False
+
+    def mkdir(self, mode=0o777, parents=False, exist_ok=False):
+        """
+        Create a new directory at this given path.
+        """
+        try:
+&gt;           os.mkdir(self, mode)
+E           FileNotFoundError: [WinError 3] 系统找不到指定的路径。: 'C:\\Users\\cbcbe\\.codex\\worktrees\\futu-factor-progress-dashboard-v1\\Futu\\factor_research\\d2_live_integration\\artifacts\\red_tmp'
+
+C:\Users\cbcbe\AppData\Local\Programs\Python\Python314\Lib\pathlib\__init__.py:1011: FileNotFoundError</error></testcase><testcase classname="tests.test_live_entry" name="test_modified_source_denied" time="0.001"><error message="failed on setup with &quot;FileNotFoundError: [WinError 3] 系统找不到指定的路径。: 'C:\\Users\\cbcbe\\.codex\\worktrees\\futu-factor-progress-dashboard-v1\\Futu\\factor_research\\d2_live_integration\\artifacts\\red_tmp'&quot;">self = WindowsPath('C:/Users/cbcbe/.codex/worktrees/futu-factor-progress-dashboard-v1/Futu/factor_research/d2_live_integration/artifacts/red_tmp')
+mode = 448, parents = False, exist_ok = False
+
+    def mkdir(self, mode=0o777, parents=False, exist_ok=False):
+        """
+        Create a new directory at this given path.
+        """
+        try:
+&gt;           os.mkdir(self, mode)
+E           FileNotFoundError: [WinError 3] 系统找不到指定的路径。: 'C:\\Users\\cbcbe\\.codex\\worktrees\\futu-factor-progress-dashboard-v1\\Futu\\factor_research\\d2_live_integration\\artifacts\\red_tmp'
+
+C:\Users\cbcbe\AppData\Local\Programs\Python\Python314\Lib\pathlib\__init__.py:1011: FileNotFoundError</error></testcase><testcase classname="tests.test_live_entry" name="test_valid_identity_then_duplicate_denied" time="0.000"><error message="failed on setup with &quot;FileNotFoundError: [WinError 3] 系统找不到指定的路径。: 'C:\\Users\\cbcbe\\.codex\\worktrees\\futu-factor-progress-dashboard-v1\\Futu\\factor_research\\d2_live_integration\\artifacts\\red_tmp'&quot;">self = WindowsPath('C:/Users/cbcbe/.codex/worktrees/futu-factor-progress-dashboard-v1/Futu/factor_research/d2_live_integration/artifacts/red_tmp')
+mode = 448, parents = False, exist_ok = False
+
+    def mkdir(self, mode=0o777, parents=False, exist_ok=False):
+        """
+        Create a new directory at this given path.
+        """
+        try:
+&gt;           os.mkdir(self, mode)
+E           FileNotFoundError: [WinError 3] 系统找不到指定的路径。: 'C:\\Users\\cbcbe\\.codex\\worktrees\\futu-factor-progress-dashboard-v1\\Futu\\factor_research\\d2_live_integration\\artifacts\\red_tmp'
+
+C:\Users\cbcbe\AppData\Local\Programs\Python\Python314\Lib\pathlib\__init__.py:1011: FileNotFoundError</error></testcase><testcase classname="tests.test_live_entry" name="test_real_path_has_no_injected_factory" time="0.000"><error message="failed on setup with &quot;FileNotFoundError: [WinError 3] 系统找不到指定的路径。: 'C:\\Users\\cbcbe\\.codex\\worktrees\\futu-factor-progress-dashboard-v1\\Futu\\factor_research\\d2_live_integration\\artifacts\\red_tmp'&quot;">self = WindowsPath('C:/Users/cbcbe/.codex/worktrees/futu-factor-progress-dashboard-v1/Futu/factor_research/d2_live_integration/artifacts/red_tmp')
+mode = 448, parents = False, exist_ok = False
+
+    def mkdir(self, mode=0o777, parents=False, exist_ok=False):
+        """
+        Create a new directory at this given path.
+        """
+        try:
+&gt;           os.mkdir(self, mode)
+E           FileNotFoundError: [WinError 3] 系统找不到指定的路径。: 'C:\\Users\\cbcbe\\.codex\\worktrees\\futu-factor-progress-dashboard-v1\\Futu\\factor_research\\d2_live_integration\\artifacts\\red_tmp'
+
+C:\Users\cbcbe\AppData\Local\Programs\Python\Python314\Lib\pathlib\__init__.py:1011: FileNotFoundError</error></testcase><testcase classname="tests.test_live_entry" name="test_real_identity_is_written_before_hashing" time="0.000"><error message="failed on setup with &quot;FileNotFoundError: [WinError 3] 系统找不到指定的路径。: 'C:\\Users\\cbcbe\\.codex\\worktrees\\futu-factor-progress-dashboard-v1\\Futu\\factor_research\\d2_live_integration\\artifacts\\red_tmp'&quot;">self = WindowsPath('C:/Users/cbcbe/.codex/worktrees/futu-factor-progress-dashboard-v1/Futu/factor_research/d2_live_integration/artifacts/red_tmp')
+mode = 448, parents = False, exist_ok = False
+
+    def mkdir(self, mode=0o777, parents=False, exist_ok=False):
+        """
+        Create a new directory at this given path.
+        """
+        try:
+&gt;           os.mkdir(self, mode)
+E           FileNotFoundError: [WinError 3] 系统找不到指定的路径。: 'C:\\Users\\cbcbe\\.codex\\worktrees\\futu-factor-progress-dashboard-v1\\Futu\\factor_research\\d2_live_integration\\artifacts\\red_tmp'
+
+C:\Users\cbcbe\AppData\Local\Programs\Python\Python314\Lib\pathlib\__init__.py:1011: FileNotFoundError</error></testcase><testcase classname="tests.test_live_entry" name="test_safety_gate_fails_closed[stale]" time="0.001"><failure message="ModuleNotFoundError: No module named 'live_entry'">change = 'stale'
+
+    @pytest.mark.parametrize('change', ['stale', 'unknown', 'conflict', 'asleep', 'identity', 'window'])
+    def test_safety_gate_fails_closed(change):
+&gt;       from live_entry import validate_safety, WINDOW
+E       ModuleNotFoundError: No module named 'live_entry'
+
+tests\test_live_entry.py:103: ModuleNotFoundError</failure></testcase><testcase classname="tests.test_live_entry" name="test_safety_gate_fails_closed[unknown]" time="0.001"><failure message="ModuleNotFoundError: No module named 'live_entry'">change = 'unknown'
+
+    @pytest.mark.parametrize('change', ['stale', 'unknown', 'conflict', 'asleep', 'identity', 'window'])
+    def test_safety_gate_fails_closed(change):
+&gt;       from live_entry import validate_safety, WINDOW
+E       ModuleNotFoundError: No module named 'live_entry'
+
+tests\test_live_entry.py:103: ModuleNotFoundError</failure></testcase><testcase classname="tests.test_live_entry" name="test_safety_gate_fails_closed[conflict]" time="0.001"><failure message="ModuleNotFoundError: No module named 'live_entry'">change = 'conflict'
+
+    @pytest.mark.parametrize('change', ['stale', 'unknown', 'conflict', 'asleep', 'identity', 'window'])
+    def test_safety_gate_fails_closed(change):
+&gt;       from live_entry import validate_safety, WINDOW
+E       ModuleNotFoundError: No module named 'live_entry'
+
+tests\test_live_entry.py:103: ModuleNotFoundError</failure></testcase><testcase classname="tests.test_live_entry" name="test_safety_gate_fails_closed[asleep]" time="0.002"><failure message="ModuleNotFoundError: No module named 'live_entry'">change = 'asleep'
+
+    @pytest.mark.parametrize('change', ['stale', 'unknown', 'conflict', 'asleep', 'identity', 'window'])
+    def test_safety_gate_fails_closed(change):
+&gt;       from live_entry import validate_safety, WINDOW
+E       ModuleNotFoundError: No module named 'live_entry'
+
+tests\test_live_entry.py:103: ModuleNotFoundError</failure></testcase><testcase classname="tests.test_live_entry" name="test_safety_gate_fails_closed[identity]" time="0.001"><failure message="ModuleNotFoundError: No module named 'live_entry'">change = 'identity'
+
+    @pytest.mark.parametrize('change', ['stale', 'unknown', 'conflict', 'asleep', 'identity', 'window'])
+    def test_safety_gate_fails_closed(change):
+&gt;       from live_entry import validate_safety, WINDOW
+E       ModuleNotFoundError: No module named 'live_entry'
+
+tests\test_live_entry.py:103: ModuleNotFoundError</failure></testcase><testcase classname="tests.test_live_entry" name="test_safety_gate_fails_closed[window]" time="0.001"><failure message="ModuleNotFoundError: No module named 'live_entry'">change = 'window'
+
+    @pytest.mark.parametrize('change', ['stale', 'unknown', 'conflict', 'asleep', 'identity', 'window'])
+    def test_safety_gate_fails_closed(change):
+&gt;       from live_entry import validate_safety, WINDOW
+E       ModuleNotFoundError: No module named 'live_entry'
+
+tests\test_live_entry.py:103: ModuleNotFoundError</failure></testcase></testsuite></testsuites>

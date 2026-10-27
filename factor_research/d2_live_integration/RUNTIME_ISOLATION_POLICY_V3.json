@@ -1,0 +1,33 @@
+{
+  "conditional_or_unknown_resource_state": "BLOCKED_WITHOUT_NEW_RISK_ACCEPTANCE",
+  "engineering_risk_accepted": false,
+  "opend_executable_sha256": "51241710a2368a19dd10478157adbb1200ba39f8ab27a4d33e2e157e3d54c6f4",
+  "powershell_executable_sha256": "60c9b29843624dd8af6b6a7b26147753be6aeef65098b9a503cc50850afe410f",
+  "powershell_path": "C:/WINDOWS/System32/WindowsPowerShell/v1.0/powershell.exe",
+  "preflight_allocation_does_not_extend_contract_window": true,
+  "preflight_seconds_max": 12,
+  "protected_task_hashes": {
+    "\\FUTU_A3_QUOTE_ONLY_ONCE_20261023": "e1d901a8c8e6f5ff212ff86ea056fa28ab2c7e6cf06c6336a53ba8aedf243648",
+    "\\FUTU_A4_REAL_ANCHOR_20261026_01": "b25f7d329ca44affbfcb7df97f2385a2b0bbe6422923faf6847f061ece01d108",
+    "\\FUTU_PHASE3_RTH_ACCEPT_20261020": "bdfd74312fb079372f141765750cb4fd007d0b8794e5d078ad03e6096942806f",
+    "\\FUTU_PHASE3_RTH_CAPTURE_20261020": "2cfcd06d88d7c54c80214f6f775d60cd2d26488a706a57a087415bab59573592",
+    "\\FUTU_PHASE3_RTH_SMOKE_FINAL_ACCEPTANCE_20261019": "83333dfbb28196eda69a098ba2f8a25e6eabf04b2fbf90d92395a58cb5064f63",
+    "\\FutuOpenD_AutoStart": "00996e3e624f263f151ceeacdf786a75fa8451ee08448ad48b6a27c7fb14d614"
+  },
+  "schema": "D2_LIVE_RESOURCE_POLICY_V1",
+  "service_lifecycle_tasks": [
+    "\\FutuOpenD_AutoStart"
+  ],
+  "snapshot_bytes_max": 393216,
+  "verified_nonclient_tasks": {
+    "\\Microsoft\\Windows\\Hotpatch\\Monitoring": {
+      "action_sha256": "d8cae658c83a3ee9d02f20368aad06863541fd486ab0680a9cbeefc133727049",
+      "file_hashes": {
+        "C:/WINDOWS/system32/cmd.exe": "15cd209c995b7d3009c91ca40892d5b8f1fb162f3e5f10716642ea278e8e0d7b",
+        "C:/WINDOWS/system32/hpatchmon.dll": "77c727d5208e857927f75ab77c36f169f38b63dc96fedc6f959e4d8dbb062c91",
+        "C:/WINDOWS/system32/hpatchmonTask.cmd": "5347ad556fbc6bb1faf408b466b6bd10180b9299923325794e9e5afb0118408f"
+      }
+    }
+  },
+  "whole_launch_window_seconds": 20
+}

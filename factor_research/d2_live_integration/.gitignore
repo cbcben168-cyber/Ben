@@ -1,0 +1,6 @@
+artifacts/*
+!artifacts/*.xml
+*.index
+runs/
+__pycache__/
+.pytest_cache/

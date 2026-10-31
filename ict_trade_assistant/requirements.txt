@@ -1,0 +1,7 @@
+streamlit>=1.40,<2
+plotly>=5.24,<7
+pandas>=2.2,<3
+exchange-calendars>=4.9,<5
+futu-api>=9.2
+tzdata>=2025.1
+pytest>=8,<10

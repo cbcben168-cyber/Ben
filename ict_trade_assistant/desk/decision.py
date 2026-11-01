@@ -4,6 +4,7 @@ import math
 import pandas as pd
 from .clock import CAL, bounds
 from .observations import SYMBOLS, regions, live_health
+from .ict_live_gate import ict_live_qualification
 
 VERSION = 'ICT-DECISION-v0.4'
 LABELS = dict(PRICE_WATCH='价格观察', SWEEP_CONFIRMED='扫荡已确认',
@@ -106,6 +107,8 @@ def decision(symbol, observation, report, now):
     tier=0 if qualified and live else 1 if qualified else 2
     # 历史结构可以展示，但无合格价格数据不推进SOP。
     stage=s['stage'] if qualified else 'UNKNOWN'
+    ict_qualification=ict_live_qualification(report,s,now)
+    live_review=bool(live and stage=='CE_REVIEW' and s['linked'] and ict_qualification['qualified'])
     if s['region'] and qualified and s['stage']!='INVALIDATED':
         low,high=s['region'];gap=max(low-price,price-high,0)
         areas=areas+[dict(symbol=symbol,key=s['event_id'],region_label='历史结构区域',low=low,high=high,
@@ -118,19 +121,21 @@ def decision(symbol, observation, report, now):
     missing=list(s['missing'])
     if not qualified:missing.append(observation.get('reason','价格或ATR来源资格不足'))
     if not live:missing.append('当前不具备实时审查资格；仅供历史准备')
+    if not ict_qualification['qualified']:missing.append(ict_qualification['reason'])
     next_condition=dict(PRICE_WATCH='等待完整1H扫荡并收盘收回流动性水平',SWEEP_CONFIRMED='等待固定且事前已知Pivot的1H收盘突破（MSS）',
         MSS_CONFIRMED='等待同观察链、同方向的关联FVG确认',FVG_CONFIRMED='等待形成柱之后完整K线触及CE' if s['linked'] else '先等待合格Sweep与MSS关联；独立FVG不推进完整链',
-        CE_REVIEW='人工审查风险、价格、数据时效与执行条件',INVALIDATED='关闭旧观察链，等待新的合格条件',UNKNOWN='补齐合格来源、价格、ATR及完整1H证据')[stage]
+        CE_REVIEW='人工审查风险、价格、数据时效与执行条件' if live_review else '仅作历史CE人工观察；等待ICT结构独立实时确认、实际到达时间及RTH验收',INVALIDATED='关闭旧观察链，等待新的合格条件',UNKNOWN='补齐合格来源、价格、ATR及完整1H证据')[stage]
     confirmed=[dict(id=e['id'],kind=e.get('kind','FVG'),occurred_at=e.get('occurred_at'),confirmed_at=e['confirmed_at'],source=e['source'],evidence=e['evidence']) for e in s['evidence']]
     return dict(symbol=symbol,version=VERSION,stage=stage,historical_stage=s['stage'],linked=s['linked'],
         stage_label='未关联缺口观察' if stage=='FVG_CONFIRMED' and not s['linked'] else LABELS[stage],
+        price_live_qualified=live,ict_live_qualification=ict_qualification,
         qualification=tier,focus=focus,regions=areas,structure=s,evidence=confirmed,missing=missing,
         next_condition=next_condition,next_region=None if s['stage']=='INVALIDATED' else s['region'] or ((focus['low'],focus['high']) if focus else None),
         until=s['until'] or (focus.get('valid_until') if focus else None),invalid=s['invalid'],
         invalid_condition=s.get('reason') if stage=='INVALIDATED' else '已完成K线触及Sweep失效价、缺分钟、越过FVG远端或观察期限结束',
-        allowed=['记录备注','维护人工计划并保存证据版本']+(['人工风险与执行审查'] if stage=='CE_REVIEW' and live and s['linked'] else []),
+        allowed=['记录备注','维护人工计划并保存证据版本']+(['人工风险与执行审查'] if live_review else []),
         forbidden=['自动确认入场','自动计算下单数量','账户或持仓接口查询','自动下单','未完成K线推进','ICT实时自动提醒'],
-        live_review=live and stage=='CE_REVIEW' and s['linked'])
+        live_review=live_review)
 
 
 def prioritize(observations, reports, now):

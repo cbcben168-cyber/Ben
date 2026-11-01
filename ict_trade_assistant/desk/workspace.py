@@ -13,7 +13,7 @@ from .diagnostics import panel
 from .observations import build_observation, ranked, record_events, live_health, regions, price_basis_comparison, SYMBOLS
 from .ict_v03 import scan as scan_ict, VERSION as ICT_VERSION
 from .ict_view import add_event_layers, review_text, event_rows, STATUS as ICT_STATUS
-from .decision import prioritize, LABELS as DECISION_LABELS
+from .decision import prioritize
 
 CSS = '''<style>
 .block-container{padding:4rem 1.25rem 1rem;max-width:none;font-size:16px}
@@ -156,11 +156,11 @@ def render(store, settings, market_data):
                 for n,r in enumerate(rows[:5],1):
                     c=r['symbol']; label=r['region_label']
                     if r.get('historical_day'): label+='（'+r['historical_day']+'历史）'
-                    state='区域内' if r['state']=='INSIDE' else '接近关键价'
+                    state={'INSIDE':'区域内','NEAR':'接近关键价','OUTSIDE':'区域外'}.get(r['state'],'状态未知')
                     st.button(f"{n} · {c[3:]} · {label} · {state}",key='pick_'+c+'_'+r['key'],width='stretch',on_click=select_candidate,args=(c,r['key']))
                     st.caption(f"区域 {r['low']:g}–{r['high']:g} · ${r['gap']:.2f} / {r['atr_distance']:.3f} ATR · "+('方向未定' if r['direction']=='UNKNOWN' else zh(r['direction'])))
                     st.caption(r['distance_basis']+' · '+r['next_action'])
-                    st.caption('当前阶段：'+DECISION_LABELS[r['decision']['stage']]+' · '+r['decision']['next_condition'])
+                    st.caption('当前阶段：'+r['decision']['stage_label']+' · '+r['decision']['next_condition'])
                     st.caption('基准时间 '+r['quote_at']+' · 有效至 '+r['valid_until'])
                     with st.expander(c[3:]+' 其他区域与全部原始价位'):
                         for other in regions(observations[c]):
@@ -242,7 +242,7 @@ def render(store, settings, market_data):
                     st.write('ICT v0.3 · 独立历史观察')
                     st.caption(review_text(ict))
                     if decision:
-                        st.write('当前阶段：'+DECISION_LABELS[decision['stage']])
+                        st.write('当前阶段：'+decision['stage_label'])
                         st.write('下一条件：'+decision['next_condition'])
                         st.caption('下一观察区域：'+str(decision['next_region'] or '资料不足')+' · 期限：'+str(decision['until'] or '等待合格起点'))
                         st.caption('结构失效价：'+str(decision['invalid'] or '未知')+' · '+decision['invalid_condition'])

@@ -10,9 +10,11 @@
 
 ## 阶段与排序
 
-阶段优先序：CE_REVIEW、FVG_CONFIRMED、MSS_CONFIRMED、SWEEP_CONFIRMED、PRICE_WATCH、INVALIDATED、UNKNOWN。先比较数据资格，再比较阶段；同为FVG时关联链优先于独立FVG。之后依次比较ATR距离升序、共振价位数降序、事件确认时间降序、固定SPY/QQQ/IWM/SOXX顺序。
+先比较数据资格，再比较观察优先级：关联CE_REVIEW、关联FVG_CONFIRMED、MSS_CONFIRMED、SWEEP_CONFIRMED、未关联FVG观察、PRICE_WATCH、INVALIDATED、UNKNOWN。证券内部选择结构与跨证券排序使用同一规则。独立FVG保留FVG_CONFIRMED历史事实，显示为“未关联缺口观察”，不高于合格Sweep/MSS链。之后依次比较ATR距离升序、共振价位数降序、事件确认时间降序、固定SPY/QQQ/IWM/SOXX顺序。
 
 每证券内部保留全部原始价位。闭区间相交才合并区域，无价格容差。区域内部按距离、共振数、既有价位优先序与价位键稳定排序。有效历史结构作为独立观察区域；结构存在时卡片及图表关注该结构，否则关注最优价位区域。UNKNOWN证券可以保留已有价位作为资料不足展示，不能解释成合格信号。
+
+失效或过期结构仅留在历史证据、图层与失效原因，不加入当前结构关注区域；INVALIDATED的下一结构观察区域为空。仍可独立显示原始PDH/PDL等价格观察，不能将其解释成失效结构重新有效。候选状态文案严格对应：INSIDE＝区域内，NEAR＝接近关键价，OUTSIDE＝区域外；不改变原有距离计算或阈值。
 
 ## 链关联及重新计算
 

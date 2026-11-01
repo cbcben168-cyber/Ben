@@ -10,7 +10,11 @@ LABELS = dict(PRICE_WATCH='价格观察', SWEEP_CONFIRMED='扫荡已确认',
               MSS_CONFIRMED='结构突破已确认', FVG_CONFIRMED='缺口已确认',
               CE_REVIEW='中点人工复核', INVALIDATED='已失效', UNKNOWN='未知／数据阻断')
 ORDER = {s: i for i, s in enumerate(['CE_REVIEW','FVG_CONFIRMED','MSS_CONFIRMED',
-                                    'SWEEP_CONFIRMED','PRICE_WATCH','INVALIDATED','UNKNOWN'])}
+                                    'SWEEP_CONFIRMED','UNLINKED_WATCH','PRICE_WATCH','INVALIDATED','UNKNOWN'])}
+
+
+def structure_priority(value):
+    return ORDER['UNLINKED_WATCH'] if value['stage']=='FVG_CONFIRMED' and not value['linked'] else ORDER[value['stage']]
 
 
 def deadline(confirmed, bars):
@@ -86,7 +90,7 @@ def structure(report, now):
             reason=(z.get('invalidation_reason') or '观察期限结束；等待重新计算') if invalid else '独立FVG，仅作缺口观察'))
     if not choices:
         return dict(base,stage='PRICE_WATCH',missing=['尚无已确认Sweep／MSS链'])
-    return min(choices,key=lambda x:(ORDER[x['stage']],not x['linked'],-pd.Timestamp(x['confirmed_at']).timestamp(),x['event_id']))
+    return min(choices,key=lambda x:(structure_priority(x),not x['linked'],-pd.Timestamp(x['confirmed_at']).timestamp(),x['event_id']))
 
 
 def decision(symbol, observation, report, now):
@@ -102,7 +106,7 @@ def decision(symbol, observation, report, now):
     tier=0 if qualified and live else 1 if qualified else 2
     # 历史结构可以展示，但无合格价格数据不推进SOP。
     stage=s['stage'] if qualified else 'UNKNOWN'
-    if s['region'] and qualified:
+    if s['region'] and qualified and s['stage']!='INVALIDATED':
         low,high=s['region'];gap=max(low-price,price-high,0)
         areas=areas+[dict(symbol=symbol,key=s['event_id'],region_label='历史结构区域',low=low,high=high,
             gap=gap,atr_distance=gap/atr,priority=0,keys=[s['event_id']],members=[],state='INSIDE' if gap==0 else 'OUTSIDE',
@@ -119,8 +123,9 @@ def decision(symbol, observation, report, now):
         CE_REVIEW='人工审查风险、价格、数据时效与执行条件',INVALIDATED='关闭旧观察链，等待新的合格条件',UNKNOWN='补齐合格来源、价格、ATR及完整1H证据')[stage]
     confirmed=[dict(id=e['id'],kind=e.get('kind','FVG'),occurred_at=e.get('occurred_at'),confirmed_at=e['confirmed_at'],source=e['source'],evidence=e['evidence']) for e in s['evidence']]
     return dict(symbol=symbol,version=VERSION,stage=stage,historical_stage=s['stage'],linked=s['linked'],
+        stage_label='未关联缺口观察' if stage=='FVG_CONFIRMED' and not s['linked'] else LABELS[stage],
         qualification=tier,focus=focus,regions=areas,structure=s,evidence=confirmed,missing=missing,
-        next_condition=next_condition,next_region=s['region'] or ((focus['low'],focus['high']) if focus else None),
+        next_condition=next_condition,next_region=None if s['stage']=='INVALIDATED' else s['region'] or ((focus['low'],focus['high']) if focus else None),
         until=s['until'] or (focus.get('valid_until') if focus else None),invalid=s['invalid'],
         invalid_condition=s.get('reason') if stage=='INVALIDATED' else '已完成K线触及Sweep失效价、缺分钟、越过FVG远端或观察期限结束',
         allowed=['记录备注','维护人工计划并保存证据版本']+(['人工风险与执行审查'] if stage=='CE_REVIEW' and live and s['linked'] else []),
@@ -130,7 +135,7 @@ def decision(symbol, observation, report, now):
 
 def prioritize(observations, reports, now):
     rows=[decision(c,observations[c],reports.get(c,{}),now) for c in SYMBOLS if c in observations]
-    return sorted(rows,key=lambda d:(d['qualification'],ORDER[d['stage']],
+    return sorted(rows,key=lambda d:(d['qualification'],structure_priority(d),
         not d['linked'] if d['stage']=='FVG_CONFIRMED' else False,
         d['focus']['atr_distance'] if d['focus'] else float('inf'),
         -len(set(d['focus'].get('keys',[]))) if d['focus'] else 0,

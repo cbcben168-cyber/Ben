@@ -16,7 +16,7 @@ initialize(ROOT)
 
 @st.cache_resource
 def database():
-    return SafeStore(Store(ROOT / 'data' / 'desk.sqlite3'))
+    return SafeStore(Store(ROOT / 'data' / 'v04' / 'desk.sqlite3'))
 
 try:
     store = database()

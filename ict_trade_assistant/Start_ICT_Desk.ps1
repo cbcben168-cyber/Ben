@@ -11,20 +11,20 @@ if (!(Test-Path -LiteralPath (Join-Path $PSScriptRoot '.venv\desk-ready'))) {
     if ($LASTEXITCODE -ne 0) { throw '依赖安装失败，请检查网络及安装日志。' }
     New-Item -ItemType File -Path '.venv\desk-ready' -Force | Out-Null
 }
-$taskPort = 8501
+$taskPort = 8506
 if (Get-NetTCPConnection -LocalPort $taskPort -State Listen -ErrorAction SilentlyContinue) {
-    throw '端口 8501 已被占用，请先关闭现有看板或冲突服务。'
+    throw '隔离端口 8506 已被占用；请核对v0.4服务，勿关闭v0.3。'
 }
 $taskProcess = Start-Process -FilePath $taskPython -ArgumentList @('scripts/run_server.py') -WorkingDirectory $PSScriptRoot -WindowStyle Hidden -PassThru -RedirectStandardOutput 'data\streamlit-out.log' -RedirectStandardError 'data\streamlit-error.log'
 $taskReady = $false
 for ($taskIndex = 0; $taskIndex -lt 60; $taskIndex++) {
     if ($taskProcess.HasExited) { throw '看板已退出，请检查日志 data\streamlit-error.log.' }
     try {
-        $taskResponse = Invoke-WebRequest 'http://127.0.0.1:8501/_stcore/health' -UseBasicParsing -TimeoutSec 1
+        $taskResponse = Invoke-WebRequest 'http://127.0.0.1:8506/_stcore/health' -UseBasicParsing -TimeoutSec 1
         if ($taskResponse.StatusCode -eq 200) { $taskReady = $true; break }
     } catch { }
     Start-Sleep -Milliseconds 500
 }
 if (!$taskReady) { throw '看板启动超时，请检查 data 目录中的日志。' }
-Start-Process 'http://127.0.0.1:8501'
+Start-Process 'http://127.0.0.1:8506'
 Write-Host "ICT 交易工作台已启动（进程编号 $($taskProcess.Id)). ）。停止命令：Stop-Process -Id $($taskProcess.Id)."

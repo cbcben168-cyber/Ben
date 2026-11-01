@@ -25,8 +25,10 @@ def run_entry(entry, log):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--port', type=int, default=8501)
+    parser.add_argument('--port', type=int, default=8506)
     args = parser.parse_args()
+    if args.port == 8501:
+        parser.error('v0.4隔离开发禁止使用8501；请保留v0.3服务')
     from desk.diagnostics import initialize
     log = initialize(ROOT)
     suffix = '' if args.port == 8501 else '-' + str(args.port)

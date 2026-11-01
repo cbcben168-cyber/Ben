@@ -1,0 +1,57 @@
+# v0.4 离线验收
+
+日期：2026-11-01。工程实现与离线验证不代表真实市场通过；真实RTH仍为 `PENDING_LIVE_ACCEPTANCE`。完整链测试采用明确标记的合成数据，真实完整MSS链仍为零。
+
+## 输入与冻结
+
+基线提交 `92ce0a2f8c371dbea742ac2c5c92228be72d53e0`；v0.3基线95项测试通过。既有真实历史快照SHA256：`4e9296cbcd37b605db5e5ae98661477e87cc81dd580cb15072daba982c4ed5cc`。样本不新增：7条Sweep、27个独立FVG。v0.3识别器、参数与RTH清单未修改；原未跟踪文件保留。
+
+原库通过只读连接备份并逐表比较 `notes/plan_versions/settings/events/acknowledgements`，本轮指纹一致，完整性为ok。证据：独立工作树 `data/v04_acceptance/baseline.json`、`offline-evidence.json`、`v03-user-backup.sqlite3`。备份含用户数据，仅留本机，不提交Git。
+
+新工作树的Git检出换行为CRLF，原工作目录为LF；原文件字节SHA256照常冻结，新旧识别器以统一换行后的源码内容比较，Git无识别器差异。没有修改原文件来迁就验收。
+
+## P5检查映射
+
+|项目|验证与边界|
+|---|---|
+|四证券去重与区域聚合|排列所有输入顺序，最多四证券；闭区间区域合并且不修改原记录|
+|确定性及稳定排序|数据资格优先、固定阶段、距离／共振／时效／证券tie-break|
+|事件推进、失效与过期|合成Sweep→MSS→FVG→CE；失效及日历期限；不放宽冻结规则|
+|真实历史因果|四证券×14个时点，完整输入与当时前缀比较结构及价格观察决策|
+|1H收盘加2分钟|冻结识别器门禁及决策层证据known_at复核|
+|形成中、缺分钟、异常行情|冻结测试及新增阻断测试；4H输入UNKNOWN|
+|独立FVG与完整链|独立FVG linked=False，禁止推进CE复核；完整链仅合成测试|
+|图表坐标与决策证据|相同报告输入；逐事件确认时间与价格匹配图层坐标|
+|多窗口输入|浏览器双窗口自动刷新，独立未提交备注；计划版本冲突拒绝旧窗口覆盖|
+|原数据及事件保留|原目录源码、未跟踪文件及五表指纹一致；新库完全隔离|
+|独立有界稳定性|见下述专门证据；不外推数小时或真实盘中|
+|账户订单不可达|全生产Python AST扫描禁用账户／订单符号；Provider仍只使用OpenQuoteContext；浏览器入口替换行情为历史快照|
+
+## 命令及自动测试
+
+使用原项目虚拟环境Python，在独立v0.4工作树执行：
+
+```text
+python -m pytest -q -p no:cacheprovider
+python -m pip check
+python scripts/v04_offline_acceptance.py --original C:/Users/cbcbe/TradingCodex/ict_trade_assistant
+git diff --check
+npx --yes --package @playwright/cli playwright-cli -s=ictv04 run-code --filename scripts/v04_browser_setup.js
+npx --yes --package @playwright/cli playwright-cli -s=ictv04 run-code --filename scripts/v04_browser_soak.js
+```
+
+全量113项测试通过（原95项＋新增18项），pip check与diff检查通过。依赖弃用警告保留，未通过修改依赖或降低断言消除。最终图表标签仅改为可读区域名，浏览器布局重新验证。原始记录在 `data/v04_acceptance/pytest.txt`、`history-run.txt`、`layout.txt`。截图在 `output/playwright/v04-landscape.png` 与 `v04-portrait.png`。
+
+## 稳定性中断记录
+
+首次Python子进程轮询只有三个有效双窗口采样；宿主时钟跳变约六小时后返回负数超时，浏览器会话不可用。该次失败保留在 `browser-soak-interrupted.jsonl` 与 `soak-interrupted-summary.json`，不能称作六小时或180秒稳定性通过。pytest显示的约六小时耗时同样受此跳变影响，只报告测试结果，不将其视作连续运行证据。
+
+随后改用单个浏览器会话内每10秒采样，超过30秒采样间隔立即失败，不自动重启服务，也不改ICT条件。最终连续180.204秒、19次采样通过：双窗口备注均保留、0页面异常、面板齐全、ICT提醒始终关闭、19次健康检查为ok。时间为香港2026-11-01 17:35:36至17:38:36。结果记录 `data/v04_acceptance/browser-soak.txt`。这不是盘中验收，也不外推到采样间隙或数小时运行。
+
+最终将实际完整决策快照写入计划版本后逐字段比较其JSON持久化表示（区域元组持久化为数组），20项相关回归通过，见 `final-targeted-tests.txt`。
+
+发布目录全量113项通过。最终审查补充独立FVG期限结束的失效原因测试，先复现空提示，再补齐文字回退；不改条件及排序。失败证据保留 `expiry-regression-before.txt`，修复后在实际发布目录回归相关20项。
+
+## 待真实RTH
+
+新报价推进、90秒门禁真实触发、候选距离实时变化、自然价格状态转换及提醒去重、双窗口盘中稳定、断线恢复与安全阻断全部PENDING。保留 `LIVE_RTH_ACCEPTANCE_CHECKLIST.md` 原门禁；星期一仍使用v0.3，不用v0.4替代正式验收。Windows物理双屏及系统缩放不由浏览器CSS视口通过证明。

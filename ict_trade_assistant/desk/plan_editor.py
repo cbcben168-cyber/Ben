@@ -27,10 +27,15 @@ def editors(store,codes):
             tl=st.number_input('目标区下限（美元）',min_value=0.,value=float(p.get('target_low',0)))
             th=st.number_input('目标区上限（美元）',min_value=0.,value=float(p.get('target_high',0)))
             memo=st.text_area('计划备注',value=p.get('memo',''))
+            evidence_note=st.text_area('结构证据补充（人工记录，不自动确认入场）',value=p.get('evidence_note',''))
+            attach=st.checkbox('保存时附加当前决策证据快照',value=False)
             save=st.form_submit_button('保存计划',disabled=p.get('status')=='CANCELLED')
             cancel=st.form_submit_button('取消该计划',disabled=not p or p.get('status')=='CANCELLED')
             if save or cancel:
                 payload=dict(symbol=selected,strategy_version=strategy,direction=direction,low=low,high=high,invalid=invalid,target_low=tl,target_high=th,memo=memo)
+                payload.update(evidence_note=evidence_note,decision_evidence=p.get('decision_evidence'))
+                if attach:
+                    payload['decision_evidence']=st.session_state.get('v04_decisions',{}).get(selected)
                 try:
                     store.save_plan(p if cancel else payload,p.get('plan_id'),p.get('version',0),cancel=cancel)
                     st.success('已保存历史版本。点击“载入最新计划”后查看或继续修改；刷新工作台可查看摘要。')

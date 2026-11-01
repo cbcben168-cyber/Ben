@@ -42,5 +42,5 @@ def evaluate_plan(store,p,health,day,distance_bps):
     if state not in ['接近流动性区域','价格到达关注区域','失效']: return
     store.event('PLAN_ALERT',p['symbol'],'人工计划价格提醒：'+reason,
         dict(plan_id=p['plan_id'],plan_version=p['version'],zone=p,health=health),
-        f"plan_alert:{p['plan_id']}:{p['version']}:{day}:{state}",
+        f"plan_alert:{p['symbol']}:{p['plan_id']}:{p['version']}:{day}:{state}",
         plan_guard=(p['plan_id'],p['version']))

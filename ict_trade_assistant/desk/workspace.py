@@ -13,6 +13,7 @@ from .diagnostics import panel
 from .observations import build_observation, ranked, record_events, live_health, regions, price_basis_comparison, SYMBOLS
 from .ict_v03 import scan as scan_ict, VERSION as ICT_VERSION
 from .ict_view import add_event_layers, review_text, event_rows, STATUS as ICT_STATUS
+from .decision import prioritize, LABELS as DECISION_LABELS
 
 CSS = '''<style>
 .block-container{padding:4rem 1.25rem 1rem;max-width:none;font-size:16px}
@@ -114,12 +115,16 @@ def render(store, settings, market_data):
             vh=health['US.VIX']
             store.transition('SYSTEM','US.VIX','DATA_HEALTH',vh['quality'],now.isoformat(),vh['reason'],vh,'health')
         observation=observations[selected] if selected in observations else None
-        rows=ranked(observations)
+        reports={c:historical_ict(c,data[c]['minute'],now.replace(second=0,microsecond=0)) for c in SYMBOLS if c in observations}
+        decisions=prioritize(observations,reports,now)
+        st.session_state['v04_decisions']={r['symbol']:r for r in decisions}
+        rows=[dict(r['focus'],decision=r) for r in decisions if r['focus']]
         chosen=st.session_state.get('desk_candidate')
         focus=next((r for r in (regions(observation) if observation else []) if chosen==(selected,r['key'])),None)
         if focus is None: focus=next((r for r in rows if r['symbol']==selected),None)
         h=health[selected]; d=data[selected]; plan=active_plan(store,selected)
-        ict=historical_ict(selected,d['minute'],now.replace(second=0,microsecond=0))
+        ict=reports.get(selected) or historical_ict(selected,d['minute'],now.replace(second=0,microsecond=0))
+        decision=next((r for r in decisions if r['symbol']==selected),None)
         zone=plan or settings['zones'].get(selected)
         for p in store.plans():
             if p['symbol'] in health: evaluate_plan(store,p,health[p['symbol']],now.date(),settings['distance_bps'])
@@ -155,6 +160,7 @@ def render(store, settings, market_data):
                     st.button(f"{n} · {c[3:]} · {label} · {state}",key='pick_'+c+'_'+r['key'],width='stretch',on_click=select_candidate,args=(c,r['key']))
                     st.caption(f"区域 {r['low']:g}–{r['high']:g} · ${r['gap']:.2f} / {r['atr_distance']:.3f} ATR · "+('方向未定' if r['direction']=='UNKNOWN' else zh(r['direction'])))
                     st.caption(r['distance_basis']+' · '+r['next_action'])
+                    st.caption('当前阶段：'+DECISION_LABELS[r['decision']['stage']]+' · '+r['decision']['next_condition'])
                     st.caption('基准时间 '+r['quote_at']+' · 有效至 '+r['valid_until'])
                     with st.expander(c[3:]+' 其他区域与全部原始价位'):
                         for other in regions(observations[c]):
@@ -194,7 +200,7 @@ def render(store, settings, market_data):
                             if zone.get('invalid'): fig.add_hline(y=zone['invalid'],line_color='red')
                             if plan: fig.add_hrect(y0=plan['target_low'],y1=plan['target_high'],opacity=.10,fillcolor='green')
                         if focus:
-                            fig.add_hline(y=focus['low'],line_color='orange',annotation_text='当前关注 '+focus['key'])
+                            fig.add_hline(y=focus['low'],line_color='orange',annotation_text='当前关注 '+focus.get('region_label',focus['key']))
                             if focus['high']!=focus['low']: fig.add_hline(y=focus['high'],line_color='orange')
                         if period=='1H':add_event_layers(fig,ict)
                         fig.update_layout(template='plotly_dark',height=560,margin=dict(l=8,r=12,t=12,b=24),showlegend=False,font=dict(size=14),yaxis=dict(side='right',automargin=True),xaxis=dict(automargin=True),xaxis_rangeslider_visible=False,uirevision=selected+period)
@@ -235,6 +241,17 @@ def render(store, settings, market_data):
                     st.write('关键价格已识别 · 等待人工复核' if observation and observation['status']=='AVAILABLE' else '数据不完整：关键价格或距离基准尚未合资格')
                     st.write('ICT v0.3 · 独立历史观察')
                     st.caption(review_text(ict))
+                    if decision:
+                        st.write('当前阶段：'+DECISION_LABELS[decision['stage']])
+                        st.write('下一条件：'+decision['next_condition'])
+                        st.caption('下一观察区域：'+str(decision['next_region'] or '资料不足')+' · 期限：'+str(decision['until'] or '等待合格起点'))
+                        st.caption('结构失效价：'+str(decision['invalid'] or '未知')+' · '+decision['invalid_condition'])
+                        with st.expander('决策证据、缺项与人工动作'):
+                            for evidence in decision['evidence']:
+                                st.write('历史证据 '+evidence['id']+' · 发生 '+str(evidence['occurred_at'])+' · 确认 '+evidence['confirmed_at'])
+                            st.write('尚缺资料：'+'；'.join(decision['missing']))
+                            st.write('允许人工动作：'+'；'.join(decision['allowed']))
+                            st.write('不应执行：'+'；'.join(decision['forbidden']))
                     st.checkbox('实时ICT自动提醒（默认关闭）',value=False,disabled=True,key='ict_live_alerts')
                     st.caption('真实RTH资格待验收，实时ICT自动提醒锁定关闭；历史事件不会写入实时提醒。')
                     if h['quality']!='AVAILABLE': st.caption('实时数据不合格 · 实时入场审查关闭')

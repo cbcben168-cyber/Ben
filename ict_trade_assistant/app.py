@@ -30,7 +30,7 @@ st.markdown('''<style>.block-container{padding-top:2rem} h1{letter-spacing:-1px}
 [data-testid="stMetric"]{background:#142036;padding:18px;border-radius:12px}
 .stCaption{color:#a3b4cb}</style>''', unsafe_allow_html=True)
 st.sidebar.title(TEXT['文案1'])
-st.sidebar.caption('v0.4.1 · 本地历史观察与人工计划')
+st.sidebar.caption('v0.4.2 · 本地历史观察与人工计划')
 page = st.sidebar.radio(TEXT['文案3'], ['交易工作台', '事件与备注', '设置与审计', 'SOP 与进度', '其他策略', '交易记录', '期权'])
 symbol = st.sidebar.selectbox(TEXT['文案4'], settings['watchlist']) if settings['watchlist'] else None
 st.sidebar.caption('Futu OpenD · 127.0.0.1:11111\n无账户查询 · 无订单接口')
@@ -73,6 +73,10 @@ elif page == '设置与审计':
     st.title(TEXT['文案5'])
     from desk.watchlist_ui import render_watchlist
     render_watchlist(store)
+    if '_history_archive_path' in st.session_state:
+        from desk.history_import import DailyArchive
+        from desk.history_ui import render_history
+        render_history(DailyArchive(st.session_state['_history_archive_path']),settings,st.session_state['_legacy_history'],clear_market_data)
     with st.form('parameters'):
         distance = st.number_input(TEXT['文案9'], min_value=0.1, max_value=1000.0, value=float(settings['distance_bps']))
         candidate_atr = st.number_input('候选最大关键价距离（ATR倍数）', min_value=0.01, max_value=5.0, value=float(settings['candidate_atr']), step=0.05)

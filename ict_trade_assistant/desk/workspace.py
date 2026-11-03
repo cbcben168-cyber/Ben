@@ -118,6 +118,9 @@ def render(store, settings, market_data):
                 data[c]=dict(health=dict(quality='UNAVAILABLE',reason='该标的快照暂不可用，请查看诊断日志。',received_at=now.isoformat()),minute=pd.DataFrame(),daily=pd.DataFrame(),errors=[])
         health = {c:fresh(d, now) for c,d in data.items()}
         observations={c:build_observation(c,data[c],settings,now,active_plan(store,c) or settings['zones'].get(c)) for c in all_codes if c!='US.VIX'}
+        for c,o in observations.items():
+            if data[c].get('daily_only'):
+                o.update(source=data[c]['health']['source'],reason='只有供应商日K；未验证分钟完整性及1H ICT资格。')
         for observation in observations.values():
             store.observation(observation)
             record_events(store,observation)
@@ -138,14 +141,19 @@ def render(store, settings, market_data):
         zone=plan or settings['zones'].get(selected)
         for p in store.plans():
             if p['symbol'] in pool and p['symbol'] in health: evaluate_plan(store,p,health[p['symbol']],now.date(),settings['distance_bps'])
-        st.caption(f"◈ ICT 交易工作台 V2 · {now:%H:%M:%S %Z} / {now.astimezone(ZoneInfo('Asia/Hong_Kong')):%H:%M:%S HKT} · {zh(session(now))} · ● {zh(h['quality'])} · {selected}")
-        if h.get('loading'):
+        if d.get('daily_only'):
+            st.caption(f"◈ 供应商历史日K · {selected} · 数据截至 {d['coverage']['last']} · 取得 {d['coverage']['acquired_at']} · 非实时行情")
+        else:
+            st.caption(f"◈ ICT 交易工作台 V2 · {now:%H:%M:%S %Z} / {now.astimezone(ZoneInfo('Asia/Hong_Kong')):%H:%M:%S HKT} · {zh(session(now))} · ● {zh(h['quality'])} · {selected}")
+        if d.get('daily_only'):
+            st.info('历史日K已可查看，可维护人工计划；分钟证据及1H ICT资格未合格，实时审查仍关闭。')
+        elif h.get('loading'):
             st.info('正在连接或读取行情；尚未取得有效报价，暂不进行新增入场审查。')
         elif observation and observation['mode']=='PREPARATION' and observation['status']=='AVAILABLE':
             st.info('盘前／闭市准备模式 · 闭市期间报价正常无更新不等于OpenD故障；历史距离不属于实时到价。实时入场审查关闭。')
         elif h['quality'] != 'AVAILABLE':
             st.error(zh('DATA_BLOCKED')+' · '+zh(h['reason'])+' · '+zh('NO NEW ACTION'))
-        if observation:
+        if observation and not d.get('daily_only'):
             st.caption('观察数据：'+observation['status']+' · '+observation['reason']+' · 所属交易日 '+observation['trading_day']+' · 参数版本 '+observation['parameter_version'])
             if d.get('opend_status')=='UNAVAILABLE' or d.get('retained_periods'):
                 st.warning('OpenD读取异常，历史准备使用保留数据 · '+zh(h['reason']))
@@ -189,8 +197,15 @@ def render(store, settings, market_data):
                 if rows and selected not in [r['symbol'] for r in rows[:5]]: st.caption(TEXT['文案52'])
             with st.container(key='leftstack'):
                 with st.container(key='chart',border=True), panel('图表'):
-                    st.subheader(selected[3:]+' · 常规交易时段')
-                    period=st.radio(TEXT['文案38'],['15m','1H','4H','1D'],index=1,horizontal=True,format_func=lambda v: {'15m':'15分钟','1H':'1小时','4H':'4小时','1D':'日线'}[v])
+                    daily_only=d.get('daily_only',False)
+                    st.subheader(selected[3:]+(' · 供应商历史日K' if daily_only else ' · 常规交易时段'))
+                    period_key='chart_period_'+selected
+                    if daily_only and (period_key not in st.session_state or not st.session_state.get('daily_default_'+selected)):
+                        st.session_state[period_key]='1D';st.session_state['daily_default_'+selected]=True
+                    period=st.radio(TEXT['文案38'],['15m','1H','4H','1D'],index=None if period_key in st.session_state else 1,horizontal=True,key=period_key,format_func=lambda v: {'15m':'15分钟','1H':'1小时','4H':'4小时','1D':'日线'}[v])
+                    if daily_only:
+                        m=d['coverage']
+                        st.info(f"日K {m['first']} 至 {m['last']} · {m['bars']}根 · 来源 {m['source']}/{m['feed']} · 取得 {m['acquired_at']} · 缺失交易日 {len(m['missing'])}。仅日线，分钟及ICT资格关闭。")
                     with st.expander(TEXT['图层控制']):
                         layers=st.multiselect('关键价格线图层',['前日高低','前周高低','开盘区间','人工计划'],default=['前日高低','前周高低','开盘区间','人工计划'] if settings['layers'] else [],key='price_layers')
                         st.caption(TEXT['价格线说明'])
@@ -219,7 +234,7 @@ def render(store, settings, market_data):
                         fig.update_layout(template='plotly_dark',height=560,margin=dict(l=8,r=12,t=12,b=24),showlegend=False,font=dict(size=14),yaxis=dict(side='right',automargin=True),xaxis=dict(automargin=True),xaxis_rangeslider_visible=False,uirevision=selected+period)
                         st.plotly_chart(fig,width='stretch',key='mainchart')
                     else: st.info(TEXT['文案53'])
-                    st.caption(TEXT['图表来源摘要'])
+                    st.caption('供应商日K；复权与聚合时段口径未确认，不冒充Futu RTH分钟聚合。' if daily_only else TEXT['图表来源摘要'])
                     with st.expander('周期数据核对（最近三根真实聚合柱）'):
                         if not chart.empty:
                             st.dataframe(chart.tail(3)[[c for c in ['ts','open','high','low','close','duration_minutes'] if c in chart]].rename(columns=dict(ts='纽约时间',open='开盘',high='最高',low='最低',close='收盘',duration_minutes='实际聚合分钟数')),hide_index=True)
@@ -275,7 +290,7 @@ def render(store, settings, market_data):
                         st.write('距离：',f"${focus['gap']:.2f} / {focus['atr_distance']:.3f} ATR · "+focus['distance_basis'])
                         st.write('下一动作：',focus['next_action'])
                         st.caption('行情时间 '+focus['quote_at']+' · 交易日 '+focus['trading_day'])
-                    st.warning('准备下一交易时段计划；实时入场审查关闭。' if preparing else zh(('NO NEW ACTION · DATA_BLOCKED' if h['quality']!='AVAILABLE' else 'CANCEL SETUP' if state=='失效' else 'WAIT · 人工复核 SOP')))
+                    st.warning('日K可查看与记录人工计划；1H结构及实时审查不可用。' if daily_only else '准备下一交易时段计划；实时入场审查关闭。' if preparing else zh(('NO NEW ACTION · DATA_BLOCKED' if h['quality']!='AVAILABLE' else 'CANCEL SETUP' if state=='失效' else 'WAIT · 人工复核 SOP')))
                     st.write(TEXT['文案43'],f"{focus['low']}–{focus['high']}" if focus else f"{zone['low']}–{zone['high']}" if zone else '未形成')
                     st.write('人工候选入场区：',f"{plan['low']}–{plan['high']}" if plan else '未设定')
                     st.write('人工目标区：',f"{plan['target_low']}–{plan['target_high']}" if plan else '未设定')
@@ -291,7 +306,7 @@ def render(store, settings, market_data):
                         st.write(TEXT['文案48'])
                         st.markdown('  \n'.join(['□ 关键价格：'+('已识别，等待人工复核' if observation and observation['status']=='AVAILABLE' else '数据不完整'), '□ 市场结构转变（MSS）/ Sweep / FVG / CE：仅按1H已完成证据作独立历史观察', '□ 实时ICT提醒：关闭，真实盘中资格待验收', '□ 风险审查：等待人工复核', '□ 人工交易计划：'+('已保存，等待人工复核' if plan else '未设定')]))
                     if h['quality']!='AVAILABLE':st.caption('当前原始报价未通过实时检查，历史观察可独立使用。' if preparing else zh(h['reason']))
-                    st.caption(f'评估 {now.isoformat()} · 原 ICT 观察规则不变 · 未完成条件标为正在形成，不作已确认')
+                    st.caption('1H评估未启用：只有供应商日K；日线完整性资格单独列示。' if daily_only else f'评估 {now.isoformat()} · 原 ICT 观察规则不变 · 未完成条件标为正在形成，不作已确认')
                 with st.container(key='alerts',border=True), panel('提醒'):
                     st.subheader('最新事件提醒 · '+selected[3:])
                     events=store.table('market_events'); read=store.acknowledged()

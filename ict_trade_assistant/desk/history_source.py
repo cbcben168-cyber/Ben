@@ -13,13 +13,28 @@ def missing_history(code, observed_at, reason=None):
 
 
 class HistorySource:
-    def __init__(self, path, observed_at):
+    def __init__(self, path, observed_at, archive=None):
         self.path=Path(path)
         self.observed_at=observed_at
         self.raw=json.loads(self.path.read_text(encoding='utf-8'))
         self.cache={}
+        self.archive=archive
+        self.daily_cache={}
 
     def fetch(self, code):
+        if self.archive and not self.raw.get(code,{}).get('daily'):
+            revision=self.archive.revision(code)
+            if revision:
+                cached=self.daily_cache.get(code)
+                if not cached or cached[0]!=revision:
+                    meta,frame=self.archive.read(code)
+                    value=missing_history(code,self.observed_at)
+                    value.update(daily=frame,daily_only=True,coverage=meta,terminal_missing=False)
+                    value['health'].update(quality='STALE',source=meta['source']+'/'+meta['feed'],
+                        received_at=meta['acquired_at'],reason='已导入真实供应商日K；非实时行情，1H ICT未合格。')
+                    value['daily_snapshot_at']=meta['acquired_at']
+                    self.daily_cache[code]=(revision,value)
+                return copy.deepcopy(self.daily_cache[code][1])
         if code not in self.raw or not (self.raw[code].get('minute') or self.raw[code].get('daily')):
             return missing_history(code, self.observed_at)
         if code not in self.cache:

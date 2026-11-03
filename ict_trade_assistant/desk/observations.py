@@ -177,10 +177,11 @@ def regions(observation):
     return sorted(result, key=lambda r: (r['atr_distance'], r['priority'], r['key']))
 
 
-def ranked(observations):
+def ranked(observations, symbols=None):
+    allowed = SYMBOLS if symbols is None else symbols
     rows = []
     for symbol, observation in observations.items():
-        if symbol not in SYMBOLS:
+        if symbol not in allowed or symbol == 'US.VIX':
             continue
         eligible = [r for r in regions(observation) if r['state'] != 'OUTSIDE']
         if eligible:
@@ -188,14 +189,15 @@ def ranked(observations):
     return sorted(rows, key=lambda r: (r['atr_distance'], r['priority'], r['symbol'], r['key']))
 
 
-def price_basis_comparison(observations, max_atr=.25):
+def price_basis_comparison(observations, max_atr=.25, symbols=None):
     """相同原始价位及 ATR 下比较两种历史口径，含候选门槛变化。"""
+    allowed = SYMBOLS if symbols is None else symbols
     by_basis = {}
     for basis in ('native_daily_close', 'last_minute_close'):
         rows = []
         for symbol, o in observations.items():
             price = o.get('close_verification', {}).get(basis)
-            if symbol not in SYMBOLS or price is None or not o.get('atr') or not o['monitors']:
+            if symbol not in allowed or symbol == 'US.VIX' or price is None or not o.get('atr') or not o['monitors']:
                 continue
             r = min(o['monitors'], key=lambda r: (max(r['low']-price, price-r['high'], 0)/o['atr'], r['priority'], r['key']))
             distance = max(r['low']-price, price-r['high'], 0)/o['atr']

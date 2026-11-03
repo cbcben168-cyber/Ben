@@ -30,7 +30,7 @@ st.markdown('''<style>.block-container{padding-top:2rem} h1{letter-spacing:-1px}
 [data-testid="stMetric"]{background:#142036;padding:18px;border-radius:12px}
 .stCaption{color:#a3b4cb}</style>''', unsafe_allow_html=True)
 st.sidebar.title(TEXT['文案1'])
-st.sidebar.caption(TEXT['文案2'])
+st.sidebar.caption('v0.4.1 · 本地历史观察与人工计划')
 page = st.sidebar.radio(TEXT['文案3'], ['交易工作台', '事件与备注', '设置与审计', 'SOP 与进度', '其他策略', '交易记录', '期权'])
 symbol = st.sidebar.selectbox(TEXT['文案4'], settings['watchlist']) if settings['watchlist'] else None
 st.sidebar.caption('Futu OpenD · 127.0.0.1:11111\n无账户查询 · 无订单接口')
@@ -49,7 +49,7 @@ def loader():
 
 
 def market_data(code, tick):
-    return loader().get(code,tick)
+    return loader().get(code,tick,wait=0)
 
 
 def clear_market_data():
@@ -71,21 +71,17 @@ if page == '交易工作台':
     render(store, settings, market_data)
 elif page == '设置与审计':
     st.title(TEXT['文案5'])
+    from desk.watchlist_ui import render_watchlist
+    render_watchlist(store)
     with st.form('parameters'):
-        codes = st.text_input(TEXT['文案8'], ', '.join(settings['watchlist']))
         distance = st.number_input(TEXT['文案9'], min_value=0.1, max_value=1000.0, value=float(settings['distance_bps']))
         candidate_atr = st.number_input('候选最大关键价距离（ATR倍数）', min_value=0.01, max_value=5.0, value=float(settings['candidate_atr']), step=0.05)
         refresh = st.number_input(TEXT['文案10'], min_value=30, max_value=3600, value=int(settings['refresh_seconds']))
         layers = st.checkbox(TEXT['文案11'], value=settings['layers'])
         if st.form_submit_button(TEXT['文案12']):
-            items = list(dict.fromkeys(c.strip().upper() for c in codes.split(',') if c.strip()))
-            items = [c if c.startswith('US.') else 'US.'+c for c in items]
-            if not items or len(items) > 20 or any(not re.fullmatch(r'US\.[A-Z][A-Z0-9.-]{0,14}', c) for c in items):
-                st.error(TEXT['文案26'])
-            else:
-                for k,v in dict(watchlist=items, distance_bps=distance, candidate_atr=candidate_atr, refresh_seconds=refresh, layers=layers).items():
-                    store.save(k,v)
-                st.rerun()
+            for k,v in dict(distance_bps=distance, candidate_atr=candidate_atr, refresh_seconds=refresh, layers=layers).items():
+                store.save(k,v)
+            st.rerun()
     st.subheader(TEXT['文案6'])
     if symbol:
         z = settings['zones'].get(symbol, {})

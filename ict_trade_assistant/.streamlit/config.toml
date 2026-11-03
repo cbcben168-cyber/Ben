@@ -8,7 +8,7 @@ font = "sans serif"
 
 [server]
 address = "127.0.0.1"
-port = 8501
+port = 8506
 
 [browser]
 gatherUsageStats = false

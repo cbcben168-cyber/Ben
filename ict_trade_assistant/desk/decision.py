@@ -138,11 +138,14 @@ def decision(symbol, observation, report, now):
         live_review=live_review)
 
 
-def prioritize(observations, reports, now):
-    rows=[decision(c,observations[c],reports.get(c,{}),now) for c in SYMBOLS if c in observations]
+def prioritize(observations, reports, now, symbols=None):
+    pool=tuple(dict.fromkeys(c for c in (SYMBOLS if symbols is None else symbols) if c!='US.VIX'))
+    order={c:i for i,c in enumerate(SYMBOLS)}
+    order.update({c:len(SYMBOLS)+i for i,c in enumerate(sorted(set(pool)-set(SYMBOLS)))})
+    rows=[decision(c,observations[c],reports.get(c,{}),now) for c in pool if c in observations]
     return sorted(rows,key=lambda d:(d['qualification'],structure_priority(d),
         not d['linked'] if d['stage']=='FVG_CONFIRMED' else False,
         d['focus']['atr_distance'] if d['focus'] else float('inf'),
         -len(set(d['focus'].get('keys',[]))) if d['focus'] else 0,
         -pd.Timestamp(d['structure']['confirmed_at']).timestamp() if d['structure']['confirmed_at'] else 0,
-        SYMBOLS.index(d['symbol'])))
+        order[d['symbol']]))

@@ -46,7 +46,48 @@ class Store:
     def settings(self):
         with self.connect() as c:
             saved = dict(c.execute('SELECT key,value FROM settings'))
-        return {k: json.loads(saved[k]) if k in saved else v for k, v in DEFAULTS.items()}
+        result = {k: json.loads(saved[k]) if k in saved else v for k, v in DEFAULTS.items()}
+        from .watchlist import initial_entries
+        entries = json.loads(saved['watchlist_entries']) if 'watchlist_entries' in saved else initial_entries(result['watchlist'])
+        result.update(watchlist=[e['symbol'] for e in entries if e['enabled']], watchlist_entries=entries,
+                      watchlist_presets=json.loads(saved.get('watchlist_presets', '{}')))
+        return result
+
+    def manage_watchlist(self, action, symbol=None, group='自选', enabled=True):
+        """Atomic read/modify/write: imports never overwrite existing user entries."""
+        from .watchlist import normalize_symbol, initial_entries, TOP20, PRESET
+        if action not in {'add', 'update', 'delete', 'import_top20'}:
+            raise ValueError('未知名单操作')
+        code = normalize_symbol(symbol) if action != 'import_top20' else None
+        group = group.strip() or '自选'
+        if len(group) > 40:
+            raise ValueError('分组名称最长40字符')
+        with self.connect() as c:
+            c.execute('BEGIN IMMEDIATE')
+            saved = dict(c.execute('SELECT key,value FROM settings'))
+            entries = json.loads(saved['watchlist_entries']) if 'watchlist_entries' in saved else initial_entries(json.loads(saved.get('watchlist', json.dumps(DEFAULTS['watchlist']))))
+            old = json.dumps(entries)
+            by_code = {e['symbol']: e for e in entries}
+            added = 0
+            if action in {'add', 'import_top20'}:
+                for item in TOP20 if action == 'import_top20' else [code]:
+                    if item not in by_code:
+                        row = dict(symbol=item, enabled=bool(enabled), group='ETF AUM Top20' if action == 'import_top20' else group)
+                        entries.append(row); by_code[item] = row; added += 1
+            elif action == 'delete':
+                entries = [e for e in entries if e['symbol'] != code]
+            elif code in by_code:
+                by_code[code].update(enabled=bool(enabled), group=group)
+            else:
+                raise ValueError('证券已被删除，请刷新名单')
+            c.execute('INSERT OR REPLACE INTO settings VALUES(?,?)', ('watchlist_entries', json.dumps(entries)))
+            if action == 'import_top20':
+                presets = json.loads(saved.get('watchlist_presets', '{}'))
+                presets[PRESET['id']] = PRESET
+                c.execute('INSERT OR REPLACE INTO settings VALUES(?,?)', ('watchlist_presets', json.dumps(presets)))
+            c.execute('INSERT INTO audit(at,key,old,new) VALUES(?,?,?,?)',
+                      (stamp(), 'watchlist:'+action, old, json.dumps(entries)))
+        return added
 
     def save(self, key, value):
         settings = self.settings()
@@ -57,6 +98,9 @@ class Store:
             c.execute('INSERT INTO audit(at,key,old,new) VALUES(?,?,?,?)',
                       (stamp(), key, json.dumps(old), json.dumps(value)))
             c.execute('INSERT OR REPLACE INTO settings VALUES(?,?)', (key, json.dumps(value)))
+            if key == 'watchlist':
+                from .watchlist import initial_entries
+                c.execute('INSERT OR REPLACE INTO settings VALUES(?,?)', ('watchlist_entries', json.dumps(initial_entries(value))))
             if key in {'candidate_atr','zones'}:
                 from .observations import parameter_version
                 c.execute('INSERT INTO audit(at,key,old,new) VALUES(?,?,?,?)',

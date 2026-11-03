@@ -14,6 +14,8 @@ from .observations import build_observation, ranked, record_events, live_health,
 from .ict_v03 import scan as scan_ict, VERSION as ICT_VERSION
 from .ict_view import add_event_layers, review_text, event_rows, STATUS as ICT_STATUS
 from .decision import prioritize
+from .watchlist import universe
+from .history_source import missing_history
 
 CSS = '''<style>
 .block-container{padding:4rem 1.25rem 1rem;max-width:none;font-size:16px}
@@ -77,9 +79,14 @@ def select_candidate(code, key):
 
 def render(store, settings, market_data):
     st.markdown(CSS, unsafe_allow_html=True)
-    codes = list(dict.fromkeys(settings['watchlist'] + [p['symbol'] for p in store.plans()] + ['US.SPY','US.QQQ','US.IWM','US.SOXX','US.VIX']))
-    if 'desk_symbol' not in st.session_state:
-        st.session_state.desk_symbol = 'US.SPY'
+    pool = universe(settings['watchlist'])
+    entries = settings.get('watchlist_entries', [{'symbol': c} for c in pool])
+    codes = list(universe([e['symbol'] for e in entries] + [p['symbol'] for p in store.plans()]))
+    if not codes:
+        st.info('观察名单为空。请在侧栏“设置与审计”添加证券或导入Top20。')
+        return
+    if st.session_state.get('desk_symbol') not in codes:
+        st.session_state.desk_symbol = pool[0] if pool else codes[0]
     with st.expander(TEXT['文案30']):
         st.caption(TEXT['文案31'])
         auto = st.checkbox(TEXT['文案32'], value=False)
@@ -90,17 +97,20 @@ def render(store, settings, market_data):
 
     # 首屏加载期间短轮询；完成后按数据刷新周期更新，不重复重绘静态控件。
     warm_cycle=('auto',int(now_et().timestamp()//settings['refresh_seconds']),settings['refresh_seconds']) if auto else ('manual',st.session_state.get('manual_cycle',0))
-    for code in codes:market_data(code,warm_cycle)
+    for code in list(pool)+['US.VIX']:market_data(code,warm_cycle)
     initializing=bool(getattr(market_data,'loading',lambda:False)())
 
     @st.fragment(run_every=2 if initializing else settings['refresh_seconds'] if auto else None)
     def body():
         now = now_et()
         selected = st.session_state.desk_symbol
-        all_codes = list(dict.fromkeys(codes+[selected]))
+        all_codes = list(dict.fromkeys(list(pool)+[selected,'US.VIX']))
         cycle=('auto',int(now.timestamp()//settings['refresh_seconds']),settings['refresh_seconds']) if auto else ('manual',st.session_state.get('manual_cycle',0))
         data={}
         for c in all_codes:
+            if c not in pool and c!='US.VIX':
+                data[c]=missing_history(c, now, '证券已停用或已移出名单；不加载行情、不参与排名，人工计划仍可维护。')
+                continue
             try:data[c]=market_data(c,cycle)
             except Exception:
                 import logging
@@ -115,10 +125,10 @@ def render(store, settings, market_data):
             vh=health['US.VIX']
             store.transition('SYSTEM','US.VIX','DATA_HEALTH',vh['quality'],now.isoformat(),vh['reason'],vh,'health')
         observation=observations[selected] if selected in observations else None
-        reports={c:historical_ict(c,data[c]['minute'],now.replace(second=0,microsecond=0)) for c in SYMBOLS if c in observations}
-        decisions=prioritize(observations,reports,now)
+        reports={c:historical_ict(c,data[c]['minute'],now.replace(second=0,microsecond=0)) for c in observations if not data[c]['minute'].empty}
+        decisions=prioritize(observations,reports,now,symbols=pool)
         st.session_state['v04_decisions']={r['symbol']:r for r in decisions}
-        rows=[dict(r['focus'],decision=r) for r in decisions if r['focus']]
+        rows=[dict(r['focus'],decision=r) for r in decisions if r['qualification']<2 and r['focus']]
         chosen=st.session_state.get('desk_candidate')
         focus=next((r for r in (regions(observation) if observation else []) if chosen==(selected,r['key'])),None)
         if focus is None: focus=next((r for r in rows if r['symbol']==selected),None)
@@ -127,7 +137,7 @@ def render(store, settings, market_data):
         decision=next((r for r in decisions if r['symbol']==selected),None)
         zone=plan or settings['zones'].get(selected)
         for p in store.plans():
-            if p['symbol'] in health: evaluate_plan(store,p,health[p['symbol']],now.date(),settings['distance_bps'])
+            if p['symbol'] in pool and p['symbol'] in health: evaluate_plan(store,p,health[p['symbol']],now.date(),settings['distance_bps'])
         st.caption(f"◈ ICT 交易工作台 V2 · {now:%H:%M:%S %Z} / {now.astimezone(ZoneInfo('Asia/Hong_Kong')):%H:%M:%S HKT} · {zh(session(now))} · ● {zh(h['quality'])} · {selected}")
         if h.get('loading'):
             st.info('正在连接或读取行情；尚未取得有效报价，暂不进行新增入场审查。')
@@ -139,8 +149,9 @@ def render(store, settings, market_data):
             st.caption('观察数据：'+observation['status']+' · '+observation['reason']+' · 所属交易日 '+observation['trading_day']+' · 参数版本 '+observation['parameter_version'])
             if d.get('opend_status')=='UNAVAILABLE' or d.get('retained_periods'):
                 st.warning('OpenD读取异常，历史准备使用保留数据 · '+zh(h['reason']))
-        markets=st.columns(5)
-        for col,c in zip(markets,['US.SPY','US.QQQ','US.IWM','US.SOXX','US.VIX']):
+        strip=list(dict.fromkeys([selected]+list(pool)))[:4]+['US.VIX']
+        markets=st.columns(len(strip))
+        for col,c in zip(markets,strip):
             mh=health[c]
             col.write(f"**{c[3:]}** · {mh.get('price','—')}")
             col.caption(zh(mh['quality']) + (' · 风险背景' if c=='US.VIX' else ' · 原始报价，过期值非实时'))
@@ -151,13 +162,14 @@ def render(store, settings, market_data):
         with st.container(key='deskgrid'):
             with st.container(key='radar', border=True), panel('候选区'):
                 st.subheader('证券观察优先级')
-                st.caption(f'观察证券 {sum(c in observations for c in SYMBOLS)} 只 · 关键价位观察 {sum(len(o["monitors"]) for c,o in observations.items() if c in SYMBOLS)} 条 · 当前展示 {len(rows[:5])} 只')
+                st.caption(f'已启用 {len(pool)} 只 · 数据合格 {sum(r["qualification"]<2 for r in decisions)} 只 · 关键价位观察 {sum(len(o["monitors"]) for c,o in observations.items() if c in pool)} 条 · Top5当前展示 {len(rows[:5])} 只')
                 st.caption('按不同证券排名；距离仅表示观察优先级，不是交易成功概率。闭区间相交（含端点相等）合并为共振区域，原始价位全部保留。')
                 for n,r in enumerate(rows[:5],1):
                     c=r['symbol']; label=r['region_label']
                     if r.get('historical_day'): label+='（'+r['historical_day']+'历史）'
                     state={'INSIDE':'区域内','NEAR':'接近关键价','OUTSIDE':'区域外'}.get(r['state'],'状态未知')
-                    st.button(f"{n} · {c[3:]} · {label} · {state}",key='pick_'+c+'_'+r['key'],width='stretch',on_click=select_candidate,args=(c,r['key']))
+                    if st.button(f"{n} · {c[3:]} · {label} · {state}",key='pick_'+c+'_'+r['key'],width='stretch',on_click=select_candidate,args=(c,r['key'])):
+                        st.rerun()
                     st.caption(f"区域 {r['low']:g}–{r['high']:g} · ${r['gap']:.2f} / {r['atr_distance']:.3f} ATR · "+('方向未定' if r['direction']=='UNKNOWN' else zh(r['direction'])))
                     st.caption(r['distance_basis']+' · '+r['next_action'])
                     st.caption('当前阶段：'+r['decision']['stage_label']+' · '+r['decision']['next_condition'])
@@ -165,12 +177,13 @@ def render(store, settings, market_data):
                     with st.expander(c[3:]+' 其他区域与全部原始价位'):
                         for other in regions(observations[c]):
                             st.write(other['region_label']+f" · {other['low']:g}–{other['high']:g} · {other['atr_distance']:.3f} ATR")
-                            st.button('关注 '+other['region_label'],key='region_'+c+'_'+other['key'],on_click=select_candidate,args=(c,other['key']))
+                            if st.button('关注 '+other['region_label'],key='region_'+c+'_'+other['key'],on_click=select_candidate,args=(c,other['key'])):
+                                st.rerun()
                         st.dataframe(pd.DataFrame(observations[c]['monitors'])[['key','low','high','atr_distance']].rename(columns={'key':'原始价位','low':'下限','high':'上限','atr_distance':'距离ATR'}),hide_index=True)
                 if not rows: st.info('当前无合资格候选：检查数据完整性及关键价位距离。')
                 with st.expander('历史价格口径与排序差异'):
                     st.caption('历史排序采用 Futu 原生日 K 收盘；日 K 与末分钟差异原因尚未裁定，未调整原始行情。名次变化或候选资格变化均列出供人工复核。')
-                    st.dataframe(pd.DataFrame(price_basis_comparison(observations,settings['candidate_atr'])),hide_index=True)
+                    st.dataframe(pd.DataFrame(price_basis_comparison(observations,settings['candidate_atr'],symbols=pool)),hide_index=True)
                     for c,o in observations.items():
                         if o.get('close_verification'): st.write(c, o['close_verification'])
                 if rows and selected not in [r['symbol'] for r in rows[:5]]: st.caption(TEXT['文案52'])
@@ -302,7 +315,7 @@ def render(store, settings, market_data):
                             if row.id in read: st.caption(TEXT['文案58'])
                             elif st.button(TEXT['文案59'],key=f'ack_{row.id}'):
                                 store.acknowledge(row.id); st.rerun(scope='fragment')
-        if initializing and not getattr(market_data,'loading',lambda:False)():
+        if (initializing and not getattr(market_data,'loading',lambda:False)()) or (not initializing and any(v.get('loading') for v in health.values())):
             st.rerun()
     body()
     with panel('备注与计划编辑'):

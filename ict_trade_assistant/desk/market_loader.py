@@ -9,29 +9,31 @@ from .clock import now_et
 LOG=logging.getLogger('ict.stability')
 
 class MarketLoader:
-    def __init__(self, fetch):
+    def __init__(self, fetch, max_pending=4):
         self.fetch=fetch; self.lock=threading.Lock();self.pending={};self.results={};self.keys={}
         self.revisions={};self.failures={};self.retry_at={};self.updated={};self.jobs=queue.Queue()
         self.closed=threading.Event();self.reset_requested=False
+        self.max_pending=max_pending
         threading.Thread(target=self._work,daemon=True,name='ict-market-reader').start()
 
     def clear(self):
         with self.lock:
             self.keys.clear();self.failures.clear();self.retry_at.clear();self.reset_requested=True
 
-    def get(self,code,cycle):
+    def get(self,code,cycle,wait=.02):
         with self.lock:
             auto=isinstance(cycle,tuple) and cycle[0]=='auto'
             # 手动窗口的本地计数不改变共享缓存键；显式 clear 才使快照失效。
             ttl=cycle[2] if auto and len(cycle)>2 else 60
             due=code not in self.keys or (auto and self.failures.get(code,0)<3 and time.monotonic()-self.updated.get(code,0)>=ttl)
             retry=0<self.failures.get(code,0)<3 and time.monotonic()>=self.retry_at.get(code,float('inf'))
-            if code not in self.pending and (due or retry):
+            terminal=self.results.get(code,{}).get('terminal_missing',False) and code in self.keys
+            if code not in self.pending and len(self.pending)<self.max_pending and not terminal and (due or retry):
                 done=threading.Event();self.pending[code]=(time.monotonic(),done)
                 self.keys[code]=cycle[1] if auto else self.keys.get(code,-1)
                 self.jobs.put((code,done))
             pending=self.pending.get(code)
-        if pending:pending[1].wait(.02)
+        if pending and wait:pending[1].wait(wait)
         with self.lock:
             if code in self.results:
                 snapshot=copy.deepcopy(self.results[code])
@@ -42,7 +44,8 @@ class MarketLoader:
         return dict(health=dict(quality='UNAVAILABLE',loading=elapsed<15,reason=reason,source='FUTU_OPEND',right='UNKNOWN',received_at=now_et().isoformat()),minute=pd.DataFrame(),daily=pd.DataFrame(),errors=[])
 
     def diagnostics(self):
-        with self.lock:return dict(pending=list(self.pending),revisions=dict(self.revisions),failures=dict(self.failures),queue=self.jobs.qsize())
+        with self.lock:return dict(pending=list(self.pending),revisions=dict(self.revisions),failures=dict(self.failures),queue=self.jobs.qsize(),max_pending=self.max_pending,
+                                   terminal_missing=[c for c,r in self.results.items() if r.get('terminal_missing')])
 
     def _work(self):
         while not self.closed.is_set():

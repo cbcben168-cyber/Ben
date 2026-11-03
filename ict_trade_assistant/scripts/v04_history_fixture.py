@@ -22,10 +22,10 @@ if not hasattr(store_module,'_V04Original'):
 
 class FixtureStore(store_module._V04Original):
     def __init__(self,*args,**kwargs):
-        super().__init__(ROOT/'data/v04_acceptance/browser.sqlite3')
+        super().__init__(Path(os.environ.get('ICT_V04_DB', str(ROOT/'data/v04_acceptance/browser.sqlite3'))))
 
     def settings(self):
-        return dict(super().settings(),refresh_seconds=3)
+        return super().settings()
 
 
 @st.cache_resource(show_spinner=False)
@@ -50,6 +50,9 @@ def fetch(self,code):
 
 store_module.Store=FixtureStore
 provider_module.Provider.fetch=fetch
+def offline_connect(self):
+    raise RuntimeError('历史工作台禁止建立OpenD连接')
+provider_module.Provider.connect=offline_connect
 workspace_module.now_et=lambda:FIXED
-st.warning('v0.4独立离线验收 · 既有真实历史快照 · 时间固定于2026-10-29 · 无行情网络连接 · 非实时市场通过')
+st.warning('v0.4 本地历史工作台 · 既有真实历史快照 · 历史观察时点 2026-10-29 16:02 美东 · 非实时行情 · 无行情网络连接 · ICT实时资格关闭')
 runpy.run_path(str(ROOT/'app.py'),run_name='__main__')

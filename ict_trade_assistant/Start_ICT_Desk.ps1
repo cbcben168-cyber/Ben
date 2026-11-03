@@ -3,19 +3,32 @@ Set-Location -LiteralPath $PSScriptRoot
 New-Item -ItemType Directory -Path (Join-Path $PSScriptRoot 'data') -Force | Out-Null
 $taskPython = Join-Path $PSScriptRoot '.venv\Scripts\python.exe'
 if (!(Test-Path -LiteralPath $taskPython)) {
-    python -m venv .venv
-    if ($LASTEXITCODE -ne 0) { throw '需要安装 Python 3.11 或更高版本。' }
+    $taskPython = Join-Path (Split-Path $PSScriptRoot -Parent) 'ict_trade_assistant\.venv\Scripts\python.exe'
 }
-if (!(Test-Path -LiteralPath (Join-Path $PSScriptRoot '.venv\desk-ready'))) {
-    & $taskPython -m pip install -r requirements-lock.txt
-    if ($LASTEXITCODE -ne 0) { throw '依赖安装失败，请检查网络及安装日志。' }
-    New-Item -ItemType File -Path '.venv\desk-ready' -Force | Out-Null
+if (!(Test-Path -LiteralPath $taskPython)) {
+    throw 'Missing existing Python environment. No environment was changed.'
+}
+& $taskPython -c 'import streamlit, pandas, plotly, futu'
+if ($LASTEXITCODE -ne 0) {
+    throw 'Existing dependencies unavailable. No packages were changed.'
 }
 $taskPort = 8506
+$env:ICT_V04_HISTORY = Join-Path $PSScriptRoot 'data\v04\history.json'
+$env:ICT_V04_DB = Join-Path $PSScriptRoot 'data\v04\desk.sqlite3'
+if (!(Test-Path -LiteralPath $env:ICT_V04_HISTORY)) { throw 'Missing saved history; no OpenD fallback.' }
 if (Get-NetTCPConnection -LocalPort $taskPort -State Listen -ErrorAction SilentlyContinue) {
+    $taskRuntime = Join-Path $PSScriptRoot 'data\runtime-8506.json'
+    if (Test-Path -LiteralPath $taskRuntime) {
+        $taskInfo = Get-Content -LiteralPath $taskRuntime -Raw | ConvertFrom-Json
+        $taskListener = Get-NetTCPConnection -LocalPort $taskPort -State Listen
+        if ($taskInfo.root -eq $PSScriptRoot -and $taskInfo.pid -in $taskListener.OwningProcess) {
+            Start-Process 'http://127.0.0.1:8506'
+            exit 0
+        }
+    }
     throw '隔离端口 8506 已被占用；请核对v0.4服务，勿关闭v0.3。'
 }
-$taskProcess = Start-Process -FilePath $taskPython -ArgumentList @('scripts/run_server.py') -WorkingDirectory $PSScriptRoot -WindowStyle Hidden -PassThru -RedirectStandardOutput 'data\streamlit-out.log' -RedirectStandardError 'data\streamlit-error.log'
+$taskProcess = Start-Process -FilePath $taskPython -ArgumentList @('scripts/run_server.py', '--history') -WorkingDirectory $PSScriptRoot -WindowStyle Hidden -PassThru -RedirectStandardOutput 'data\streamlit-out.log' -RedirectStandardError 'data\streamlit-error.log'
 $taskReady = $false
 for ($taskIndex = 0; $taskIndex -lt 60; $taskIndex++) {
     if ($taskProcess.HasExited) { throw '看板已退出，请检查日志 data\streamlit-error.log.' }

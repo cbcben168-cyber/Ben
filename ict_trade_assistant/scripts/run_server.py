@@ -26,6 +26,7 @@ def run_entry(entry, log):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--port', type=int, default=8506)
+    parser.add_argument('--history', action='store_true', help='使用本地历史入口，不连接OpenD')
     args = parser.parse_args()
     if args.port == 8501:
         parser.error('v0.4隔离开发禁止使用8501；请保留v0.3服务')
@@ -56,7 +57,8 @@ def main():
     thread.start()
     try:
         from streamlit.web import cli
-        sys.argv = ['streamlit', 'run', str(ROOT / 'app.py'), '--server.headless=true',
+        entry = ROOT / ('scripts/v04_history_fixture.py' if args.history else 'app.py')
+        sys.argv = ['streamlit', 'run', str(entry), '--server.headless=true',
                     '--server.address=127.0.0.1', '--server.port=' + str(args.port), '--server.fileWatcherType=none']
         return run_entry(cli.main, log)
     finally:

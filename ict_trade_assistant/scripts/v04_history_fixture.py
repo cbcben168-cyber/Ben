@@ -14,6 +14,7 @@ import desk.store as store_module
 import desk.provider as provider_module
 import desk.workspace as workspace_module
 from desk.history_source import HistorySource
+from desk.history_import import DailyArchive
 
 SOURCE=Path(os.environ['ICT_V04_HISTORY'])
 FIXED=datetime(2026,10,29,16,2,tzinfo=ET)
@@ -31,7 +32,7 @@ class FixtureStore(store_module._V04Original):
 
 @st.cache_resource(show_spinner=False)
 def snapshots():
-    return HistorySource(SOURCE, FIXED)
+    return HistorySource(SOURCE, FIXED, DailyArchive(Path(os.environ.get('ICT_DAILY_ARCHIVE',str(ROOT/'data/v042/history.sqlite3')))))
 
 
 def fetch(self,code):
@@ -44,6 +45,8 @@ def offline_connect(self):
     raise RuntimeError('历史工作台禁止建立OpenD连接')
 provider_module.Provider.connect=offline_connect
 workspace_module.now_et=lambda:FIXED
-st.warning('v0.4.1 本地历史工作台 · 既有真实历史快照 · 历史观察时点 2026-10-29 16:02 美东 · 非实时行情 · 无行情网络连接 · ICT实时资格关闭')
+st.session_state['_history_archive_path']=str(snapshots().archive.path)
+st.session_state['_legacy_history']=snapshots().raw
+st.warning('v0.4.2 本地历史工作台 · 原四ETF观察时点2026-10-29 16:02美东 · 新增日K日期单独显示 · 非实时行情 · ICT实时资格关闭')
 st.caption('数据模式：仅本地历史文件；OpenD订阅/历史额度检查未执行（无连接、无请求）。新增证券不会自动取得在线数据。')
 runpy.run_path(str(ROOT/'app.py'),run_name='__main__')

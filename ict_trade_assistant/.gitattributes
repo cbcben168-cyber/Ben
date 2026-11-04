@@ -1,0 +1,10 @@
+# Preserve exact bytes of the pinned acceptance dependency archive.
+/scripts/rth_recovery_v2.py -text
+/scripts/rth_recovery_v2_manifest.json -text
+/scripts/futu_minute_contract_audit.py -text
+/scripts/unattended_rth_acceptance.py -text
+/scripts/rth_browser_recovery_v2.cjs -text
+/scripts/Run_RTH_Recovery_V2.ps1 -text
+/scripts/Register_RTH_Recovery_V2.ps1 -text
+/scripts/rth_recovery_v3.py -text
+/tests/test_rth_recovery_v3.py -text

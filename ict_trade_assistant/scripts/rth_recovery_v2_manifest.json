@@ -1,0 +1,14 @@
+{
+  "node": "C:\\Program Files\\nodejs\\node.exe",
+  "playwright_module": "C:\\Users\\cbcbe\\AppData\\Local\\npm-cache\\_npx\\31e32ef8478fbf80\\node_modules\\playwright",
+  "browser_executable": "C:\\Users\\cbcbe\\AppData\\Local\\ms-playwright\\chromium-1228\\chrome-win64\\chrome.exe",
+  "version": "RTH_RECOVERY_V2_20261103",
+  "files": {
+    "scripts/rth_recovery_v2.py": "fd2f1709c8064d4343eda15b56f810e707a1cb5b79a99bd1869a55370a6d3655",
+    "scripts/futu_minute_contract_audit.py": "7e4dd32fc2c081e6ae2fd3a881946356dd1c90d9eb062ba6cf9e3864e8025cda",
+    "scripts/rth_browser_recovery_v2.cjs": "667446f2d3f2ea92f0fe312cef3d9678f726f722b8282c6ac371fb5a860f4469",
+    "scripts/Run_RTH_Recovery_V2.ps1": "46f8dec202796a512720e304c4648aeee4af0c7209ca0b3c49024753de21eae1",
+    "scripts/Register_RTH_Recovery_V2.ps1": "6b373a6f00bc6450ae46e164f65aa006e6e1c913c5a55b957039b654016dc423",
+    "scripts/unattended_rth_acceptance.py": "9a79365d4676955b3e885f89e932034f8378204ac6d314310d88478427d04c86"
+  }
+}

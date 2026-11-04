@@ -30,7 +30,7 @@ st.markdown('''<style>.block-container{padding-top:2rem} h1{letter-spacing:-1px}
 [data-testid="stMetric"]{background:#142036;padding:18px;border-radius:12px}
 .stCaption{color:#a3b4cb}</style>''', unsafe_allow_html=True)
 st.sidebar.title(TEXT['文案1'])
-st.sidebar.caption('v0.4.2 · 本地历史观察与人工计划')
+st.sidebar.caption('v0.4.3 · 本地历史观察与人工计划')
 page = st.sidebar.radio(TEXT['文案3'], ['交易工作台', '事件与备注', '设置与审计', 'SOP 与进度', '其他策略', '交易记录', '期权'])
 symbol = st.sidebar.selectbox(TEXT['文案4'], settings['watchlist']) if settings['watchlist'] else None
 st.sidebar.caption('Futu OpenD · 127.0.0.1:11111\n无账户查询 · 无订单接口')
@@ -61,12 +61,29 @@ market_data.loading=lambda: bool(loader().diagnostics()['pending'])
 market_data.diagnostics=lambda: loader().diagnostics()
 
 
+@st.fragment(run_every=15)
+def daily_revision_watch():
+    path=Path(st.session_state['_daily_update_root'])/'latest.json'
+    token=path.stat().st_mtime_ns if path.exists() else None
+    old=st.session_state.get('_daily_update_seen',token)
+    st.session_state['_daily_update_seen']=token
+    if token!=old:
+        clear_market_data();st.rerun()
+
+
 def events_table():
     channel=st.radio('事件类别',['市场观察与人工记录','系统健康诊断'],horizontal=True)
     st.dataframe(table(store.table('market_events' if channel=='市场观察与人工记录' else 'system_events')), width='stretch', hide_index=True)
 
 
 if page == '交易工作台':
+    if '_daily_update_root' in st.session_state:
+        daily_revision_watch()
+        from desk.daily_update_ui import read_json
+        from desk.daily_update import latest_completed
+        st.caption('最近完成NYSE交易日：'+latest_completed(now_et())+' · 历史日K不等于实时报价 · ICT实时资格关闭')
+        update=read_json(Path(st.session_state['_daily_update_root'])/'latest.json')
+        if update.get('status')=='BLOCKED':st.warning('每日自动更新BLOCKED：未验证本地无人值守数据访问。已有历史图表和人工计划仍可使用。')
     from desk.workspace import render
     render(store, settings, market_data)
 elif page == '设置与审计':
@@ -77,6 +94,8 @@ elif page == '设置与审计':
         from desk.history_import import DailyArchive
         from desk.history_ui import render_history
         render_history(DailyArchive(st.session_state['_history_archive_path']),settings,st.session_state['_legacy_history'],clear_market_data)
+        from desk.daily_update_ui import render_update
+        render_update(st.session_state['_daily_update_root'],settings,st.session_state['_legacy_history'],DailyArchive(st.session_state['_history_archive_path']),clear_market_data)
     with st.form('parameters'):
         distance = st.number_input(TEXT['文案9'], min_value=0.1, max_value=1000.0, value=float(settings['distance_bps']))
         candidate_atr = st.number_input('候选最大关键价距离（ATR倍数）', min_value=0.01, max_value=5.0, value=float(settings['candidate_atr']), step=0.05)

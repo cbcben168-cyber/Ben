@@ -78,6 +78,7 @@ class DailyArchive:
         acquired_at=acquired_at or now
         records,start,end=validate_daily(payload,symbol,acquired_at)
         feed=payload['request']['feed']
+        adjustment=payload['request'].get('adjustment') or 'UNKNOWN_TOOL_NOT_EXPOSED'
         raw=json.dumps(payload,sort_keys=True,allow_nan=False)
         digest=hashlib.sha256(raw.encode()).hexdigest()
         with closing(self.connect()) as c, c:
@@ -86,6 +87,8 @@ class DailyArchive:
             old=json.loads(old[0]) if old else None
             if old and old['feed']!=feed:
                 raise ValueError('同一证券不混合不同feed；请使用独立档案。')
+            if old and old['adjustment']!=adjustment:
+                raise ValueError('复权口径不一致或未确认，禁止拼接；请使用独立档案。')
             existing={d:json.loads(p) for d,p in c.execute('SELECT day,payload FROM daily_bars WHERE symbol=?',(symbol,))}
             for row in records:
                 if row['date'] in existing and existing[row['date']]!=row:
@@ -102,7 +105,7 @@ class DailyArchive:
                           imported_at=now,requested_start=start,requested_end=end,first=min(existing),last=max(existing),
                           bars=len(existing),expected=len(expected),missing=missing,status='DAILY_COMPLETE' if not missing else 'DAILY_PARTIAL',
                           chart_ready=True,daily_observation_eligible=not missing and len(existing)>=2,
-                          adjustment='UNKNOWN_TOOL_NOT_EXPOSED',session_contract='VENDOR_DAY_UNVERIFIED',
+                          adjustment=adjustment,session_contract='VENDOR_DAY_UNVERIFIED',
                           ict_eligible=False,block_reason=BLOCK,last_raw_sha256=digest)
             c.execute('INSERT INTO daily_imports(at,symbol,sha256,raw) VALUES(?,?,?,?)',(now,symbol,digest,raw))
             c.execute('INSERT OR REPLACE INTO daily_coverage VALUES(?,?)',(symbol,json.dumps(coverage)))

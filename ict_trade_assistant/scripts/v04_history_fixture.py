@@ -32,7 +32,8 @@ class FixtureStore(store_module._V04Original):
 
 @st.cache_resource(show_spinner=False)
 def snapshots():
-    return HistorySource(SOURCE, FIXED, DailyArchive(Path(os.environ.get('ICT_DAILY_ARCHIVE',str(ROOT/'data/v042/history.sqlite3')))))
+    return HistorySource(SOURCE, FIXED, DailyArchive(Path(os.environ.get('ICT_DAILY_ARCHIVE',str(ROOT/'data/v042/history.sqlite3')))),
+                         DailyArchive(ROOT/'data/v043/updates.sqlite3'))
 
 
 def fetch(self,code):
@@ -41,12 +42,14 @@ def fetch(self,code):
 
 store_module.Store=FixtureStore
 provider_module.Provider.fetch=fetch
+provider_module.Provider.history_revision=lambda self,code:snapshots().revision(code)
 def offline_connect(self):
     raise RuntimeError('历史工作台禁止建立OpenD连接')
 provider_module.Provider.connect=offline_connect
 workspace_module.now_et=lambda:FIXED
 st.session_state['_history_archive_path']=str(snapshots().archive.path)
 st.session_state['_legacy_history']=snapshots().raw
-st.warning('v0.4.2 本地历史工作台 · 原四ETF观察时点2026-10-29 16:02美东 · 新增日K日期单独显示 · 非实时行情 · ICT实时资格关闭')
+st.session_state['_daily_update_root']=str(ROOT/'data/v043')
+st.warning('v0.4.3 本地历史工作台 · 历史数据日期单独显示 · 当前实时报价未接通 · ICT实时资格关闭')
 st.caption('数据模式：仅本地历史文件；OpenD订阅/历史额度检查未执行（无连接、无请求）。新增证券不会自动取得在线数据。')
 runpy.run_path(str(ROOT/'app.py'),run_name='__main__')

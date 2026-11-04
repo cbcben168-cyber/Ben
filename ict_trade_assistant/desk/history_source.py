@@ -13,13 +13,31 @@ def missing_history(code, observed_at, reason=None):
 
 
 class HistorySource:
-    def __init__(self, path, observed_at, archive=None):
+    def __init__(self, path, observed_at, archive=None, updates=None):
         self.path=Path(path)
         self.observed_at=observed_at
         self.raw=json.loads(self.path.read_text(encoding='utf-8'))
         self.cache={}
         self.archive=archive
         self.daily_cache={}
+        self.updates=updates
+        self.update_cache={}
+
+    def revision(self, code):
+        return (self.archive.revision(code) if self.archive else None,
+                self.updates.revision(code) if self.updates else None)
+
+    def history_revision(self, code):
+        return self.revision(code)
+
+    def attach_updates(self, code, value):
+        rev=self.updates.revision(code) if self.updates else None
+        if rev:
+            if self.update_cache.get(code,(None,))[0]!=rev:
+                self.update_cache[code]=(rev,self.updates.read(code))
+            meta,frame=self.update_cache[code][1]
+            value=dict(value,independent_daily=frame,independent_coverage=meta)
+        return copy.deepcopy(value)
 
     def fetch(self, code):
         if self.archive and not self.raw.get(code,{}).get('daily'):
@@ -34,9 +52,9 @@ class HistorySource:
                         received_at=meta['acquired_at'],reason='已导入真实供应商日K；非实时行情，1H ICT未合格。')
                     value['daily_snapshot_at']=meta['acquired_at']
                     self.daily_cache[code]=(revision,value)
-                return copy.deepcopy(self.daily_cache[code][1])
+                return self.attach_updates(code,self.daily_cache[code][1])
         if code not in self.raw or not (self.raw[code].get('minute') or self.raw[code].get('daily')):
-            return missing_history(code, self.observed_at)
+            return self.attach_updates(code,missing_history(code, self.observed_at))
         if code not in self.cache:
             value=copy.deepcopy(self.raw[code])
             for period in ('minute','daily'):
@@ -49,4 +67,4 @@ class HistorySource:
             value['history_origin']=dict(path=str(self.path),observed_at=self.observed_at.isoformat(),
                                          source=value['health'].get('source','历史文件未提供原始来源'))
             self.cache[code]=value
-        return copy.deepcopy(self.cache[code])
+        return self.attach_updates(code,self.cache[code])

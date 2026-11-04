@@ -198,20 +198,28 @@ def render(store, settings, market_data):
             with st.container(key='leftstack'):
                 with st.container(key='chart',border=True), panel('图表'):
                     daily_only=d.get('daily_only',False)
-                    st.subheader(selected[3:]+(' · 供应商历史日K' if daily_only else ' · 常规交易时段'))
+                    st.subheader(selected[3:]+(' · 历史图表（按所选来源）' if d.get('independent_coverage') else ' · 供应商历史日K' if daily_only else ' · 常规交易时段'))
                     period_key='chart_period_'+selected
                     if daily_only and (period_key not in st.session_state or not st.session_state.get('daily_default_'+selected)):
                         st.session_state[period_key]='1D';st.session_state['daily_default_'+selected]=True
                     period=st.radio(TEXT['文案38'],['15m','1H','4H','1D'],index=None if period_key in st.session_state else 1,horizontal=True,key=period_key,format_func=lambda v: {'15m':'15分钟','1H':'1小时','4H':'4小时','1D':'日线'}[v])
+                    separate_daily=False
+                    if period=='1D' and d.get('independent_coverage'):
+                        source_choice=st.radio('日线资料来源',['独立更新档案（ALPACA）','原历史档案（保留）'],key='daily_source_'+selected,horizontal=True)
+                        separate_daily=source_choice.startswith('独立')
+                        if separate_daily:
+                            m=d['independent_coverage']
+                            st.info(f"独立日K {m['first']} 至 {m['last']} · {m['bars']}根 · {m['source']}/{m['feed']} · 复权 {m['adjustment']}。不与原历史拼接；聚合时段未确认，不作ICT判断。")
                     if daily_only:
                         m=d['coverage']
                         st.info(f"日K {m['first']} 至 {m['last']} · {m['bars']}根 · 来源 {m['source']}/{m['feed']} · 取得 {m['acquired_at']} · 缺失交易日 {len(m['missing'])}。仅日线，分钟及ICT资格关闭。")
                     with st.expander(TEXT['图层控制']):
                         layers=st.multiselect('关键价格线图层',['前日高低','前周高低','开盘区间','人工计划'],default=['前日高低','前周高低','开盘区间','人工计划'] if settings['layers'] else [],key='price_layers')
                         st.caption(TEXT['价格线说明'])
-                    minute,daily=d['minute'],d['daily']
+                    minute,daily=d['minute'],d['independent_daily'] if separate_daily else d['daily']
                     chart,levels=chart_data(minute,daily,period,now.replace(second=0,microsecond=0))
-                    if observation: levels=observation['levels']
+                    if separate_daily:levels={}
+                    elif observation: levels=observation['levels']
                     st.caption('图表周期：'+period+' · 柱数：'+str(len(chart))+' · 最近柱：'+(str(chart.ts.iloc[-1]) if not chart.empty else '无可用数据'))
                     if d.get('retained_periods'):st.warning('历史快照保留中（STALE 行情过期） · '+str(d.get(('daily' if period=='1D' else 'minute')+'_snapshot_at','时间未知')))
                     if not chart.empty:
@@ -227,14 +235,14 @@ def render(store, settings, market_data):
                             fig.add_hrect(y0=zone['low'],y1=zone['high'],opacity=.12,fillcolor='cyan')
                             if zone.get('invalid'): fig.add_hline(y=zone['invalid'],line_color='red')
                             if plan: fig.add_hrect(y0=plan['target_low'],y1=plan['target_high'],opacity=.10,fillcolor='green')
-                        if focus:
+                        if focus and not separate_daily:
                             fig.add_hline(y=focus['low'],line_color='orange',annotation_text='当前关注 '+focus.get('region_label',focus['key']))
                             if focus['high']!=focus['low']: fig.add_hline(y=focus['high'],line_color='orange')
                         if period=='1H':add_event_layers(fig,ict)
                         fig.update_layout(template='plotly_dark',height=560,margin=dict(l=8,r=12,t=12,b=24),showlegend=False,font=dict(size=14),yaxis=dict(side='right',automargin=True),xaxis=dict(automargin=True),xaxis_rangeslider_visible=False,uirevision=selected+period)
                         st.plotly_chart(fig,width='stretch',key='mainchart')
                     else: st.info(TEXT['文案53'])
-                    st.caption('供应商日K；复权与聚合时段口径未确认，不冒充Futu RTH分钟聚合。' if daily_only else TEXT['图表来源摘要'])
+                    st.caption('供应商日K；聚合时段及最终性未确认，不冒充Futu RTH分钟聚合。' if daily_only or separate_daily else TEXT['图表来源摘要'])
                     with st.expander('周期数据核对（最近三根真实聚合柱）'):
                         if not chart.empty:
                             st.dataframe(chart.tail(3)[[c for c in ['ts','open','high','low','close','duration_minutes'] if c in chart]].rename(columns=dict(ts='纽约时间',open='开盘',high='最高',low='最低',close='收盘',duration_minutes='实际聚合分钟数')),hide_index=True)

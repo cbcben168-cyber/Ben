@@ -157,9 +157,9 @@ def test_original_etf_update_chart_is_separate_and_live_ict_stays_disabled(tmp_p
         app=AppTest.from_file(str(Path(__file__).resolve().parents[1]/'app.py'),default_timeout=30).run()
         next(r for r in app.radio if r.label=='周期').set_value('1D').run()
         assert not app.exception
-        spec=json.loads(app.get('plotly_chart')[0].proto.spec)
+        spec=json.loads(next(c.proto.spec for c in app.get('plotly_chart') if c.proto.id.endswith('-mainchart')))
         assert len(spec['data'][0]['x'])==1 and spec['data'][0]['x'][0].startswith('2026-11-03')
         next(r for r in app.radio if r.label=='日线资料来源').set_value('原历史档案（保留）').run()
-        spec=json.loads(app.get('plotly_chart')[0].proto.spec)
+        spec=json.loads(next(c.proto.spec for c in app.get('plotly_chart') if c.proto.id.endswith('-mainchart')))
         assert len(spec['data'][0]['x'])==1 and spec['data'][0]['x'][0].startswith('2026-11-02')
         assert next(x for x in app.checkbox if x.label.startswith('实时ICT')).disabled

@@ -105,7 +105,7 @@ def test_new_daily_chart_defaults_to_daily_and_preserves_plan(tmp_path):
         next(x for x in app.selectbox if x.label=='独立窗口观察标的').select('US.SMH').run()
         assert not app.exception
         assert next(r for r in app.radio if r.label=='周期').value=='1D'
-        spec=json.loads(app.get('plotly_chart')[0].proto.spec)
+        spec=json.loads(next(c.proto.spec for c in app.get('plotly_chart') if c.proto.id.endswith('-mainchart')))
         assert spec['data'][0]['type']=='candlestick' and len(spec['data'][0]['x'])==3
         assert not [t for t in spec['data'] if '历史' in t.get('name','')]
         assert len(s.plans('US.SMH'))==1 and s.plans('US.SMH')[0]['memo']=='keep'

@@ -80,10 +80,8 @@ if page == '交易工作台':
     if '_daily_update_root' in st.session_state:
         daily_revision_watch()
         from desk.daily_update_ui import read_json
-        from desk.daily_update import latest_completed
-        st.caption('最近完成NYSE交易日：'+latest_completed(now_et())+' · 历史日K不等于实时报价 · ICT实时资格关闭')
         update=read_json(Path(st.session_state['_daily_update_root'])/'latest.json')
-        if update.get('status')=='BLOCKED':st.warning('每日自动更新BLOCKED：未验证本地无人值守数据访问。已有历史图表和人工计划仍可使用。')
+        st.session_state['_daily_update_status'] = update.get('status')
     from desk.workspace import render
     render(store, settings, market_data)
 elif page == '设置与审计':

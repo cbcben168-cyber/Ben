@@ -151,7 +151,7 @@ def test_candidate_ui_preserves_saved_note_plan_and_focus(market_fixture,tmp_pat
         assert app.session_state['desk_symbol']=='US.QQQ'
         assert app.session_state['desk_candidate']==('US.QQQ','MANUAL')
         assert any('候选切换前已保存备注' in x.value for x in app.markdown)
-        plot=json.loads(app.get('plotly_chart')[0].proto.spec)
+        plot=json.loads(next(c.proto.spec for c in app.get('plotly_chart') if c.proto.id.endswith('-mainchart')))
         assert any(a.get('text')=='当前关注 MANUAL' for a in plot['layout']['annotations'])
         next(r for r in app.radio if r.label=='周期').set_value('4H').run()
         assert not app.exception and app.session_state['desk_candidate']==('US.QQQ','MANUAL')

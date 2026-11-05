@@ -129,7 +129,7 @@ def test_fifth_symbol_full_chart_sop_workflow_with_synthetic_data(tmp_path,marke
         app=AppTest.from_file(str(Path(__file__).resolve().parents[1]/'app.py'),default_timeout=30).run()
         next(x for x in app.selectbox if x.label=='独立窗口观察标的').select('US.SMH').run()
         assert not app.exception
-        spec=json.loads(app.get('plotly_chart')[0].proto.spec)
+        spec=json.loads(next(c.proto.spec for c in app.get('plotly_chart') if c.proto.id.endswith('-mainchart')))
         assert spec['data'][0]['type']=='candlestick'
         assert any('下一条件：' in x.value for x in app.markdown)
         assert len([b for b in app.button if b.key and b.key.startswith('pick_')])==5

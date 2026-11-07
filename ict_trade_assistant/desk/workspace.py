@@ -91,7 +91,7 @@ def render(store, settings, market_data):
     if st.session_state.get('desk_symbol') not in codes:
         st.session_state.desk_symbol = pool[0] if pool else codes[0]
     st.selectbox(TEXT['文案34'], codes, key='desk_symbol')
-    with st.expander(TEXT['文案30']):
+    with st.sidebar.expander(TEXT['文案30']):
         st.caption(TEXT['文案31'])
         auto = st.checkbox(TEXT['文案32'], value=False)
         if st.button(TEXT['文案33']):

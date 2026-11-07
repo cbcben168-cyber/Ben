@@ -1,0 +1,20 @@
+{
+  "protected_files_unchanged": true,
+  "changed": [],
+  "user_state_unchanged": true,
+  "current": {
+    "notes": {
+      "rows": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "plan_versions": {
+      "rows": 2,
+      "sha256": "2d45edc1e29497490c9a6cc76ed7acdbf25b1e5389ffd442684dc0751813ef49"
+    },
+    "settings": {
+      "rows": 2,
+      "sha256": "7f183923fce5dd1f6371d24826e4e83e70ae344b87fce613ba5e6afe52762efc"
+    },
+    "integrity": "ok"
+  }
+}

@@ -1,0 +1,32 @@
+[
+  {
+    "file": "app.py",
+    "baseline_sha256": "8a9678e67eb5d855e4f77f6e0919db5100840c841ab95d3f12bc7f041b7bf668",
+    "runtime_sha256": "8a9678e67eb5d855e4f77f6e0919db5100840c841ab95d3f12bc7f041b7bf668",
+    "matches_baseline": true
+  },
+  {
+    "file": "desk/decision_home.py",
+    "baseline_sha256": "f06a14b5ced27274de67e41ea93080af02ec0dc20c79da43760eb41e1780589b",
+    "runtime_sha256": "f06a14b5ced27274de67e41ea93080af02ec0dc20c79da43760eb41e1780589b",
+    "matches_baseline": true
+  },
+  {
+    "file": "desk/market_state.py",
+    "baseline_sha256": "8c3e00e328089cc86ac2c8c7a74c91b027ce03059919c1782d4ce82e79494bd7",
+    "runtime_sha256": "8c3e00e328089cc86ac2c8c7a74c91b027ce03059919c1782d4ce82e79494bd7",
+    "matches_baseline": true
+  },
+  {
+    "file": "desk/workspace.py",
+    "baseline_sha256": "28b15e06a03cab20263ff341f14a6291d675619827844e4eeb4e9bd6cc386707",
+    "runtime_sha256": "28b15e06a03cab20263ff341f14a6291d675619827844e4eeb4e9bd6cc386707",
+    "matches_baseline": true
+  },
+  {
+    "file": "desk/dashboard_cards.py",
+    "baseline_sha256": "9f8175df8096df7a94c811a993d164d773cee7eb5db36ec57b742f016116ef08",
+    "runtime_sha256": "9f8175df8096df7a94c811a993d164d773cee7eb5db36ec57b742f016116ef08",
+    "matches_baseline": true
+  }
+]

@@ -8,6 +8,8 @@ from .daily_update import latest_completed
 from .market_state import RULES, market_state
 from .plans import risk_reward
 from .dashboard_cards import CSS, summary, action, candidate
+from .experiment import BASELINE, completed_snapshot, distance_result
+from .experiment_ui import controls, comparison_view
 
 
 def historical_plan(decision):
@@ -53,10 +55,27 @@ def _level(fig, x, name, value, color, source):
 
 
 @st.cache_data(max_entries=96, show_spinner=False)
-def _analysis(frame, period, asof, source):
+def _analysis(frame, period, asof, source, config=BASELINE):
     if period == '1H' and not frame.empty:
+        frame = frame.loc[frame.eligible.eq(True) & (frame.ts + pd.Timedelta(minutes=3) <= asof)]
         frame = aggregate_rth(frame, 60, asof)
-    return market_state(frame, period, asof, source)
+    return market_state(frame, period, asof, source, config)
+
+
+@st.cache_data(max_entries=96, show_spinner=False)
+def _distance(data, state, config, period):
+    return distance_result(data, state, config, period)
+
+
+@st.cache_data(max_entries=48, show_spinner=False)
+def _replay_decision(selected, data, asof):
+    from .decision import decision
+    from .observations import build_observation
+    from .ict_v03 import scan
+    snapshot = completed_snapshot(data, asof)
+    observation = build_observation(selected, snapshot, {'zones': {}, 'candidate_atr': .25}, asof)
+    report = scan(selected, snapshot['minute'], asof) if not snapshot['minute'].empty else {}
+    return decision(selected, observation, report, asof)
 
 
 def _daily_source(data):
@@ -68,83 +87,110 @@ def _daily_source(data):
 
 def _pick_history(pick, code, key):
     pick(code, key)
-    st.session_state['decision_view'] = '历史时点回顾'
+    st.session_state['experiment_mode'] = '历史回放'
 
 
+@st.fragment
 def render_home(selected, data, plan, decision, rows, decisions, replay_asof, wall_asof, pick):
     d = data[selected]
     st.markdown(CSS, unsafe_allow_html=True)
-    replay = st.radio('分析视角', ['最新归档日K', '历史时点回顾'], horizontal=True, key='decision_view')
-    historical = replay == '历史时点回顾'
-    asof = replay_asof if historical else wall_asof
-    period = '1H' if historical and not d['minute'].empty else '1D'
+    display = st.container()
+    config, asof, cycle, source_choice, comparison, mode = controls(selected, d, wall_asof)
+    if asof is None:
+        asof = wall_asof.replace(hour=0, minute=0)  # Empty analysis; never silently use another date.
+        invalid_date = True
+    else:
+        invalid_date = False
+    historical = mode == '历史回放'
+    period = '1H' if cycle == '1小时' else '1D'
     frame, source = (d['minute'], '富途分钟归档 → 纽约RTH 1H') if period == '1H' else (d['daily'], _daily_source(d))
-    if period == '1D' and d.get('independent_coverage'):
+    candidate_data = d
+    if period == '1D' and d.get('independent_coverage') and source_choice == '独立更新档案':
         meta = d['independent_coverage']
-        source_choice = st.radio('日K来源（分开计算）', ['原历史档案', '独立更新档案'], horizontal=True)
-        if source_choice == '独立更新档案':
-            frame, source = d['independent_daily'], f"{meta['source']}/{meta['feed']} · {meta['adjustment']}"
-            st.caption('独立档案的供应商聚合时段等价性未验证。')
-    state, chart = _analysis(frame, period, asof, source)
-    latest_state, _ = _analysis(d['daily'], '1D', wall_asof, _daily_source(d))
+        frame, source = d['independent_daily'], f"{meta['source']}/{meta['feed']} · {meta['adjustment']}"
+        candidate_data = dict(d, history_origin=None)
+    if invalid_date:
+        frame = frame.iloc[:0]
+    baseline, _ = _analysis(frame, period, asof, source)
+    state, chart = _analysis(frame, period, asof, source, config)
+    before = _distance(candidate_data, baseline, BASELINE, period)
+    after = _distance(candidate_data, state, config, period)
+    comparison_view(comparison, baseline, state, before, after, config)
+    latest_state, _ = _analysis(d['daily'] if not invalid_date else d['daily'].iloc[:0], '1D', asof, _daily_source(d))
     latest_date = latest_state['at'].date().isoformat() if latest_state['at'] is not None else None
-    expected = latest_completed(wall_asof)
+    expected = latest_completed(asof)
     freshness = '无可用日K' if latest_date is None else '行情已过期' if latest_date < expected else '日K截至最近完成交易日'
-    setup = historical_plan(decision)
+    if historical and not invalid_date:
+        decision = _replay_decision(selected, d, asof)
+        rows = [decision['focus']] if decision.get('focus') else []
+    elif invalid_date:
+        rows, decision = [], None
+    setup = historical_plan(decision) if period == '1H' else None
     manual = manual_prices(plan)
+    if historical and plan and pd.Timestamp(plan['updated_at']) > asof:
+        manual = None
     missing = state['at'] is None
     stale = latest_date is not None and latest_date < expected
     at_text = state['at'].strftime('%Y-%m-%d %H:%M 纽约') if state['at'] is not None else '暂无有效行情'
-    summary(selected[3:], state, stale, missing, at_text, historical)
-    left, right = st.columns([1.7, 1], gap='medium')
-    with left:
-        with st.container(key='answer-chart'):
-            st.subheader(f'{selected[3:]} · 主图')
-            st.caption(('日K' if period == '1D' else '1小时') + ' · 历史收盘资料')
-            manual_layer = bool(manual and not historical and st.checkbox('叠加用户计划价格（待人工复核）'))
-            if chart.empty:
-                st.info('该时点无可用K线')
-            else:
-                dates = chart.ts.map(str)
-                fig = go.Figure(go.Candlestick(x=dates, open=chart.open, high=chart.high,
-                                                low=chart.low, close=chart.close, name=period))
-                x = [dates.iloc[0], dates.iloc[-1]]
-                if manual_layer:
-                    origin = f"用户计划 v{plan['version']} · 保存 {plan['updated_at']} · 周期未指定"
-                    _level(fig, x, '人工计划入场下沿', plan['low'], '#ffbd66', origin)
-                    if plan['high'] != plan['low']:
-                        _level(fig, x, '人工计划入场上沿', plan['high'], '#ffbd66', origin)
-                    _level(fig, x, '人工计划失效／止损参考', plan['invalid'], '#fa7885', origin)
-                    _level(fig, x, '人工计划目标一', manual['target1'], '#60d4ab', origin)
-                    if manual['target2'] != manual['target1']:
-                        _level(fig, x, '人工计划目标二', manual['target2'], '#77aafd', origin)
-                if historical and period == '1H' and setup:
-                    origin = str(setup['confirmed_at'])
-                    _level(fig, x, '历史入场下沿', setup['low'], '#ffbd66', origin)
-                    if setup['high'] != setup['low']:
-                        _level(fig, x, '历史入场上沿', setup['high'], '#ffbd66', origin)
-                    _level(fig, x, '历史结构失效／止损参考', setup['invalid'], '#fa7885', str(setup['invalid_confirmed_at']))
-                fig.update_layout(template='plotly_dark', height=400, showlegend=True,
-                                  xaxis_rangeslider_visible=False, yaxis=dict(side='right', automargin=True),
-                                  legend=dict(orientation='h'), margin=dict(l=8,r=50,t=12,b=24),
-                                  uirevision=f'{selected}-{period}-{source}')
-                st.plotly_chart(fig, width='stretch', key='decision_main_chart')
-    with right:
-        with st.container(key='answer-action'):
-            action(selected[3:], manual, plan, setup if historical else None, stale)
-    st.subheader('Top5 · 观察名单')
-    st.caption('当前暂无合格买卖点 · 以下仅为观察顺序')
-    watch = decisions[:5]
-    if not watch:
-        st.info('暂无观察候选')
-    for col, item in zip(st.columns(max(len(watch), 1)), watch):
-        code = item['symbol']
-        with col:
-            candidate(code[3:], '等待新行情', '暂无合格买卖点', '更新后复核')
-            if st.button('查看 '+code[3:], key='watch_'+code, on_click=pick, args=(code, None), width='stretch'):
-                st.rerun()
-            with st.expander('详情'):
-                st.caption('仅日K，1小时条件尚不具备' if data[code].get('daily_only') else '以前的重要价格位置可在历史证据中复核')
+    # Fill the earlier container so the main layout stays above the expanded lab.
+    with display:
+        st.caption(f'{mode} · {source} · {cycle} · 数据截至 {at_text} · {freshness}')
+        if state['trend'] == 'UNKNOWN':
+            st.info('资料不足：' + state['reason'])
+        summary(selected[3:], state, stale, missing, at_text, historical)
+        left, right = st.columns([1.7, 1], gap='medium')
+        with left:
+            with st.container(key='answer-chart'):
+                st.subheader(f'{selected[3:]} · 主图')
+                st.caption(('日K' if period == '1D' else '1小时') + ' · 历史收盘资料')
+                manual_layer = bool(manual and not historical and st.checkbox('叠加用户计划价格（待人工复核）'))
+                if chart.empty:
+                    st.info('该时点无可用K线')
+                else:
+                    dates = chart.ts.map(str)
+                    fig = go.Figure(go.Candlestick(x=dates, open=chart.open, high=chart.high,
+                                                    low=chart.low, close=chart.close, name=period))
+                    x = [dates.iloc[0], dates.iloc[-1]]
+                    if manual_layer:
+                        origin = f"用户计划 v{plan['version']} · 保存 {plan['updated_at']} · 周期未指定"
+                        _level(fig, x, '人工计划入场下沿', plan['low'], '#ffbd66', origin)
+                        if plan['high'] != plan['low']:
+                            _level(fig, x, '人工计划入场上沿', plan['high'], '#ffbd66', origin)
+                        _level(fig, x, '人工计划失效／止损参考', plan['invalid'], '#fa7885', origin)
+                        _level(fig, x, '人工计划目标一', manual['target1'], '#60d4ab', origin)
+                        if manual['target2'] != manual['target1']:
+                            _level(fig, x, '人工计划目标二', manual['target2'], '#77aafd', origin)
+                    if historical and period == '1H' and setup:
+                        origin = str(setup['confirmed_at'])
+                        _level(fig, x, '历史入场下沿', setup['low'], '#ffbd66', origin)
+                        if setup['high'] != setup['low']:
+                            _level(fig, x, '历史入场上沿', setup['high'], '#ffbd66', origin)
+                        _level(fig, x, '历史结构失效／止损参考', setup['invalid'], '#fa7885', str(setup['invalid_confirmed_at']))
+                    fig.update_layout(template='plotly_dark', height=400, showlegend=True,
+                                      xaxis_rangeslider_visible=False, yaxis=dict(side='right', automargin=True),
+                                      legend=dict(orientation='h'), margin=dict(l=8,r=50,t=12,b=24),
+                                      uirevision=f'{selected}-{period}-{source}')
+                    st.plotly_chart(fig, width='stretch', key='decision_main_chart')
+        with right:
+            with st.container(key='answer-action'):
+                action(selected[3:], manual, plan, setup if historical else None, stale)
+        st.subheader('Top5 · 观察名单')
+        st.caption('固定观察顺序 · 各证券资料时间可能不同，不是同一时点的当前市场排名；实验仅重算所选证券。')
+        watch = [dict(symbol=code) for code in data if code != 'US.VIX'][:5]
+        if not watch:
+            st.info('暂无观察候选')
+        for col, item in zip(st.columns(max(len(watch), 1)), watch):
+            code = item['symbol']
+            with col:
+                watch_frame = data[code]['daily'] if not invalid_date else data[code]['daily'].iloc[:0]
+                watch_state, _ = _analysis(watch_frame, '1D', asof, _daily_source(data[code]))
+                watch_at = watch_state['at']
+                watch_date = watch_at.strftime('%Y-%m-%d %H:%M 纽约') if watch_at is not None else '暂无资料'
+                candidate(code[3:], '仅供历史观察', '暂无合格买卖点', '先核对资料时间与完整性', data_at=watch_date)
+                if st.button('查看 '+code[3:], key='watch_'+code, on_click=pick, args=(code, None), width='stretch'):
+                    st.rerun()
+                with st.expander('详情'):
+                    st.caption('仅日K，1小时条件尚不具备' if data[code].get('daily_only') else '以前的重要价格位置可在历史证据中复核')
     with st.expander('专业分析和计算依据'):
         st.caption(f'分析时点 {asof.isoformat()} · 周期 {period} · {source}')
         st.caption(f'最新原归档日K收盘 {latest_state["at"] or "暂无"} · 最近完成纽约交易日 {expected} · {freshness}')
@@ -169,7 +215,7 @@ def render_home(selected, data, plan, decision, rows, decisions, replay_asof, wa
             st.write('历史条件化计划', setup)
         st.caption('历史观察与当前交易资格分别检查。')
     with st.expander('数据更新与资格详情'):
-        st.caption('实时ICT资格继续关闭 · DATA_BLOCKED')
-        st.caption('每日自动更新 BLOCKED · 未验证本地无人值守数据访问' if st.session_state.get('_daily_update_status') == 'BLOCKED' else '每日更新状态见设置与审计')
+        st.caption('实时行情尚未通过验收；实时ICT资格继续关闭。')
+        st.caption('每日自动更新仍阻断 · 本地无人值守数据访问尚未验证' if st.session_state.get('_daily_update_status') == 'BLOCKED' else '每日更新状态见设置与审计')
         if d.get('daily_only'):
             st.caption('只有日K，1小时ICT资格不足')

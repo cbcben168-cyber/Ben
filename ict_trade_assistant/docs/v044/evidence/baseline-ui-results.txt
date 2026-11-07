@@ -1,0 +1,110 @@
+.FF..FF                                                                  [100%]
+================================== FAILURES ===================================
+_ test_chinese_blocked_home[UNAVAILABLE-\u884c\u60c5\u6570\u636e\u4e0d\u53ef\u7528] _
+tests\test_localization.py:20: in test_chinese_blocked_home
+    app=AppTest.from_file(str(Path(__file__).resolve().parents[1]/'app.py')).run()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\cbcbe\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\streamlit\testing\v1\app_test.py:643: in run
+    return self._tree.run(timeout=timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\cbcbe\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\streamlit\testing\v1\element_tree.py:3870: in run
+    result = self._runner._run(widget_states, timeout=timeout)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\cbcbe\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\streamlit\testing\v1\app_test.py:547: in _run
+    self._tree = script_runner.run(
+C:\Users\cbcbe\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\streamlit\testing\v1\local_script_runner.py:183: in run
+    require_widgets_deltas(self, timeout)
+C:\Users\cbcbe\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\streamlit\testing\v1\local_script_runner.py:247: in require_widgets_deltas
+    raise RuntimeError(err_string)
+E   RuntimeError: AppTest script run timed out after 3(s)
+---------------------------- Captured stderr call -----------------------------
+2026-11-07 14:44:11.164 No runtime found, using MemoryCacheStorageManager
+2026-11-07 14:44:12.864 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+------------------------------ Captured log call ------------------------------
+WARNING  streamlit.runtime.caching.cache_data_api:cache_data_api.py:398 No runtime found, using MemoryCacheStorageManager
+WARNING  streamlit.runtime.scriptrunner_utils.script_run_context:script_run_context.py:508 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+_ test_chinese_blocked_home[INCONSISTENT-\u884c\u60c5\u6570\u636e\u4e0d\u4e00\u81f4] _
+tests\test_localization.py:20: in test_chinese_blocked_home
+    app=AppTest.from_file(str(Path(__file__).resolve().parents[1]/'app.py')).run()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\cbcbe\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\streamlit\testing\v1\app_test.py:643: in run
+    return self._tree.run(timeout=timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\cbcbe\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\streamlit\testing\v1\element_tree.py:3870: in run
+    result = self._runner._run(widget_states, timeout=timeout)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\cbcbe\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\streamlit\testing\v1\app_test.py:547: in _run
+    self._tree = script_runner.run(
+C:\Users\cbcbe\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\streamlit\testing\v1\local_script_runner.py:183: in run
+    require_widgets_deltas(self, timeout)
+C:\Users\cbcbe\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\streamlit\testing\v1\local_script_runner.py:247: in require_widgets_deltas
+    raise RuntimeError(err_string)
+E   RuntimeError: AppTest script run timed out after 3(s)
+---------------------------- Captured stderr call -----------------------------
+2026-11-07 14:44:18.544 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+------------------------------ Captured log call ------------------------------
+WARNING  streamlit.runtime.scriptrunner_utils.script_run_context:script_run_context.py:508 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+__________ test_four_unique_candidates_not_replaced_by_empty_layout ___________
+tests\test_portrait_layout.py:47: in test_four_unique_candidates_not_replaced_by_empty_layout
+    assert len([b for b in app.button if (b.key or '').startswith('pick_')])==4
+E   AssertionError: assert 5 == 4
+E    +  where 5 = len([Button(key='pick_US.SPY_MANUAL', label='1 · SPY · MANUAL · 区域内'), Button(key='pick_US.QQQ_MANUAL', label='2 · QQQ · M...ck_US.SOXX_MANUAL', label='4 · SOXX · MANUAL · 区域内'), Button(key='pick_US.DIA_MANUAL', label='5 · DIA · MANUAL · 区域内')])
+---------------------------- Captured stderr call -----------------------------
+2026-11-07 14:44:31.607 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+------------------------------ Captured log call ------------------------------
+WARNING  streamlit.runtime.scriptrunner_utils.script_run_context:script_run_context.py:508 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+_______________________ test_navigation_settings_notes ________________________
+tests\test_ui.py:22: in test_navigation_settings_notes
+    assert store.settings()['distance_bps'] == 25.
+E   assert 10.0 == 25.0
+---------------------------- Captured stderr call -----------------------------
+2026-11-07 14:44:47.180 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+------------------------------ Captured log call ------------------------------
+WARNING  streamlit.runtime.scriptrunner_utils.script_run_context:script_run_context.py:508 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+ERROR    ict.stability:diagnostics.py:52 数据库操作失败 method=manage_watchlist
+Traceback (most recent call last):
+  File "C:\Users\cbcbe\Documents\ChatGPT\ict_trade_assistant\ict_trade_assistant\data\v044\baseline\ict_trade_assistant\desk\diagnostics.py", line 47, in call
+    result=target(*args,**kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\cbcbe\Documents\ChatGPT\ict_trade_assistant\ict_trade_assistant\data\v044\baseline\ict_trade_assistant\desk\store.py", line 61, in manage_watchlist
+    code = normalize_symbol(symbol) if action != 'import_top20' else None
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\cbcbe\Documents\ChatGPT\ict_trade_assistant\ict_trade_assistant\data\v044\baseline\ict_trade_assistant\desk\watchlist.py", line 15, in normalize_symbol
+    raise ValueError('请输入美股代码，例如SPY、US.AAPL或BRK.B。')
+ValueError: 请输入美股代码，例如SPY、US.AAPL或BRK.B。
+============================== warnings summary ===============================
+..\..\..\..\..\..\..\..\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\exchange_calendars\exchange_calendar.py:65
+  C:\Users\cbcbe\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\exchange_calendars\exchange_calendar.py:65: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+    ONE_HOUR = pd.Timedelta("1h")
+
+..\..\..\..\..\..\..\..\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\exchange_calendars\utils\pandas_utils.py:60
+..\..\..\..\..\..\..\..\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\exchange_calendars\utils\pandas_utils.py:60
+..\..\..\..\..\..\..\..\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\exchange_calendars\utils\pandas_utils.py:60
+  C:\Users\cbcbe\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\exchange_calendars\utils\pandas_utils.py:60: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+    delta = pd.Timedelta(
+
+tests/test_localization.py: 32 warnings
+tests/test_portrait_layout.py: 326 warnings
+tests/test_ui.py: 12 warnings
+  C:\Users\cbcbe\Documents\ChatGPT\ict_trade_assistant\ict_trade_assistant\data\v044\baseline\ict_trade_assistant\desk\clock.py:25: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+    return CAL.date_to_session(pd.Timestamp(day) - pd.Timedelta(days=1), direction='previous').date()
+
+tests/test_portrait_layout.py::test_compact_empty_card_keeps_sop_and_chart_controls
+tests/test_portrait_layout.py::test_compact_empty_card_keeps_sop_and_chart_controls
+tests/test_portrait_layout.py::test_compact_empty_card_keeps_sop_and_chart_controls
+tests/test_portrait_layout.py::test_compact_empty_card_keeps_sop_and_chart_controls
+tests/test_portrait_layout.py::test_four_unique_candidates_not_replaced_by_empty_layout
+tests/test_portrait_layout.py::test_four_unique_candidates_not_replaced_by_empty_layout
+tests/test_portrait_layout.py::test_four_unique_candidates_not_replaced_by_empty_layout
+tests/test_portrait_layout.py::test_four_unique_candidates_not_replaced_by_empty_layout
+tests/test_portrait_layout.py::test_four_unique_candidates_not_replaced_by_empty_layout
+  C:\Users\cbcbe\Documents\ChatGPT\ict_trade_assistant\ict_trade_assistant\data\v044\baseline\ict_trade_assistant\desk\ict_v03.py:64: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+    f['usable'] = f.eligible.eq(True) & (f.ts + pd.Timedelta(minutes=3) <= now)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/test_localization.py::test_chinese_blocked_home[UNAVAILABLE-\u884c\u60c5\u6570\u636e\u4e0d\u53ef\u7528]
+FAILED tests/test_localization.py::test_chinese_blocked_home[INCONSISTENT-\u884c\u60c5\u6570\u636e\u4e0d\u4e00\u81f4]
+FAILED tests/test_portrait_layout.py::test_four_unique_candidates_not_replaced_by_empty_layout
+FAILED tests/test_ui.py::test_navigation_settings_notes - assert 10.0 == 25.0
+4 failed, 3 passed, 383 warnings in 44.05s

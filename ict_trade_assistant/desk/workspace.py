@@ -19,6 +19,7 @@ from .ict_view import add_event_layers, review_text, event_rows, STATUS as ICT_S
 from .decision import prioritize
 from .watchlist import universe
 from .history_source import missing_history
+from .experiment import completed_snapshot, replay_cutoff
 
 CSS = '''<style>
 .block-container{padding:4rem 1.25rem 1rem;max-width:none;font-size:16px}
@@ -106,6 +107,14 @@ def render(store, settings, market_data):
     @st.fragment(run_every=2 if initializing else settings['refresh_seconds'] if auto else None)
     def body():
         now = now_et()
+        replaying = st.session_state.get('experiment_mode') == '历史回放'
+        invalid_replay = False
+        if replaying:
+            try:
+                now = replay_cutoff(st.session_state['experiment_day'])
+                invalid_replay = now > datetime.now(ET)
+            except (ValueError, KeyError):
+                invalid_replay = True
         selected = st.session_state.desk_symbol
         all_codes = list(dict.fromkeys(list(pool)+[selected,'US.VIX']))
         cycle=('auto',int(now.timestamp()//settings['refresh_seconds']),settings['refresh_seconds']) if auto else ('manual',st.session_state.get('manual_cycle',0))
@@ -119,15 +128,23 @@ def render(store, settings, market_data):
                 import logging
                 logging.getLogger('ict.stability').exception('标的快照展示失败 symbol=%s',c)
                 data[c]=dict(health=dict(quality='UNAVAILABLE',reason='该标的快照暂不可用，请查看诊断日志。',received_at=now.isoformat()),minute=pd.DataFrame(),daily=pd.DataFrame(),errors=[])
+        if replaying:
+            data = {c:completed_snapshot(value, now) for c,value in data.items()}
+            if invalid_replay:
+                for value in data.values():
+                    value['minute'] = value['minute'].iloc[:0]
+                    value['daily'] = value['daily'].iloc[:0]
         health = {c:fresh(d, now) for c,d in data.items()}
-        observations={c:build_observation(c,data[c],settings,now,active_plan(store,c) or settings['zones'].get(c)) for c in all_codes if c!='US.VIX'}
+        observations={c:build_observation(c,data[c],settings,now,
+                      None if replaying else active_plan(store,c) or settings['zones'].get(c)) for c in all_codes if c!='US.VIX'}
         for c,o in observations.items():
             if data[c].get('daily_only'):
                 o.update(source=data[c]['health']['source'],reason='只有供应商日K；未验证分钟完整性及1H ICT资格。')
-        for observation in observations.values():
-            store.observation(observation)
-            record_events(store,observation)
-        if 'US.VIX' in health:
+        if not replaying:
+            for observation in observations.values():
+                store.observation(observation)
+                record_events(store,observation)
+        if 'US.VIX' in health and not replaying:
             vh=health['US.VIX']
             store.transition('SYSTEM','US.VIX','DATA_HEALTH',vh['quality'],now.isoformat(),vh['reason'],vh,'health')
         observation=observations[selected] if selected in observations else None
@@ -139,11 +156,13 @@ def render(store, settings, market_data):
         focus=next((r for r in (regions(observation) if observation else []) if chosen==(selected,r['key'])),None)
         if focus is None: focus=next((r for r in rows if r['symbol']==selected),None)
         h=health[selected]; d=data[selected]; plan=active_plan(store,selected)
+        if replaying and plan and pd.Timestamp(plan['updated_at']) > now:
+            plan = None
         ict=reports.get(selected) or historical_ict(selected,d['minute'],now.replace(second=0,microsecond=0))
         decision=next((r for r in decisions if r['symbol']==selected),None)
-        zone=plan or settings['zones'].get(selected)
+        zone=plan or (None if replaying else settings['zones'].get(selected))
         for p in store.plans():
-            if p['symbol'] in pool and p['symbol'] in health: evaluate_plan(store,p,health[p['symbol']],now.date(),settings['distance_bps'])
+            if not replaying and p['symbol'] in pool and p['symbol'] in health: evaluate_plan(store,p,health[p['symbol']],now.date(),settings['distance_bps'])
         render_home(selected, data, plan, decision, rows, decisions, now,
                     datetime.now(ET).replace(second=0, microsecond=0), select_candidate)
         with st.expander('详细证据与历史分析图层'):

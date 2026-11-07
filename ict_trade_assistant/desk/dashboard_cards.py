@@ -39,7 +39,7 @@ def price(value):
 
 
 def summary(symbol, state, stale, missing, at, historical):
-    trend = {'上涨': '↑ 偏多', '下跌': '↓ 偏空', '横盘': '↔ 横盘'}.get(state['trend'], '? 无法判断')
+    trend = {'上涨': '↑ 偏多', '下跌': '↓ 偏空', '横盘': '↔ 横盘', '过渡': '↔ 过渡'}.get(state['trend'], '? 无法判断')
     current = '? 无法判断' if stale or missing else trend
     conclusion = '数据太旧不能判断' if stale else '目前无法确定' if missing else '继续等待'
     reason = '现在不能根据这份旧数据直接买卖' if stale else '资料不足，暂时不能判断买卖点' if missing else '实时审查尚未开放，等待合格数据和结构'
@@ -89,8 +89,9 @@ def action(symbol, manual, plan, setup, stale):
     st.markdown(html, unsafe_allow_html=True)
 
 
-def candidate(symbol, status, region, next_step):
+def candidate(symbol, status, region, next_step, data_at=None):
+    detail = '数据截至　'+data_at if data_at else '观察区　'+region
     st.markdown(f'<article class="dash-candidate"><h4>{escape(symbol)}</h4>'
                 f'<span class="dash-badge dash-red">{escape(status)}</span>'
-                f'<p>观察区　{escape(region)}</p><p>下一步　{escape(next_step)}</p></article>',
+                f'<p>{escape(detail)}</p><p>下一步　{escape(next_step)}</p></article>',
                 unsafe_allow_html=True)

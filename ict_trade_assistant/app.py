@@ -32,7 +32,8 @@ st.markdown('''<style>.block-container{padding-top:2rem} h1{letter-spacing:-1px}
 st.sidebar.title(TEXT['文案1'])
 st.sidebar.caption('v0.4.3 · 本地历史观察与人工计划')
 page = st.sidebar.radio(TEXT['文案3'], ['交易工作台', '事件与备注', '设置与审计', 'SOP 与进度', '其他策略', '交易记录', '期权'])
-symbol = st.sidebar.selectbox(TEXT['文案4'], settings['watchlist']) if settings['watchlist'] else None
+symbol = (st.sidebar.selectbox(TEXT['文案4'], settings['watchlist'])
+          if settings['watchlist'] and page != '交易工作台' else st.session_state.get('desk_symbol'))
 st.sidebar.caption('Futu OpenD · 127.0.0.1:11111\n无账户查询 · 无订单接口')
 
 

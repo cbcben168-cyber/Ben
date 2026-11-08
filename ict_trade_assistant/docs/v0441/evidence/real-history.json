@@ -1,0 +1,142 @@
+{
+  "version": "v0.4.4.1",
+  "base": "3bdaa43",
+  "ema": [
+    {
+      "symbol": "US.SPY",
+      "short_span": 20,
+      "long_span": 50,
+      "at": "2026-10-29 16:00:00-04:00",
+      "points": 35,
+      "last_short": 768.9921008030742,
+      "last_long": 767.7656371528842,
+      "table_short": 768.9921008030742,
+      "table_long": 767.7656371528842,
+      "all_points_match_owner": true,
+      "compute_seconds": 0.2219
+    },
+    {
+      "symbol": "US.SPY",
+      "short_span": 5,
+      "long_span": 50,
+      "at": "2026-10-29 16:00:00-04:00",
+      "points": 35,
+      "last_short": 768.8966411002316,
+      "last_long": 767.7656371528842,
+      "table_short": 768.8966411002316,
+      "table_long": 767.7656371528842,
+      "all_points_match_owner": true,
+      "compute_seconds": 0.2112
+    },
+    {
+      "symbol": "US.QQQ",
+      "short_span": 20,
+      "long_span": 50,
+      "at": "2026-10-29 16:00:00-04:00",
+      "points": 35,
+      "last_short": 724.3236012034779,
+      "last_long": 724.6942263998951,
+      "table_short": 724.3236012034779,
+      "table_long": 724.6942263998951,
+      "all_points_match_owner": true,
+      "compute_seconds": 0.5216
+    },
+    {
+      "symbol": "US.QQQ",
+      "short_span": 5,
+      "long_span": 50,
+      "at": "2026-10-29 16:00:00-04:00",
+      "points": 35,
+      "last_short": 717.689187131823,
+      "last_long": 724.6942263998951,
+      "table_short": 717.689187131823,
+      "table_long": 724.6942263998951,
+      "all_points_match_owner": true,
+      "compute_seconds": 0.4995
+    },
+    {
+      "symbol": "US.SMH",
+      "short_span": 20,
+      "long_span": 50,
+      "at": "2026-11-02 16:00:00-05:00",
+      "points": 37,
+      "last_short": 555.9328637323543,
+      "last_long": 564.7356091284472,
+      "table_short": 555.9328637323543,
+      "table_long": 564.7356091284472,
+      "all_points_match_owner": true,
+      "compute_seconds": 0.5448
+    },
+    {
+      "symbol": "US.SMH",
+      "short_span": 5,
+      "long_span": 50,
+      "at": "2026-11-02 16:00:00-05:00",
+      "points": 37,
+      "last_short": 532.6619256588896,
+      "last_long": 564.7356091284472,
+      "table_short": 532.6619256588896,
+      "table_long": 564.7356091284472,
+      "all_points_match_owner": true,
+      "compute_seconds": 0.5348
+    }
+  ],
+  "replay": [
+    {
+      "symbol": "US.SPY",
+      "cutoff": "2026-10-28 16:02:00-04:00",
+      "last_point": "2026-10-28 00:00:00-04:00",
+      "points": 34,
+      "future_poison_invariant": true,
+      "live_qualified": false
+    },
+    {
+      "symbol": "US.QQQ",
+      "cutoff": "2026-10-28 16:02:00-04:00",
+      "last_point": "2026-10-28 00:00:00-04:00",
+      "points": 34,
+      "future_poison_invariant": true,
+      "live_qualified": false
+    },
+    {
+      "symbol": "US.SMH",
+      "cutoff": "2026-10-28 16:02:00-04:00",
+      "last_point": "2026-10-28 00:00:00-04:00",
+      "points": 34,
+      "future_poison_invariant": true,
+      "live_qualified": false
+    }
+  ],
+  "candidate": {
+    "symbol": "US.QQQ",
+    "before": {
+      "eligible": true,
+      "label": "进入历史观察",
+      "reason": "仅模拟关键价距离筛选，不代表ICT确认或交易许可。",
+      "distance": 0.13538381025787796,
+      "threshold": 0.25,
+      "key": "OR_15_HIGH",
+      "gap": 1.6999999999999318,
+      "price": 715.34,
+      "price_at": "2026-10-29 16:00:00-04:00",
+      "atr": 12.55689285714286
+    },
+    "after": {
+      "eligible": false,
+      "label": "超出观察距离",
+      "reason": "仅模拟关键价距离筛选，不代表ICT确认或交易许可。",
+      "distance": 0.13538381025787796,
+      "threshold": 0.05,
+      "key": "OR_15_HIGH",
+      "gap": 1.6999999999999318,
+      "price": 715.34,
+      "price_at": "2026-10-29 16:00:00-04:00",
+      "atr": 12.55689285714286
+    }
+  },
+  "warmup": {
+    "fewer_than_50_hidden": true,
+    "unknown_source_hidden": true,
+    "missing_1h_hidden": true
+  }
+}

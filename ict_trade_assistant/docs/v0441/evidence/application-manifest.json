@@ -1,0 +1,46 @@
+{
+  "version": "v0.4.4.1",
+  "base": "3bdaa43c71486825cf5a92fb5a8c73ccce7dfbd8",
+  "branch": "codex/ict-v0441-visual-factors",
+  "target": "C:\\Users\\cbcbe\\TradingCodex\\ict_trade_assistant_v04",
+  "files": [
+    {
+      "file": "app.py",
+      "before_sha256": "de45735e1d0a3b408aae992230b81c4036b4af3a6df488d8db7ed4910e0a0c6a",
+      "originally_exists": true,
+      "release_sha256": "3cc46a565212f5a8d97ce0b3483a854c89784969d140369eec97ff201359c4ed"
+    },
+    {
+      "file": "desk/dashboard_cards.py",
+      "before_sha256": "a97033497a7f0ae5cbe66c06d55551aaeaef6c97b93cb4089e9259cd1bc11f89",
+      "originally_exists": true,
+      "release_sha256": "a4374652ee73b9aec79d4b036091b6e150cfcb5154802ea7419a19b731a52cf9"
+    },
+    {
+      "file": "desk/decision_home.py",
+      "before_sha256": "1a12e8fc4a1ffc6b2d13a452224f5d602c3a56006a7fb3784f1b0099b7c636a9",
+      "originally_exists": true,
+      "release_sha256": "732cae8ab7a410a697042d2ce8a9679ac2a1bf1cf61c958947e68fa28168b8c2"
+    },
+    {
+      "file": "desk/experiment.py",
+      "before_sha256": "a88b574c72c836a45ab1eef557ecd63902142c2054e55690e74bcfbac7b699d4",
+      "originally_exists": true,
+      "release_sha256": "5ce0c71b9eabf3b024a369874605493f9213df88f8d03ed0ff381875a912fdbd"
+    },
+    {
+      "file": "desk/experiment_ui.py",
+      "before_sha256": "d180a5b564b74d2890f7824a1fd9c3a8a9d3227921a7f79f6ae382e98eacddfd",
+      "originally_exists": true,
+      "release_sha256": "b77ffabbc042f3b9f0feef9879b94a26eb949b49bbb9b7fb4243f242a1dea48d"
+    },
+    {
+      "file": "desk/ema_layers.py",
+      "before_sha256": null,
+      "originally_exists": false,
+      "release_sha256": "a91cf420d254ba30bd9a609498a3f437d9a92a183e5c24a45af0ba10e453364f"
+    }
+  ],
+  "protected_file_count": 120,
+  "deployment_status": "AWAITING_SEPARATE_APPROVAL"
+}

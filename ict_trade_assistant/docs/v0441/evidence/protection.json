@@ -1,0 +1,59 @@
+{
+  "protected_unchanged": true,
+  "changed": [],
+  "runtime_code_unchanged": true,
+  "runtime_differences": [],
+  "user_unchanged": true,
+  "user_database_bytes_unchanged": true,
+  "user": {
+    "integrity": "ok",
+    "acknowledgements": {
+      "rows": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "audit": {
+      "rows": 8,
+      "sha256": "6a3bcbbceb114640f80e011ee9e308e31c8972855ed2a6865331b642d3988205"
+    },
+    "events": {
+      "rows": 2,
+      "sha256": "10b8ea51fd431da609a21b4d6595fdd78cc6c966678864539c97a1ecc172f94d"
+    },
+    "notes": {
+      "rows": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "plan_versions": {
+      "rows": 2,
+      "sha256": "2d45edc1e29497490c9a6cc76ed7acdbf25b1e5389ffd442684dc0751813ef49"
+    },
+    "settings": {
+      "rows": 2,
+      "sha256": "7f183923fce5dd1f6371d24826e4e83e70ae344b87fce613ba5e6afe52762efc"
+    },
+    "plans": [
+      {
+        "symbol": "US.SMH",
+        "version": 1,
+        "status": "ACTIVE"
+      },
+      {
+        "symbol": "US.SPY",
+        "version": 1,
+        "status": "ACTIVE"
+      }
+    ]
+  },
+  "health": {
+    "status": 200,
+    "body": "ok"
+  },
+  "heartbeat": {
+    "pid": 22992,
+    "port": 8506,
+    "at": 1794124633.325512,
+    "uptime_seconds": 87375,
+    "root": "C:\\Users\\cbcbe\\TradingCodex\\ict_trade_assistant_v04",
+    "build_sha256": "88f7e6227f9da931fe646837b58edfd1108ba88024b72b5d92621afe215dd0a3"
+  }
+}

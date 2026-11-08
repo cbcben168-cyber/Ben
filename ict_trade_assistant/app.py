@@ -30,7 +30,7 @@ st.markdown('''<style>.block-container{padding-top:2rem} h1{letter-spacing:-1px}
 [data-testid="stMetric"]{background:#142036;padding:18px;border-radius:12px}
 .stCaption{color:#a3b4cb}</style>''', unsafe_allow_html=True)
 st.sidebar.title(TEXT['文案1'])
-st.sidebar.caption('v0.4.4 · 历史数据与因子实验')
+st.sidebar.caption('v0.4.4.1 · 历史EMA与因子实验')
 page = st.sidebar.radio(TEXT['文案3'], ['交易工作台', '事件与备注', '设置与审计', 'SOP 与进度', '其他策略', '交易记录', '期权'])
 symbol = (st.sidebar.selectbox(TEXT['文案4'], settings['watchlist'])
           if settings['watchlist'] and page != '交易工作台' else st.session_state.get('desk_symbol'))

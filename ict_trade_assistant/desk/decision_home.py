@@ -11,6 +11,7 @@ from .dashboard_cards import CSS, summary, action, candidate
 from .experiment import BASELINE, completed_snapshot, distance_result
 from .experiment_ui import controls, comparison_view
 from .ema_layers import LAYER_MODES, UNAVAILABLE, ema_points, add_ema_lines
+from .futu_daily import FUTU, CONTRACT, PRICE_NOTE, PLAN_NOTE, select_history
 
 
 def historical_plan(decision):
@@ -85,6 +86,8 @@ def _replay_decision(selected, data, asof):
 
 
 def _daily_source(data):
+    if data.get('_history_selection') == FUTU:
+        return CONTRACT + ' · 事后前复权'
     if data.get('history_origin'):
         return '富途原生日K归档'
     meta = data.get('coverage') or data.get('health', {})
@@ -107,6 +110,8 @@ def render_home(selected, data, plan, decision, rows, decisions, replay_asof, wa
         invalid_date = True
     else:
         invalid_date = False
+    data = {code: select_history(value, source_choice) for code,value in data.items()}
+    d = data[selected]
     historical = mode == '历史回放'
     period = '1H' if cycle == '1小时' else '1D'
     frame, source = (d['minute'], '富途分钟归档 → 纽约RTH 1H') if period == '1H' else (d['daily'], _daily_source(d))
@@ -124,7 +129,7 @@ def render_home(selected, data, plan, decision, rows, decisions, replay_asof, wa
     comparison_view(comparison, baseline, state, before, after, config)
     latest_state, _ = _analysis(d['daily'] if not invalid_date else d['daily'].iloc[:0], '1D', asof, _daily_source(d))
     latest_date = latest_state['at'].date().isoformat() if latest_state['at'] is not None else None
-    expected = latest_completed(asof)
+    expected = latest_completed(asof if historical else wall_asof)
     freshness = '无可用日K' if latest_date is None else '行情已过期' if latest_date < expected else '日K截至最近完成交易日'
     if historical and not invalid_date:
         decision = _replay_decision(selected, d, asof)
@@ -132,7 +137,8 @@ def render_home(selected, data, plan, decision, rows, decisions, replay_asof, wa
     elif invalid_date:
         rows, decision = [], None
     setup = historical_plan(decision) if period == '1H' else None
-    manual = manual_prices(plan)
+    basis_blocked = bool(d.get('_price_basis_unverified'))
+    manual = None if basis_blocked else manual_prices(plan)
     if historical and plan and pd.Timestamp(plan['updated_at']) > asof:
         manual = None
     missing = state['at'] is None
@@ -141,6 +147,10 @@ def render_home(selected, data, plan, decision, rows, decisions, replay_asof, wa
     # Fill the earlier container so the main layout stays above the expanded lab.
     with display:
         st.caption(f'{mode} · {source} · {cycle} · 数据截至 {at_text} · {freshness}')
+        if basis_blocked:
+            st.caption(PRICE_NOTE + ' 最新历史日K不是实时行情；1H ICT及实时交易资格关闭。')
+            if plan:
+                st.caption(PLAN_NOTE)
         if state['trend'] == 'UNKNOWN':
             st.info('资料不足：' + state['reason'])
         summary(selected[3:], state, stale, missing, at_text, historical)
@@ -186,7 +196,7 @@ def render_home(selected, data, plan, decision, rows, decisions, replay_asof, wa
                     st.plotly_chart(fig, width='stretch', key='decision_main_chart')
         with right:
             with st.container(key='answer-action'):
-                action(selected[3:], manual, plan, setup if historical else None, stale)
+                action(selected[3:], manual, plan, setup if historical else None, stale, basis_blocked=basis_blocked)
         st.subheader('重点观察的5只证券（固定顺序）')
         st.caption('当前缺少合格的新行情，尚不能评出今日最佳交易候选。')
         watch = [dict(symbol=code) for code in data if code != 'US.VIX'][:5]
@@ -211,6 +221,8 @@ def render_home(selected, data, plan, decision, rows, decisions, replay_asof, wa
         st.caption(f'最新原归档日K收盘 {latest_state["at"] or "暂无"} · 最近完成纽约交易日 {expected} · {freshness}')
         if d.get('independent_coverage'):
             st.write('独立更新档案', d['independent_coverage'])
+        if basis_blocked:
+            st.write('独立Futu日K来源与校验', d['futu_coverage'])
         st.caption(RULES)
         st.caption('EMA图线每个点均复用该时点最近50根已完成K线及首根初始化；最早49根不画指标。'
                    '观察卡历史趋势使用原始参数，不参与评分或排名。')

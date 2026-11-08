@@ -20,6 +20,7 @@ from .decision import prioritize
 from .watchlist import universe
 from .history_source import missing_history
 from .experiment import completed_snapshot, replay_cutoff
+from .futu_daily import FUTU, PLAN_NOTE, select_history
 
 CSS = '''<style>
 .block-container{padding:4rem 1.25rem 1rem;max-width:none;font-size:16px}
@@ -128,6 +129,14 @@ def render(store, settings, market_data):
                 import logging
                 logging.getLogger('ict.stability').exception('标的快照展示失败 symbol=%s',c)
                 data[c]=dict(health=dict(quality='UNAVAILABLE',reason='该标的快照暂不可用，请查看诊断日志。',received_at=now.isoformat()),minute=pd.DataFrame(),daily=pd.DataFrame(),errors=[])
+        if any(value.get('futu_coverage') for value in data.values()):
+            choice = st.session_state.setdefault('experiment_source', FUTU)
+            data = {c:select_history(value, choice) for c,value in data.items()}
+            if choice == FUTU and not replaying:
+                lasts = [value['futu_coverage']['last'] for value in data.values()
+                         if value.get('futu_coverage',{}).get('last')]
+                if lasts:
+                    now = replay_cutoff(pd.Timestamp(max(lasts)).date())
         if replaying:
             data = {c:completed_snapshot(value, now) for c,value in data.items()}
             if invalid_replay:
@@ -136,7 +145,7 @@ def render(store, settings, market_data):
                     value['daily'] = value['daily'].iloc[:0]
         health = {c:fresh(d, now) for c,d in data.items()}
         observations={c:build_observation(c,data[c],settings,now,
-                      None if replaying else active_plan(store,c) or settings['zones'].get(c)) for c in all_codes if c!='US.VIX'}
+                      None if replaying or data[c].get('_price_basis_unverified') else active_plan(store,c) or settings['zones'].get(c)) for c in all_codes if c!='US.VIX'}
         for c,o in observations.items():
             if data[c].get('daily_only'):
                 o.update(source=data[c]['health']['source'],reason='只有供应商日K；未验证分钟完整性及1H ICT资格。')
@@ -161,8 +170,10 @@ def render(store, settings, market_data):
         ict=reports.get(selected) or historical_ict(selected,d['minute'],now.replace(second=0,microsecond=0))
         decision=next((r for r in decisions if r['symbol']==selected),None)
         zone=plan or (None if replaying else settings['zones'].get(selected))
+        if d.get('_price_basis_unverified'):
+            zone = None
         for p in store.plans():
-            if not replaying and p['symbol'] in pool and p['symbol'] in health: evaluate_plan(store,p,health[p['symbol']],now.date(),settings['distance_bps'])
+            if not replaying and p['symbol'] in pool and p['symbol'] in health and not data[p['symbol']].get('_price_basis_unverified'): evaluate_plan(store,p,health[p['symbol']],now.date(),settings['distance_bps'])
         render_home(selected, data, plan, decision, rows, decisions, now,
                     datetime.now(ET).replace(second=0, microsecond=0), select_candidate)
         with st.expander('详细证据与历史分析图层'):
@@ -242,7 +253,7 @@ def render(store, settings, market_data):
                             layers=st.multiselect('关键价格线图层',['前日高低','前周高低','开盘区间','人工计划'],default=['前日高低','前周高低','开盘区间','人工计划'] if settings['layers'] else [],key='price_layers')
                             st.caption(TEXT['价格线说明'])
                         minute,daily=d['minute'],d['independent_daily'] if separate_daily else d['daily']
-                        chart_asof = datetime.now(ET) if period == '1D' else now
+                        chart_asof = now if replaying or d.get('_price_basis_unverified') else datetime.now(ET) if period == '1D' else now
                         chart,levels=chart_data(minute,daily,period,chart_asof.replace(second=0,microsecond=0))
                         if separate_daily:levels={}
                         elif observation: levels=observation['levels']
@@ -329,8 +340,10 @@ def render(store, settings, market_data):
                         st.write('人工候选入场区：',f"{plan['low']}–{plan['high']}" if plan else '未设定')
                         st.write('人工目标区：',f"{plan['target_low']}–{plan['target_high']}" if plan else '未设定')
                         st.write(TEXT['文案45'],(zone or {}).get('invalid') or '未知，资料不足')
-                        rr=risk_reward(plan)
+                        rr=None if d.get('_price_basis_unverified') else risk_reward(plan)
                         st.write('人工计划风险回报比：',f'{rr:.2f}' if rr is not None else '未设定')
+                        if d.get('_price_basis_unverified'):
+                            st.caption(PLAN_NOTE)
                         st.write('人工备注：',store.note(selected) or '未填写')
                         with st.expander(TEXT['SOP详情']):
                             st.caption(zh(reason))

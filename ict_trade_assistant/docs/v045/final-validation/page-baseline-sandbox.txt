@@ -1,0 +1,55 @@
+============================= test session starts =============================
+platform win32 -- Python 3.12.10, pytest-9.2.0, pluggy-1.7.0 -- C:\Users\cbcbe\TradingCodex\ict_trade_assistant\.venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\cbcbe\Documents\ChatGPT\ict_trade_assistant\.worktrees\v045-baseline-check\ict_trade_assistant
+configfile: pytest.ini
+plugins: anyio-4.15.1
+collecting ... collected 1 item
+
+tests/test_futu_daily.py::test_home_futu_source_comparison_replay_and_plan_scale_block 2026-11-09 01:15:28.934 WARNING streamlit.runtime.scriptrunner_utils.script_run_context: Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.
+Timeout (0:00:20)!
+Thread 0x0000eb34 (most recent call first):
+  File "C:\Users\cbcbe\AppData\Local\Programs\Python\Python312\Lib\socket.py", line 295 in accept
+  File "C:\Users\cbcbe\AppData\Local\Programs\Python\Python312\Lib\socket.py", line 627 in _fallback_socketpair
+  File "C:\Users\cbcbe\AppData\Local\Programs\Python\Python312\Lib\asyncio\proactor_events.py", line 787 in _make_self_pipe
+  File "C:\Users\cbcbe\AppData\Local\Programs\Python\Python312\Lib\asyncio\proactor_events.py", line 640 in __init__
+  File "C:\Users\cbcbe\AppData\Local\Programs\Python\Python312\Lib\asyncio\windows_events.py", line 316 in __init__
+  File "C:\Users\cbcbe\AppData\Local\Programs\Python\Python312\Lib\asyncio\events.py", line 720 in new_event_loop
+  File "C:\Users\cbcbe\AppData\Local\Programs\Python\Python312\Lib\asyncio\events.py", line 823 in new_event_loop
+  File "C:\Users\cbcbe\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\streamlit\testing\v1\local_script_runner.py", line 62 in __init__
+  File "C:\Users\cbcbe\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\streamlit\testing\v1\app_test.py", line 529 in _run
+  File "C:\Users\cbcbe\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\streamlit\testing\v1\element_tree.py", line 3870 in run
+  File "C:\Users\cbcbe\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\streamlit\testing\v1\app_test.py", line 643 in run
+  File "C:\Users\cbcbe\Documents\ChatGPT\ict_trade_assistant\.worktrees\v045-baseline-check\ict_trade_assistant\tests\test_futu_daily.py", line 183 in test_home_futu_source_comparison_replay_and_plan_scale_block
+  File "C:\Users\cbcbe\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\_pytest\python.py", line 187 in pytest_pyfunc_call
+  File "C:\Users\cbcbe\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\pluggy\_execution.py", line 147 in _multicall
+  File "C:\Users\cbcbe\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\pluggy\_manager.py", line 183 in _hookexec
+  File "C:\Users\cbcbe\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\pluggy\_caller.py", line 197 in __call__
+  File "C:\Users\cbcbe\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\_pytest\python.py", line 1798 in runtest
+  File "C:\Users\cbcbe\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\_pytest\runner.py", line 184 in pytest_runtest_call
+  File "C:\Users\cbcbe\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\pluggy\_execution.py", line 147 in _multicall
+  File "C:\Users\cbcbe\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\pluggy\_manager.py", line 183 in _hookexec
+  File "C:\Users\cbcbe\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\pluggy\_caller.py", line 197 in __call__
+  File "C:\Users\cbcbe\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\_pytest\runner.py", line 250 in <lambda>
+  File "C:\Users\cbcbe\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\_pytest\runner.py", line 361 in from_call
+  File "C:\Users\cbcbe\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\_pytest\runner.py", line 249 in call_and_report
+  File "C:\Users\cbcbe\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\_pytest\runner.py", line 139 in runtestprotocol
+  File "C:\Users\cbcbe\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\_pytest\runner.py", line 118 in pytest_runtest_protocol
+  File "C:\Users\cbcbe\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\pluggy\_execution.py", line 147 in _multicall
+  File "C:\Users\cbcbe\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\pluggy\_manager.py", line 183 in _hookexec
+  File "C:\Users\cbcbe\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\pluggy\_caller.py", line 197 in __call__
+  File "C:\Users\cbcbe\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\_pytest\main.py", line 411 in pytest_runtestloop
+  File "C:\Users\cbcbe\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\pluggy\_execution.py", line 147 in _multicall
+  File "C:\Users\cbcbe\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\pluggy\_manager.py", line 183 in _hookexec
+  File "C:\Users\cbcbe\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\pluggy\_caller.py", line 197 in __call__
+  File "C:\Users\cbcbe\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\_pytest\main.py", line 387 in _main
+  File "C:\Users\cbcbe\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\_pytest\main.py", line 333 in wrap_session
+  File "C:\Users\cbcbe\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\_pytest\main.py", line 380 in pytest_cmdline_main
+  File "C:\Users\cbcbe\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\pluggy\_execution.py", line 147 in _multicall
+  File "C:\Users\cbcbe\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\pluggy\_manager.py", line 183 in _hookexec
+  File "C:\Users\cbcbe\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\pluggy\_caller.py", line 197 in __call__
+  File "C:\Users\cbcbe\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\_pytest\config\__init__.py", line 262 in _main
+  File "C:\Users\cbcbe\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\_pytest\config\__init__.py", line 286 in _console_main
+  File "C:\Users\cbcbe\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\pytest\__main__.py", line 9 in <module>
+  File "<frozen runpy>", line 88 in _run_code
+  File "<frozen runpy>", line 198 in _run_module_as_main

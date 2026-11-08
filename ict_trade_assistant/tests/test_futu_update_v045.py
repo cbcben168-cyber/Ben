@@ -160,7 +160,6 @@ def test_concurrent_start_uses_one_lock(setup, tmp_path, monkeypatch):
         calls.append(args)
         return Process()
     monkeypatch.setattr('desk.futu_update.subprocess.Popen', spawn)
-    monkeypatch.setattr('desk.futu_update._process_alive', lambda pid: True)
     assert start_update(versions, tmp_path/'update.py')
     assert not start_update(versions, tmp_path/'update.py')
     assert len(calls) == 1
@@ -189,3 +188,15 @@ def test_version_switch_refreshes_ema_atr_and_replay_cutoff(tmp_path):
     snapshot = completed_snapshot(dict(daily=new_frame, minute=pd.DataFrame()), old_cutoff)
     assert snapshot['daily'].ts.max() <= old_cutoff
     assert market_state(snapshot['daily'], '1D', old_cutoff, CONTRACT)[0] == old_state
+
+
+def test_same_prices_actions_and_sdk_on_later_check_do_not_publish(setup, tmp_path):
+    versions, packets = setup
+    for packet in packets:
+        for response in [*packet['responses'].values(), packet['rehab']]:
+            response['acquired_at_utc'] = (pd.Timestamp(response['acquired_at_utc'])-pd.Timedelta(days=1)).isoformat()
+            response['request']['requested_at_utc'] = response['acquired_at_utc']
+        packet['valuation_date'] = pd.Timestamp(packet['rehab']['acquired_at_utc']).tz_convert(ET).date().isoformat()
+    result = publish_capture(versions, capture(tmp_path/'rechecked', packets), '2026-02-05')
+    assert result['status'] == 'UP_TO_DATE'
+    assert not versions.pointer.exists()

@@ -1,0 +1,50 @@
+{
+  "user_tables": {
+    "user.sqlite3": {
+      "plan_versions": {
+        "unchanged": true,
+        "rows": 2,
+        "sha256": "10b99a344ce7c5dcd9ee1dca7c778579573d2e409cc358248a44ef96838502b5"
+      },
+      "settings": {
+        "unchanged": true,
+        "rows": 2,
+        "sha256": "7f183923fce5dd1f6371d24826e4e83e70ae344b87fce613ba5e6afe52762efc"
+      },
+      "notes": {
+        "unchanged": true,
+        "rows": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "audit": {
+        "unchanged": true,
+        "rows": 8,
+        "sha256": "6a3bcbbceb114640f80e011ee9e308e31c8972855ed2a6865331b642d3988205"
+      },
+      "acknowledgements": {
+        "unchanged": true,
+        "rows": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      }
+    },
+    "experiments.sqlite3": {
+      "experiments": {
+        "unchanged": true,
+        "rows": 3,
+        "sha256": "861c3ff3ecf947b3583c2d0cb2de0fb0beaba82c08eb1575a2266665d27b19b2"
+      }
+    }
+  },
+  "frozen_files": {
+    "market_state.py": "4119ce48ddda0130b9a04800e72f68404985fe0b23e69093453078142b74042a",
+    "ema_layers.py": "a91cf420d254ba30bd9a609498a3f437d9a92a183e5c24a45af0ba10e453364f",
+    "experiment.py": "9bfc1cde66b49f16f07874f9b2d750d697a783352c5c59bee7de3b297ff8f5ac",
+    "ict_v03.py": "d7a655eae99c81dd5a33ce67dc41fffa3b30d7116977749cf83339fec05d1987",
+    "ict_live_gate.py": "cadac85322a245ffeb60b184ba0bcd905e063365c7d9824a3c3737fdb2996378",
+    "decision.py": "fdae63a8991b0fd4159386c285cb1285b5fd49d38e1cb138582ae79a4fea4ffe",
+    "observations.py": "dfca4cfd963a111f8ee265fa5198f2d4db91946517d64152e499bebc8b2e1bc1",
+    "plans.py": "a7b733c079d51a33802191a936dec9bada94438674f621e579651b15e73c0579"
+  },
+  "status": "PASS",
+  "production_access": "No production user database, pointer, startup file, or task was opened or modified by these validations."
+}

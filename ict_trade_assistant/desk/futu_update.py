@@ -97,7 +97,6 @@ class FutuVersions:
 def payload_identity(payloads):
     """Exclude capture timestamps while retaining provider version and full price basis."""
     return digest([dict(symbol=p['symbol'], sdk_version=p['sdk_version'],
-                        valuation_date=p['valuation_date'],
                         qfq=p['responses']['QFQ']['records'],
                         raw=p['responses']['NONE']['records'],
                         actions=p['rehab']['records']) for p in payloads])
@@ -111,7 +110,7 @@ def archive_identity(path):
     return payload_identity([captures['US.' + ticker] for ticker in TICKERS])
 
 
-def publish_capture(versions, capture_dir, target, progress=None):
+def publish_capture(versions, capture_dir, target, progress=None, token=None):
     """Validate every symbol before creating or switching a complete archive."""
     from scripts.import_futu_daily import load_capture
 
@@ -143,102 +142,140 @@ def publish_capture(versions, capture_dir, target, progress=None):
                 raise ValueError('已有版本文件内容冲突')
         else:
             os.replace(candidate, destination)
+        if progress:
+            progress(23, '正在原子发布完整历史版本')
         previous = versions.pointer_data()['current']
-        _atomic_json(versions.pointer, dict(current=name, previous=previous))
-        return dict(status='SUCCESS', completed=23,
+        result = dict(status='SUCCESS', completed=23,
                     added_days=len(CAL.sessions_in_range(
                         str(CAL.next_session(pd.Timestamp(old['last'])).date()), target))
                     if target > old['last'] else 0,
-                    current=versions.summary(), previous=previous,
-                    message='历史行情更新成功。')
+                    current=dict(path=str(destination), version=name, symbols=23,
+                                 first=old['first'], last=target, valuation_date=payloads[0]['valuation_date']),
+                    previous=previous, token=token, message='历史行情更新成功。')
+        _atomic_json(versions.pointer, dict(current=name, previous=previous, result=result))
+        return result
     finally:
-        shutil.rmtree(stage)
+        shutil.rmtree(stage, ignore_errors=True)
 
 
-def _process_alive(pid):
+def read_json(path):
     try:
-        os.kill(int(pid), 0)
-        return True
-    except (OSError, ValueError, TypeError):
-        return False
+        return json.loads(Path(path).read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return {}
+
+
+def finish_status(versions, result, token):
+    # A per-task receipt and the committed pointer survive a status.json failure.
+    receipt = versions.root / ('result_' + token + '.json')
+    _atomic_json(receipt, result)
+    try:
+        _atomic_json(versions.status, result)
+    except OSError:
+        result = dict(result, status_warning='状态文件写入失败；结果已保存在任务回执中。')
+        _atomic_json(receipt, result)
+        return result
+    return result
+
+
+def task_status(versions):
+    from .futu_task import task_guard
+    with task_guard(versions.root) as owned:
+        status = read_json(versions.status)
+        if not owned:
+            return True, status
+        lock = read_json(versions.lock)
+        if not lock and versions.lock.exists():
+            versions.lock.unlink()  # Only while owning the OS guard.
+            status = dict(status='FAILED', completed=0, reason='任务记录损坏，已安全释放，可重新执行。')
+        if lock and time.time() - lock.get('created', 0) < 15:
+            return True, status
+        if lock:
+            token = lock.get('token', '')
+            receipt = read_json(versions.root / ('result_' + token + '.json'))
+            committed = versions.pointer_data().get('result', {})
+            if committed.get('token') == token:
+                receipt = committed
+            status = receipt or dict(status='FAILED', completed=0,
+                                     reason='更新进程已异常退出，请重新执行。', token=token)
+            try:
+                _atomic_json(versions.status, status)
+            except OSError:
+                pass
+            versions.lock.unlink(missing_ok=True)
+        if status.get('status') == 'RUNNING':
+            token = status.get('token', '')
+            committed = versions.pointer_data().get('result', {})
+            status = (committed if committed.get('token') == token else
+                      read_json(versions.root / ('result_' + token + '.json'))) or dict(
+                          status='FAILED', completed=0, reason='更新进程已结束但没有完整结果，请重试。')
+        return False, status
 
 
 def start_update(versions, script, python=sys.executable):
-    """Reserve one task before spawning the local controller process."""
-    versions.root.mkdir(parents=True, exist_ok=True)
-    try:
-        fd = os.open(versions.lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-    except FileExistsError:
-        try:
-            lock = json.loads(versions.lock.read_text(encoding='utf-8'))
-        except (OSError, ValueError):
+    from .futu_task import task_guard
+    with task_guard(versions.root) as owned:
+        if not owned:
             return False
-        if _process_alive(lock.get('pid')) or time.time() - lock.get('created', 0) < 15:
+        lock = read_json(versions.lock)
+        if lock and time.time() - lock.get('created', 0) < 15:
             return False
-        versions.lock.unlink()
-        return start_update(versions, script, python)
-    with os.fdopen(fd, 'w', encoding='utf-8') as stream:
         token = uuid.uuid4().hex
-        json.dump(dict(pid=None, created=time.time(), token=token), stream)
-    try:
-        _atomic_json(versions.status, dict(status='RUNNING', phase='正在连接本地Futu OpenD', completed=0))
-        command = [str(python), str(script), '--baseline', str(versions.baseline),
-                   '--root', str(versions.root), '--token', token]
-        process = subprocess.Popen(command, cwd=Path(script).resolve().parents[1],
-                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                   creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        _atomic_json(versions.lock, dict(created=time.time(), token=token))
         try:
-            with versions.lock.open('r+', encoding='utf-8') as stream:
-                lock = json.load(stream)
-                if lock.get('token') == token:
-                    lock['pid'] = process.pid
-                    stream.seek(0)
-                    json.dump(lock, stream)
-                    stream.truncate()
-        except FileNotFoundError:
-            pass  # The controller already finished and released this task.
-        return True
-    except Exception:
-        try:
-            _atomic_json(versions.status, dict(status='FAILED', completed=0,
-                                               reason='无法启动本地历史更新进程。'))
-        finally:
+            _atomic_json(versions.status, dict(status='RUNNING', phase='正在连接本地Futu OpenD',
+                                               completed=0, token=token))
+            subprocess.Popen([str(python), str(script), '--baseline', str(versions.baseline),
+                              '--root', str(versions.root), '--token', token],
+                             cwd=Path(script).resolve().parents[1],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+            return True
+        except Exception:
             versions.lock.unlink(missing_ok=True)
-        raise
+            finish_status(versions, dict(status='FAILED', completed=0,
+                                        reason='无法启动本地历史更新进程。', token=token), token)
+            raise
 
 
-def run_update(versions, capture_script, now=None, capture_dir=None):
+def run_update(versions, capture_script, now=None, capture_dir=None, token=None):
     """Controller runs in a separate process; only capture_script imports Futu SDK."""
+    token = token or uuid.uuid4().hex
     current = versions.summary()
     target = latest_completed(now or datetime.now(timezone.utc))
-    stage = versions.root / ('capture_' + uuid.uuid4().hex)
+    stage = versions.root / ('capture_' + token)
     progress_file = versions.root / 'capture_progress.json'
     _atomic_json(versions.status, dict(status='RUNNING', phase='正在重新获取23只证券的完整日K',
-                                      completed=0, target=target))
+                                      completed=0, target=target, token=token))
     try:
         if capture_dir is None:
             subprocess.run([sys.executable, str(capture_script), '--output', str(stage),
                             '--start', current['first'], '--end', target,
                             '--progress', str(progress_file)], check=True,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                            timeout=TIMEOUT_SECONDS)
             capture_dir = stage
         def progress(count, phase):
             _atomic_json(versions.status, dict(status='RUNNING', phase=phase,
-                                               completed=count, target=target))
-        result = publish_capture(versions, capture_dir, target, progress)
-        _atomic_json(versions.status, result)
-        return result
+                                               completed=count, target=target, token=token))
+        progress(0, '校验完整QFQ及复权事件')
+        result = publish_capture(versions, capture_dir, target, progress, token)
+        result['token'] = token
+        result['capture_dir'] = str(capture_dir)
+        return finish_status(versions, result, token)
     except subprocess.TimeoutExpired:
         reason = 'Futu OpenD响应超时，请检查连接后重试。'
-    except subprocess.CalledProcessError:
-        reason = 'Futu获取失败或权限不足，请检查OpenD连接和历史行情权限。'
+    except subprocess.CalledProcessError as exc:
+        reason = f'Futu OpenD抓取进程异常退出（退出码{exc.returncode}）；请查看任务日志核对连接、权限或数据错误。'
     except (ValueError, KeyError, OSError, sqlite3.Error) as exc:
         reason = '历史行情校验或发布失败：' + str(exc)
     finally:
-        if stage.exists():
-            shutil.rmtree(stage)
-        progress_file.unlink(missing_ok=True)
+        try:
+            progress_file.unlink(missing_ok=True)
+        except OSError:
+            pass  # Raw captures are retained for audit, including failed attempts.
+    committed = versions.pointer_data().get('result', {})
+    if committed.get('token') == token:
+        return finish_status(versions, dict(committed, status_warning='版本已发布；后续结果记录失败，已恢复发布结果。'), token)
     result = dict(status='FAILED', phase='失败', completed=0, target=target, reason=reason)
-    _atomic_json(versions.status, result)
-    return result
+    result['token'] = token
+    return finish_status(versions, result, token)

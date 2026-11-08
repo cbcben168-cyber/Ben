@@ -1,0 +1,1774 @@
+{
+  "status": "PASS",
+  "real_runs": [
+    {
+      "token": "af60904a774145c59bb539b757c4055f",
+      "status": "UP_TO_DATE",
+      "manifest_sha256": "c0613145d83bc2cf72acc08a282bc18407037c1dd419424b043665bd85c7a5a3",
+      "rows": [
+        {
+          "symbol": "US.AGG",
+          "sha256": "f1c2f418964f1a7e6af5a19360ecae61fb132936a3c50351685fa6744dee16e7",
+          "sdk": "10.12.7208",
+          "bars": 90,
+          "last": "2026-11-06",
+          "valuation_date": "2026-11-08",
+          "qfq_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:21:30.781790+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:21:32.068781+00:00"
+            }
+          ],
+          "none_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:21:33.250727+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:21:34.507114+00:00"
+            }
+          ],
+          "rehab_events": 149,
+          "max_ohlc_error": 1.6203283337290486e-07
+        },
+        {
+          "symbol": "US.BND",
+          "sha256": "23f49c9703c9ddd5539ea1c615f56de5ad488f16ea483d42f20ca746e56732d3",
+          "sdk": "10.12.7208",
+          "bars": 90,
+          "last": "2026-11-06",
+          "valuation_date": "2026-11-08",
+          "qfq_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:21:06.736776+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:21:07.923503+00:00"
+            }
+          ],
+          "none_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:21:09.113666+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:21:10.290853+00:00"
+            }
+          ],
+          "rehab_events": 149,
+          "max_ohlc_error": 1.6174053030226787e-07
+        },
+        {
+          "symbol": "US.GLD",
+          "sha256": "bf4cf52d003abcac166275dcb406cd1f75045181caaa5044c47bd5d35b477e57",
+          "sdk": "10.12.7208",
+          "bars": 90,
+          "last": "2026-11-06",
+          "valuation_date": "2026-11-08",
+          "qfq_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:21:26.050118+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:21:27.241097+00:00"
+            }
+          ],
+          "none_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:21:28.413305+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:21:29.584628+00:00"
+            }
+          ],
+          "rehab_events": 0,
+          "max_ohlc_error": 0.0
+        },
+        {
+          "symbol": "US.IEFA",
+          "sha256": "8d7d1313e54bb4f780429fa33576c35343379a2b2099e98953547112992a29ed",
+          "sdk": "10.12.7208",
+          "bars": 90,
+          "last": "2026-11-06",
+          "valuation_date": "2026-11-08",
+          "qfq_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:20:52.428987+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:20:53.603922+00:00"
+            }
+          ],
+          "none_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:20:54.779302+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:20:55.952002+00:00"
+            }
+          ],
+          "rehab_events": 24,
+          "max_ohlc_error": 0.0
+        },
+        {
+          "symbol": "US.IEMG",
+          "sha256": "f4c8395c97158d6efbc2a0adab7650883d1593139574e50f8a8e0c7ebec43b48",
+          "sdk": "10.12.7208",
+          "bars": 90,
+          "last": "2026-11-06",
+          "valuation_date": "2026-11-08",
+          "qfq_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:21:16.330014+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:21:17.501878+00:00"
+            }
+          ],
+          "none_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:21:18.688500+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:21:19.876648+00:00"
+            }
+          ],
+          "rehab_events": 24,
+          "max_ohlc_error": 0.0
+        },
+        {
+          "symbol": "US.IJH",
+          "sha256": "3c61420066ba30f907a8de5053d52d3ff36c50c3e626adb03a72259ab05ac193",
+          "sdk": "10.12.7208",
+          "bars": 90,
+          "last": "2026-11-06",
+          "valuation_date": "2026-11-08",
+          "qfq_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:21:41.059490+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:21:42.261952+00:00"
+            }
+          ],
+          "none_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:21:43.451902+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:21:44.634713+00:00"
+            }
+          ],
+          "rehab_events": 52,
+          "max_ohlc_error": 5.160713101304282e-08
+        },
+        {
+          "symbol": "US.IVV",
+          "sha256": "567c0737b36289f51dfdb12de3d1e698d021f974acb9dbe5216f5cf9a8201b6f",
+          "sdk": "10.12.7208",
+          "bars": 90,
+          "last": "2026-11-06",
+          "valuation_date": "2026-11-08",
+          "qfq_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:20:33.410315+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:20:34.592203+00:00"
+            }
+          ],
+          "none_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:20:35.775433+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:20:36.975938+00:00"
+            }
+          ],
+          "rehab_events": 52,
+          "max_ohlc_error": 6.169831294755568e-07
+        },
+        {
+          "symbol": "US.IWF",
+          "sha256": "2dc3a946819a0aa88c0a89de59ee9e6b22c6c79b1a4194e68f651c20ec98290f",
+          "sdk": "10.12.7208",
+          "bars": 90,
+          "last": "2026-11-06",
+          "valuation_date": "2026-11-08",
+          "qfq_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:21:35.762148+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:21:36.964452+00:00"
+            }
+          ],
+          "none_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:21:38.163257+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:21:39.349736+00:00"
+            }
+          ],
+          "rehab_events": 51,
+          "max_ohlc_error": 1.1036665625852038e-07
+        },
+        {
+          "symbol": "US.IWM",
+          "sha256": "7bd120beded3c542daaffc448b46c6a272f5d3cb791703a1454af18a3a2f42d7",
+          "sdk": "10.12.7208",
+          "bars": 90,
+          "last": "2026-11-06",
+          "valuation_date": "2026-11-08",
+          "qfq_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:20:14.277868+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:20:15.471356+00:00"
+            }
+          ],
+          "none_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:20:16.645065+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:20:17.859206+00:00"
+            }
+          ],
+          "rehab_events": 50,
+          "max_ohlc_error": 7.452570116583956e-09
+        },
+        {
+          "symbol": "US.QQQ",
+          "sha256": "ed5f505282303fed2265ce03bbae7b0e1c508603521d05263ce12825a7020ef1",
+          "sdk": "10.12.7208",
+          "bars": 90,
+          "last": "2026-11-06",
+          "valuation_date": "2026-11-08",
+          "qfq_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:20:09.521465+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:20:10.694491+00:00"
+            }
+          ],
+          "none_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:20:11.893253+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:20:13.073570+00:00"
+            }
+          ],
+          "rehab_events": 90,
+          "max_ohlc_error": 5.872066140000243e-07
+        },
+        {
+          "symbol": "US.SMH",
+          "sha256": "d31e13dfed65f03d133ecfa6b40afc764222daac215fd0b0b0946bbf13047a60",
+          "sdk": "10.12.7208",
+          "bars": 90,
+          "last": "2026-11-06",
+          "valuation_date": "2026-11-08",
+          "qfq_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:20:23.844618+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:20:25.016773+00:00"
+            }
+          ],
+          "none_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:20:26.219046+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:20:27.403554+00:00"
+            }
+          ],
+          "rehab_events": 14,
+          "max_ohlc_error": 0.0
+        },
+        {
+          "symbol": "US.SOXX",
+          "sha256": "28e33b0f881b69bcc3228f84ac7d66c5a3ae2de30fa81cc680177b743238ec8e",
+          "sdk": "10.12.7208",
+          "bars": 90,
+          "last": "2026-11-06",
+          "valuation_date": "2026-11-08",
+          "qfq_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:20:19.093791+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:20:20.264329+00:00"
+            }
+          ],
+          "none_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:20:21.437549+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:20:22.629451+00:00"
+            }
+          ],
+          "rehab_events": 80,
+          "max_ohlc_error": 3.6677320736089314e-07
+        },
+        {
+          "symbol": "US.SPY",
+          "sha256": "09b5361ed09d6ef873ae6ff34f906f415c0c9eaa38af1d22573f9ca85dfbd4ea",
+          "sdk": "10.12.7208",
+          "bars": 90,
+          "last": "2026-11-06",
+          "valuation_date": "2026-11-08",
+          "qfq_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:20:04.680612+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:20:05.904792+00:00"
+            }
+          ],
+          "none_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:20:07.104481+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:20:08.275326+00:00"
+            }
+          ],
+          "rehab_events": 49,
+          "max_ohlc_error": 5.711706307920394e-07
+        },
+        {
+          "symbol": "US.SPYM",
+          "sha256": "891bc9a1d2b1eec99fd72390bc077acb7208816cfb24605fc85a0ccb137afab0",
+          "sdk": "10.12.7208",
+          "bars": 90,
+          "last": "2026-11-06",
+          "valuation_date": "2026-11-08",
+          "qfq_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:21:01.934614+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:21:03.123569+00:00"
+            }
+          ],
+          "none_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:21:04.299134+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:21:05.470809+00:00"
+            }
+          ],
+          "rehab_events": 40,
+          "max_ohlc_error": 4.5008619053987786e-08
+        },
+        {
+          "symbol": "US.VEA",
+          "sha256": "5f262fdcd62206b66197a8b2ef842039a817d5f60a228b7c16ef4b2f86d30e91",
+          "sdk": "10.12.7208",
+          "bars": 90,
+          "last": "2026-11-06",
+          "valuation_date": "2026-11-08",
+          "qfq_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:20:42.943277+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:20:44.115550+00:00"
+            }
+          ],
+          "none_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:20:45.296780+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:20:46.479307+00:00"
+            }
+          ],
+          "rehab_events": 49,
+          "max_ohlc_error": 4.073457660069835e-08
+        },
+        {
+          "symbol": "US.VGT",
+          "sha256": "1a07bc0b83d349234385b83957252ee073fa3d82b23165ea4fc982b708cf533b",
+          "sdk": "10.12.7208",
+          "bars": 90,
+          "last": "2026-11-06",
+          "valuation_date": "2026-11-08",
+          "qfq_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:21:21.107772+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:21:22.286178+00:00"
+            }
+          ],
+          "none_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:21:23.491602+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:21:24.668764+00:00"
+            }
+          ],
+          "rehab_events": 48,
+          "max_ohlc_error": 8.92669902441412e-08
+        },
+        {
+          "symbol": "US.VOO",
+          "sha256": "aeb2fbbfc9e0f8d23e3faedad16b30a118878d2733f8eb588e93f25836c3b020",
+          "sdk": "10.12.7208",
+          "bars": 90,
+          "last": "2026-11-06",
+          "valuation_date": "2026-11-08",
+          "qfq_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:20:28.636270+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:20:29.845609+00:00"
+            }
+          ],
+          "none_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:20:31.020475+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:20:32.211393+00:00"
+            }
+          ],
+          "rehab_events": 51,
+          "max_ohlc_error": 6.158066980788135e-07
+        },
+        {
+          "symbol": "US.VTI",
+          "sha256": "ec8df69f982a0da4cdd5f6f4b68f339c5fd1cca23237247ae89e3d6db555e90f",
+          "sdk": "10.12.7208",
+          "bars": 90,
+          "last": "2026-11-06",
+          "valuation_date": "2026-11-08",
+          "qfq_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:20:38.189984+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:20:39.379881+00:00"
+            }
+          ],
+          "none_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:20:40.562832+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:20:41.735723+00:00"
+            }
+          ],
+          "rehab_events": 51,
+          "max_ohlc_error": 1.8419507341604913e-07
+        },
+        {
+          "symbol": "US.VTV",
+          "sha256": "0deb2330d17103488c6bbe03167bd8c9f46426d4bbf205f777fbde95de650a7a",
+          "sdk": "10.12.7208",
+          "bars": 90,
+          "last": "2026-11-06",
+          "valuation_date": "2026-11-08",
+          "qfq_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:20:57.154312+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:20:58.336061+00:00"
+            }
+          ],
+          "none_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:20:59.549412+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:21:00.734181+00:00"
+            }
+          ],
+          "rehab_events": 50,
+          "max_ohlc_error": 1.8786911937240802e-07
+        },
+        {
+          "symbol": "US.VUG",
+          "sha256": "12cd68f6e86db0bd0339d26fb9e91d0a0ddeee8166bd0ed47afeee6c1c208d8b",
+          "sdk": "10.12.7208",
+          "bars": 90,
+          "last": "2026-11-06",
+          "valuation_date": "2026-11-08",
+          "qfq_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:20:47.685442+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:20:48.858799+00:00"
+            }
+          ],
+          "none_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:20:50.035421+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:20:51.223103+00:00"
+            }
+          ],
+          "rehab_events": 51,
+          "max_ohlc_error": 2.1240381897769112e-08
+        },
+        {
+          "symbol": "US.VWO",
+          "sha256": "734027e210673700b89676d7f7a5e12a30ff164bfb3d2cb838c435089ced8689",
+          "sdk": "10.12.7208",
+          "bars": 90,
+          "last": "2026-11-06",
+          "valuation_date": "2026-11-08",
+          "qfq_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:21:45.834025+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:21:47.025613+00:00"
+            }
+          ],
+          "none_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:21:48.213227+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:21:49.430229+00:00"
+            }
+          ],
+          "rehab_events": 49,
+          "max_ohlc_error": 1.4998491337792075e-08
+        },
+        {
+          "symbol": "US.VXUS",
+          "sha256": "a8586b674f63cd26f8fe22ea3318eb7ab68f77f161bf8262f52a814ee0e199f4",
+          "sdk": "10.12.7208",
+          "bars": 90,
+          "last": "2026-11-06",
+          "valuation_date": "2026-11-08",
+          "qfq_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:21:11.597943+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:21:12.771240+00:00"
+            }
+          ],
+          "none_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:21:13.945891+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:21:15.119820+00:00"
+            }
+          ],
+          "rehab_events": 59,
+          "max_ohlc_error": 5.853756590568082e-08
+        },
+        {
+          "symbol": "US.XLK",
+          "sha256": "88d164e3b16fb2f0e5236eda7e732254586a914d3aa73e05a31243e40b670725",
+          "sdk": "10.12.7208",
+          "bars": 90,
+          "last": "2026-11-06",
+          "valuation_date": "2026-11-08",
+          "qfq_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:21:50.706624+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:21:51.878058+00:00"
+            }
+          ],
+          "none_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:21:53.053284+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:21:54.224526+00:00"
+            }
+          ],
+          "rehab_events": 50,
+          "max_ohlc_error": 4.015191734652035e-08
+        }
+      ]
+    },
+    {
+      "token": "da500315545940389cfc68c5bbbf3fa1",
+      "status": "UP_TO_DATE",
+      "manifest_sha256": "cc9d6bb85602987b26b14e00cdd21d1a524cce840bb6be54f68b64efd9d02970",
+      "rows": [
+        {
+          "symbol": "US.AGG",
+          "sha256": "52cd8480446c398c2e9ff02a2e2d6d33604ceca48d43d2d54887fd2e631bd01e",
+          "sdk": "10.12.7208",
+          "bars": 90,
+          "last": "2026-11-06",
+          "valuation_date": "2026-11-08",
+          "qfq_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:16:23.310155+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:16:24.484808+00:00"
+            }
+          ],
+          "none_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:16:25.673570+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:16:26.862188+00:00"
+            }
+          ],
+          "rehab_events": 149,
+          "max_ohlc_error": 1.6203283337290486e-07
+        },
+        {
+          "symbol": "US.BND",
+          "sha256": "ff6379025a755b43324e44c0547bf83097d33860386d45dc416ac94e564c357f",
+          "sdk": "10.12.7208",
+          "bars": 90,
+          "last": "2026-11-06",
+          "valuation_date": "2026-11-08",
+          "qfq_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:15:59.451040+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:16:00.623968+00:00"
+            }
+          ],
+          "none_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:16:01.811900+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:16:02.983784+00:00"
+            }
+          ],
+          "rehab_events": 149,
+          "max_ohlc_error": 1.6174053030226787e-07
+        },
+        {
+          "symbol": "US.GLD",
+          "sha256": "4dd60feae2344062e2833e446bf38bcdd0751c4d1ccb2ed80b91a2c5bad06b5e",
+          "sdk": "10.12.7208",
+          "bars": 90,
+          "last": "2026-11-06",
+          "valuation_date": "2026-11-08",
+          "qfq_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:16:18.518000+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:16:19.690076+00:00"
+            }
+          ],
+          "none_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:16:20.930196+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:16:22.103594+00:00"
+            }
+          ],
+          "rehab_events": 0,
+          "max_ohlc_error": 0.0
+        },
+        {
+          "symbol": "US.IEFA",
+          "sha256": "fbbd3ed1e89995fd53698e90832ba3f1cd7034d332d5ea2b324c1e221c2ce02c",
+          "sdk": "10.12.7208",
+          "bars": 90,
+          "last": "2026-11-06",
+          "valuation_date": "2026-11-08",
+          "qfq_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:15:44.838627+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:15:46.018663+00:00"
+            }
+          ],
+          "none_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:15:47.194281+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:15:48.369179+00:00"
+            }
+          ],
+          "rehab_events": 24,
+          "max_ohlc_error": 0.0
+        },
+        {
+          "symbol": "US.IEMG",
+          "sha256": "d888a371deef525af5ea5835f4a3c88e146fa89387accea7c3bd98b171e1bbe2",
+          "sdk": "10.12.7208",
+          "bars": 90,
+          "last": "2026-11-06",
+          "valuation_date": "2026-11-08",
+          "qfq_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:16:08.998651+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:16:10.171355+00:00"
+            }
+          ],
+          "none_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:16:11.354385+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:16:12.528902+00:00"
+            }
+          ],
+          "rehab_events": 24,
+          "max_ohlc_error": 0.0
+        },
+        {
+          "symbol": "US.IJH",
+          "sha256": "b2b3a688803fefa03482fe2304ef0c2c55458caf74fd842552ca2081033fc625",
+          "sdk": "10.12.7208",
+          "bars": 90,
+          "last": "2026-11-06",
+          "valuation_date": "2026-11-08",
+          "qfq_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:16:32.977636+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:16:34.152973+00:00"
+            }
+          ],
+          "none_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:16:35.360391+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:16:36.535385+00:00"
+            }
+          ],
+          "rehab_events": 52,
+          "max_ohlc_error": 5.160713101304282e-08
+        },
+        {
+          "symbol": "US.IVV",
+          "sha256": "c9210fc750339278c621ed7b9760fa36901cff88be630103fc1064087721eae4",
+          "sdk": "10.12.7208",
+          "bars": 90,
+          "last": "2026-11-06",
+          "valuation_date": "2026-11-08",
+          "qfq_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:15:25.693412+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:15:26.865766+00:00"
+            }
+          ],
+          "none_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:15:28.064167+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:15:29.254267+00:00"
+            }
+          ],
+          "rehab_events": 52,
+          "max_ohlc_error": 6.169831294755568e-07
+        },
+        {
+          "symbol": "US.IWF",
+          "sha256": "097d5127ef846752fa7f4c61d7038dede87e6b60252ee6b520f3f9dc259b986d",
+          "sdk": "10.12.7208",
+          "bars": 90,
+          "last": "2026-11-06",
+          "valuation_date": "2026-11-08",
+          "qfq_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:16:28.149586+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:16:29.323448+00:00"
+            }
+          ],
+          "none_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:16:30.521653+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:16:31.738991+00:00"
+            }
+          ],
+          "rehab_events": 51,
+          "max_ohlc_error": 1.1036665625852038e-07
+        },
+        {
+          "symbol": "US.IWM",
+          "sha256": "ea83aee1e4f1b57ba4535bae95f05674c67802e95b86599770c44081de024582",
+          "sdk": "10.12.7208",
+          "bars": 90,
+          "last": "2026-11-06",
+          "valuation_date": "2026-11-08",
+          "qfq_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:15:06.426949+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:15:07.612361+00:00"
+            }
+          ],
+          "none_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:15:08.800837+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:15:10.004467+00:00"
+            }
+          ],
+          "rehab_events": 50,
+          "max_ohlc_error": 7.452570116583956e-09
+        },
+        {
+          "symbol": "US.QQQ",
+          "sha256": "8b4ecc4aae0994f2f4ca7df98f396d54cfa06ffa2c851d18a5265091534e2408",
+          "sdk": "10.12.7208",
+          "bars": 90,
+          "last": "2026-11-06",
+          "valuation_date": "2026-11-08",
+          "qfq_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:15:01.643233+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:15:02.814956+00:00"
+            }
+          ],
+          "none_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:15:03.989327+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:15:05.204641+00:00"
+            }
+          ],
+          "rehab_events": 90,
+          "max_ohlc_error": 5.872066140000243e-07
+        },
+        {
+          "symbol": "US.SMH",
+          "sha256": "d5806dd1103d896a445b4addba527fb79730f86115f42784277a338eebcc94ae",
+          "sdk": "10.12.7208",
+          "bars": 90,
+          "last": "2026-11-06",
+          "valuation_date": "2026-11-08",
+          "qfq_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:15:16.131345+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:15:17.308984+00:00"
+            }
+          ],
+          "none_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:15:18.482696+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:15:19.658721+00:00"
+            }
+          ],
+          "rehab_events": 14,
+          "max_ohlc_error": 0.0
+        },
+        {
+          "symbol": "US.SOXX",
+          "sha256": "12fea568cf4f8acc8d5e8956c44e49fcb396f4f2ca278656ebbaa533f3a99656",
+          "sdk": "10.12.7208",
+          "bars": 90,
+          "last": "2026-11-06",
+          "valuation_date": "2026-11-08",
+          "qfq_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:15:11.277892+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:15:12.488710+00:00"
+            }
+          ],
+          "none_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:15:13.673612+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:15:14.844241+00:00"
+            }
+          ],
+          "rehab_events": 80,
+          "max_ohlc_error": 3.6677320736089314e-07
+        },
+        {
+          "symbol": "US.SPY",
+          "sha256": "9b09101b52bdc690f232fc6d2c5c6763ea983fe82786d30dd0fe08d0aad3c9d8",
+          "sdk": "10.12.7208",
+          "bars": 90,
+          "last": "2026-11-06",
+          "valuation_date": "2026-11-08",
+          "qfq_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:14:56.617146+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:14:57.828712+00:00"
+            }
+          ],
+          "none_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:14:59.073602+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:15:00.277016+00:00"
+            }
+          ],
+          "rehab_events": 49,
+          "max_ohlc_error": 5.711706307920394e-07
+        },
+        {
+          "symbol": "US.SPYM",
+          "sha256": "654527018e04594212fe488afe6a33f76b8c0671b76816e0d452e013966a7375",
+          "sdk": "10.12.7208",
+          "bars": 90,
+          "last": "2026-11-06",
+          "valuation_date": "2026-11-08",
+          "qfq_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:15:54.659856+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:15:55.831005+00:00"
+            }
+          ],
+          "none_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:15:57.027670+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:15:58.200230+00:00"
+            }
+          ],
+          "rehab_events": 40,
+          "max_ohlc_error": 4.5008619053987786e-08
+        },
+        {
+          "symbol": "US.VEA",
+          "sha256": "23216e8b81141bad3cee07d3fc4c2e0da2e80ed5dd2da597852bb9ac50320e2d",
+          "sdk": "10.12.7208",
+          "bars": 90,
+          "last": "2026-11-06",
+          "valuation_date": "2026-11-08",
+          "qfq_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:15:35.276515+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:15:36.461351+00:00"
+            }
+          ],
+          "none_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:15:37.634164+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:15:38.814267+00:00"
+            }
+          ],
+          "rehab_events": 49,
+          "max_ohlc_error": 4.073457660069835e-08
+        },
+        {
+          "symbol": "US.VGT",
+          "sha256": "036445d9c9613c4573bb05ff7148bc6bf043f93767e58832b97557974e5dae99",
+          "sdk": "10.12.7208",
+          "bars": 90,
+          "last": "2026-11-06",
+          "valuation_date": "2026-11-08",
+          "qfq_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:16:13.771091+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:16:14.943229+00:00"
+            }
+          ],
+          "none_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:16:16.115897+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:16:17.287129+00:00"
+            }
+          ],
+          "rehab_events": 48,
+          "max_ohlc_error": 8.92669902441412e-08
+        },
+        {
+          "symbol": "US.VOO",
+          "sha256": "5180d62900ad46398d446c2826a7b45a836cdc90fd58a023c6c59c624ea85635",
+          "sdk": "10.12.7208",
+          "bars": 90,
+          "last": "2026-11-06",
+          "valuation_date": "2026-11-08",
+          "qfq_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:15:20.903506+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:15:22.100375+00:00"
+            }
+          ],
+          "none_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:15:23.288405+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:15:24.461195+00:00"
+            }
+          ],
+          "rehab_events": 51,
+          "max_ohlc_error": 6.158066980788135e-07
+        },
+        {
+          "symbol": "US.VTI",
+          "sha256": "fcb461081c693a9cba5891eb8f6b7012bf2ce82e1acfcec7ad369fcd00ee6446",
+          "sdk": "10.12.7208",
+          "bars": 90,
+          "last": "2026-11-06",
+          "valuation_date": "2026-11-08",
+          "qfq_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:15:30.490965+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:15:31.691610+00:00"
+            }
+          ],
+          "none_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:15:32.886012+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:15:34.065441+00:00"
+            }
+          ],
+          "rehab_events": 51,
+          "max_ohlc_error": 1.8419507341604913e-07
+        },
+        {
+          "symbol": "US.VTV",
+          "sha256": "c4bbae20e871a557d6d635bb7f696c6662442b59e92710bfd582f2f4e4d6d2ca",
+          "sdk": "10.12.7208",
+          "bars": 90,
+          "last": "2026-11-06",
+          "valuation_date": "2026-11-08",
+          "qfq_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:15:49.610935+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:15:50.786752+00:00"
+            }
+          ],
+          "none_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:15:52.263006+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:15:53.439324+00:00"
+            }
+          ],
+          "rehab_events": 50,
+          "max_ohlc_error": 1.8786911937240802e-07
+        },
+        {
+          "symbol": "US.VUG",
+          "sha256": "298b67d20a81631641a6bd520b2e7deacc7b672de209343ec9ac8829bde449d8",
+          "sdk": "10.12.7208",
+          "bars": 90,
+          "last": "2026-11-06",
+          "valuation_date": "2026-11-08",
+          "qfq_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:15:40.061716+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:15:41.247729+00:00"
+            }
+          ],
+          "none_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:15:42.440713+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:15:43.625211+00:00"
+            }
+          ],
+          "rehab_events": 51,
+          "max_ohlc_error": 2.1240381897769112e-08
+        },
+        {
+          "symbol": "US.VWO",
+          "sha256": "3d82b1ca9844ee467d2cd8e4d54f5230194c4bde8431593501995cadb4614593",
+          "sdk": "10.12.7208",
+          "bars": 90,
+          "last": "2026-11-06",
+          "valuation_date": "2026-11-08",
+          "qfq_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:16:37.745729+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:16:38.928205+00:00"
+            }
+          ],
+          "none_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:16:40.112552+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:16:41.286415+00:00"
+            }
+          ],
+          "rehab_events": 49,
+          "max_ohlc_error": 1.4998491337792075e-08
+        },
+        {
+          "symbol": "US.VXUS",
+          "sha256": "627e59942f45cc2bafca6c7dceef0aa8b0282ece0c976e0a99757a04df9cbf2f",
+          "sdk": "10.12.7208",
+          "bars": 90,
+          "last": "2026-11-06",
+          "valuation_date": "2026-11-08",
+          "qfq_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:16:04.231261+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:16:05.411471+00:00"
+            }
+          ],
+          "none_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:16:06.592536+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:16:07.777671+00:00"
+            }
+          ],
+          "rehab_events": 59,
+          "max_ohlc_error": 5.853756590568082e-08
+        },
+        {
+          "symbol": "US.XLK",
+          "sha256": "666336b9f3faee678cb482382cdef3176e1eb24c57a1e36b6b7b82d1ff4d119a",
+          "sdk": "10.12.7208",
+          "bars": 90,
+          "last": "2026-11-06",
+          "valuation_date": "2026-11-08",
+          "qfq_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:16:42.485250+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:16:43.662012+00:00"
+            }
+          ],
+          "none_pages": [
+            {
+              "ret": 0,
+              "rows": 50,
+              "has_next": true,
+              "acquired_at_utc": "2026-11-08T17:16:44.835188+00:00"
+            },
+            {
+              "ret": 0,
+              "rows": 40,
+              "has_next": false,
+              "acquired_at_utc": "2026-11-08T17:16:46.007683+00:00"
+            }
+          ],
+          "rehab_events": 50,
+          "max_ohlc_error": 4.015191734652035e-08
+        }
+      ]
+    }
+  ],
+  "raw_capture_root": ".local/final-validation/live/versions",
+  "baseline_sha256": "b39d76abd5993f60934ea753041aa46a468971d5b9879b3a0fa8957e64d5f3ec",
+  "baseline_unchanged": true,
+  "pointer_created": false,
+  "active_task": false,
+  "task_marker_exists": false,
+  "note": "update.guard is a permanent OS-lock file; its existence does not indicate an active task"
+}

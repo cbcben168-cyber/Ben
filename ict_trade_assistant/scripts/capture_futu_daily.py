@@ -41,15 +41,17 @@ def capture(output, start='2026-07-02', end='2026-11-06', symbols=SYMBOLS, progr
                     request = dict(symbol=symbol, start=start, end=end,
                                    ktype='K_DAY', session='RTH', autype=adjustment,
                                    requested_at_utc=utc_now())
-                    records, page, seen_pages = [], None, set()
+                    records, page, seen_pages, pages = [], None, set(), []
                     while True:
                         ret, frame, next_page = quote.request_history_kline(
                             symbol, start=request['start'], end=request['end'], ktype=KLType.K_DAY,
                             session=Session.RTH, autype=getattr(AuType, adjustment),
-                            max_count=1000, page_req_key=page)
+                            max_count=50, page_req_key=page)
                         if ret != RET_OK or frame.empty:
                             raise RuntimeError(f'{symbol}/{adjustment}: incomplete history; ret={ret}')
                         records.extend(json.loads(frame.to_json(orient='records', double_precision=15)))
+                        pages.append(dict(ret=ret, rows=len(frame), has_next=bool(next_page), acquired_at_utc=utc_now()))
+                        time.sleep(1.15)
                         if not next_page:
                             break
                         if next_page in seen_pages:
@@ -57,8 +59,7 @@ def capture(output, start='2026-07-02', end='2026-11-06', symbols=SYMBOLS, progr
                         seen_pages.add(next_page)
                         page = next_page
                     payload['responses'][adjustment] = dict(request=request, acquired_at_utc=utc_now(),
-                        page_complete=True, records=records)
-                    time.sleep(1.15)
+                        page_complete=True, records=records, pages=pages)
                 requested = utc_now()
                 ret, actions = quote.get_rehab(symbol)
                 if ret != RET_OK:

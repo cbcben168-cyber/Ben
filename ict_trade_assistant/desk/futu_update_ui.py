@@ -6,7 +6,7 @@ from pathlib import Path
 import streamlit as st
 
 from .daily_update import latest_completed
-from .futu_update import FutuVersions, start_update
+from .futu_update import FutuVersions, start_update, task_status
 
 
 def read_json(path):
@@ -35,9 +35,8 @@ def render_futu_update(baseline, clear, root=None):
         st.error('当前Futu历史档案无法核验：' + str(exc))
         return
     target = latest_completed(datetime.now(timezone.utc))
-    status = read_json(versions.status)
+    running, status = task_status(versions)
     progress = read_json(versions.root / 'capture_progress.json')
-    running = versions.lock.exists()
     st.write('当前数据截至：' + current['last'])
     st.write(f"覆盖证券：{current['symbols']}/23")
     st.write('数据来源：Futu前复权日K')
@@ -65,6 +64,8 @@ def render_futu_update(baseline, clear, root=None):
                 st.info('已有更新任务正在运行。')
         except (OSError, ValueError):
             st.error('无法启动本地历史更新，请检查工作目录权限。')
+    if status.get('status_warning'):
+        st.warning(status['status_warning'])
     if status.get('status') == 'UP_TO_DATE' and not running:
         st.caption('已重新核查完整QFQ历史及复权事件；没有新版本。')
     st.caption('仅更新日K趋势和因子；不授予实时ICT资格。人工计划价格尺度尚未核实。')

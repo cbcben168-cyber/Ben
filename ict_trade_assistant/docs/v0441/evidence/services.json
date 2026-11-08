@@ -1,0 +1,48 @@
+{
+  "services": [
+    {
+      "port": 8501,
+      "pid": 19544,
+      "health": "ok",
+      "process_name": "python"
+    },
+    {
+      "port": 8506,
+      "pid": 22992,
+      "health": "ok",
+      "process_name": "python"
+    },
+    {
+      "port": 8516,
+      "pid": 49096,
+      "health": "ok",
+      "process_name": "python"
+    },
+    {
+      "port": 8517,
+      "pid": 53908,
+      "health": "ok",
+      "process_name": "python"
+    },
+    {
+      "port": 8518,
+      "pid": 38340,
+      "health": "ok",
+      "process_name": "python"
+    },
+    {
+      "port": 8520,
+      "pid": 24936,
+      "health": "ok",
+      "process_name": "python"
+    },
+    {
+      "port": 8521,
+      "pid": 47664,
+      "health": "ok",
+      "process_name": "python"
+    }
+  ],
+  "opend_pid": 22236,
+  "opend_name": "Futu_OpenD"
+}

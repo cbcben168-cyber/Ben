@@ -1,0 +1,148 @@
+{
+  "status": "POSTCHECK",
+  "heartbeat": {
+    "pid": 51712,
+    "port": 8506,
+    "at": 1794126619.7971973,
+    "uptime_seconds": 50,
+    "root": "C:\\Users\\cbcbe\\TradingCodex\\ict_trade_assistant_v04",
+    "build_sha256": "1da6253b33982fc826b42c79140839c966c8d9c4c0dcfe40a3d94512c6fc06e5"
+  },
+  "process": {
+    "pid": 51712,
+    "cwd": "C:\\Users\\cbcbe\\TradingCodex\\ict_trade_assistant_v04\\",
+    "history_paths": {
+      "ICT_EXPERIMENT_DB": "C:\\Users\\cbcbe\\TradingCodex\\ict_trade_assistant_v04\\data\\v044\\experiments.sqlite3",
+      "ICT_V04_DB": "C:\\Users\\cbcbe\\TradingCodex\\ict_trade_assistant_v04\\data\\v04\\desk.sqlite3",
+      "ICT_V04_HISTORY": "C:\\Users\\cbcbe\\TradingCodex\\ict_trade_assistant_v04\\data\\v04\\history.json"
+    }
+  },
+  "files": [
+    {
+      "file": "app.py",
+      "sha256": "3cc46a565212f5a8d97ce0b3483a854c89784969d140369eec97ff201359c4ed",
+      "matches_release": true
+    },
+    {
+      "file": "desk/dashboard_cards.py",
+      "sha256": "a4374652ee73b9aec79d4b036091b6e150cfcb5154802ea7419a19b731a52cf9",
+      "matches_release": true
+    },
+    {
+      "file": "desk/decision_home.py",
+      "sha256": "732cae8ab7a410a697042d2ce8a9679ac2a1bf1cf61c958947e68fa28168b8c2",
+      "matches_release": true
+    },
+    {
+      "file": "desk/experiment.py",
+      "sha256": "5ce0c71b9eabf3b024a369874605493f9213df88f8d03ed0ff381875a912fdbd",
+      "matches_release": true
+    },
+    {
+      "file": "desk/experiment_ui.py",
+      "sha256": "b77ffabbc042f3b9f0feef9879b94a26eb949b49bbb9b7fb4243f242a1dea48d",
+      "matches_release": true
+    },
+    {
+      "file": "desk/ema_layers.py",
+      "sha256": "a91cf420d254ba30bd9a609498a3f437d9a92a183e5c24a45af0ba10e453364f",
+      "matches_release": true
+    }
+  ],
+  "protected_unchanged": true,
+  "changed": [],
+  "user_unchanged": true,
+  "user_database_bytes_unchanged": false,
+  "user": {
+    "integrity": "ok",
+    "acknowledgements": {
+      "rows": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "audit": {
+      "rows": 8,
+      "sha256": "6a3bcbbceb114640f80e011ee9e308e31c8972855ed2a6865331b642d3988205"
+    },
+    "events": {
+      "rows": 2,
+      "sha256": "10b8ea51fd431da609a21b4d6595fdd78cc6c966678864539c97a1ecc172f94d"
+    },
+    "notes": {
+      "rows": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "plan_versions": {
+      "rows": 2,
+      "sha256": "2d45edc1e29497490c9a6cc76ed7acdbf25b1e5389ffd442684dc0751813ef49"
+    },
+    "settings": {
+      "rows": 2,
+      "sha256": "7f183923fce5dd1f6371d24826e4e83e70ae344b87fce613ba5e6afe52762efc"
+    },
+    "plans": [
+      {
+        "symbol": "US.SMH",
+        "version": 1,
+        "status": "ACTIVE"
+      },
+      {
+        "symbol": "US.SPY",
+        "version": 1,
+        "status": "ACTIVE"
+      }
+    ]
+  },
+  "original_profiles_unchanged": true,
+  "new_profile_names": [],
+  "services": {
+    "8501": {
+      "pid": 19544,
+      "same_process": true,
+      "health": {
+        "status": 200,
+        "body": "ok"
+      }
+    },
+    "8516": {
+      "pid": 49096,
+      "same_process": true,
+      "health": {
+        "status": 200,
+        "body": "ok"
+      }
+    },
+    "8517": {
+      "pid": 53908,
+      "same_process": true,
+      "health": {
+        "status": 200,
+        "body": "ok"
+      }
+    },
+    "8518": {
+      "pid": 38340,
+      "same_process": true,
+      "health": {
+        "status": 200,
+        "body": "ok"
+      }
+    },
+    "8520": {
+      "pid": 24936,
+      "same_process": true,
+      "health": {
+        "status": 200,
+        "body": "ok"
+      }
+    },
+    "8521": {
+      "pid": 47664,
+      "same_process": true,
+      "health": {
+        "status": 200,
+        "body": "ok"
+      }
+    }
+  },
+  "opend_same_process": true
+}

@@ -1,0 +1,225 @@
+"""Deploy only the six approved v0.4.4.1 files; preserve launch environment privately."""
+import ctypes as c
+from contextlib import closing
+from datetime import datetime, timezone
+import json
+from pathlib import Path
+import shutil
+import sqlite3
+import subprocess
+import sys
+import time
+
+HERE=Path(__file__).resolve().parent
+REPO=HERE.parents[1]
+sys.path.insert(0,str(REPO/'output/v044-deployment-20261107'))
+import audit
+from process_paths import paths,k
+
+RUNTIME=audit.RUNTIME
+RELEASE=json.loads((REPO/'output/v0441-20261108/accepted-release.json').read_text(encoding='utf-8-sig'))
+SOURCE=Path(RELEASE['source'])
+sys.path.insert(0,str(SOURCE/'scripts'));sys.path.insert(0,str(SOURCE))
+from deployment_protection import snapshot,inspect,compare,compare_experiments,reconstruct_models
+from desk.clock import ET
+FILES=[row['file'] for row in RELEASE['application_files']]
+PYTHON=Path('C:/Users/cbcbe/TradingCodex/ict_trade_assistant/.venv/Scripts/python.exe')
+COMMAND=[str(PYTHON),'scripts/run_server.py','--history','--port','8506']
+PORTS={8501:19544,8506:27228,8516:49096,8517:53908,8518:38340,8520:24936,8521:42384}
+
+def dump(name,value):
+    (HERE/name).write_text(json.dumps(value,ensure_ascii=False,indent=2,default=str),encoding='utf-8')
+    return value
+
+def protected():
+    result=audit.protected()
+    for name in FILES:result.pop(str(RUNTIME/name),None)
+    for name in ['desk/market_state.py','desk/workspace.py']:
+        result[str(RUNTIME/name)]=audit.sha(RUNTIME/name)
+    return result
+
+def profiles():
+    dbpath=RUNTIME/'data/v044/experiments.sqlite3'
+    with closing(sqlite3.connect(dbpath.as_uri()+'?mode=ro',uri=True)) as db:
+        assert db.execute('PRAGMA integrity_check').fetchone()[0]=='ok'
+        return dict(db.execute('SELECT name,version||char(9)||parameters||char(9)||updated_at FROM experiments'))
+
+def running(pid):
+    handle=k.OpenProcess(0x1000,False,pid)
+    if not handle:return False
+    try:
+        value=c.c_ulong()
+        k.GetExitCodeProcess.argtypes=[c.c_void_p,c.POINTER(c.c_ulong)]
+        return bool(k.GetExitCodeProcess(handle,c.byref(value))) and value.value==259
+    finally:k.CloseHandle(handle)
+
+def identity():
+    beat=json.loads((RUNTIME/'data/runtime-8506.json').read_text())
+    assert beat['port']==8506 and Path(beat['root'])==RUNTIME
+    assert time.time()-beat['at']<35
+    info=paths(beat['pid'])
+    assert Path(info['cwd']).resolve()==RUNTIME.resolve()
+    for key,relative in [('ICT_V04_DB','data/v04/desk.sqlite3'),('ICT_V04_HISTORY','data/v04/history.json'),('ICT_EXPERIMENT_DB','data/v044/experiments.sqlite3')]:
+        assert Path(info['history_paths'][key])==RUNTIME/relative
+    assert audit.health(8506)==dict(status=200,body='ok')
+    return beat,info
+
+def pre():
+    assert not (HERE/'before.json').exists(),'Precheck already saved; do not overwrite backups'
+    assert FILES==['app.py','desk/dashboard_cards.py','desk/decision_home.py','desk/experiment.py','desk/experiment_ui.py','desk/ema_layers.py']
+    # Application fingerprints below are authoritative; docs-only commits may differ.
+    beat,info=identity()
+    assert beat['pid']==27228 and beat['build_sha256']=='88f7e6227f9da931fe646837b58edfd1108ba88024b72b5d92621afe215dd0a3'
+    assert audit.build(RUNTIME)==beat['build_sha256'],'Running code drift'
+    previous=json.loads((REPO/'output/v0441-20261108/before.json').read_text(encoding='utf-8'))
+    frozen=protected()
+    assert all(audit.sha(path)==value for path,value in previous['protected'].items()),'Protected drift since isolated acceptance'
+    user=audit.user_state(RUNTIME/'data/v04/desk.sqlite3')
+    assert user==previous['user']
+    rows=[]
+    for row in RELEASE['application_files']:
+        target=RUNTIME/row['file']
+        assert target.exists()==row['originally_exists'],row['file']+' existence drift'
+        if target.exists():assert audit.sha(target)==row['before_sha256'],row['file']+' content drift'
+        assert audit.sha(SOURCE/row['file'])==row['release_sha256'],'Accepted source drift'
+        saved=HERE/'backup'/row['file']
+        if target.exists():
+            saved.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(target,saved)
+            assert audit.sha(saved)==row['before_sha256']
+        rows.append(row)
+    baseline=snapshot(RUNTIME/'data/v04/desk.sqlite3',HERE/'backup/user-before.sqlite3')
+    snapshot(RUNTIME/'data/v044/experiments.sqlite3',HERE/'backup/experiments-before.sqlite3')
+    audited=inspect(REPO/'output/v0441-protection-audit-20261108/current.sqlite3')
+    assert baseline['schema']==audited['schema'] and set(baseline['tables'])==set(audited['tables'])
+    assert all(table['sha256']==audited['tables'][name]['sha256'] for name,table in baseline['tables'].items()),'Unreviewed database drift since audit'
+    owners=['clock.py','store.py','observations.py','analytics.py','plans.py','history_source.py','history_import.py','watchlist.py']
+    for name in owners:
+        # Cross-checkout equivalence only. Runtime raw bytes remain protected above.
+        assert audit.sha(RUNTIME/'desk'/name,True)==audit.sha(SOURCE/'desk'/name,True),'Owner source differs beyond line endings: '+name
+    for name in ['data/v04/history.json','data/v042/history.sqlite3','data/v043/updates.sqlite3']:
+        assert audit.sha(RUNTIME/name)==audit.sha(SOURCE/name),'Archive copy drift: '+name
+    models=reconstruct_models(HERE/'backup/user-before.sqlite3',SOURCE/'data/v04/history.json',SOURCE/'data/v042/history.sqlite3',SOURCE/'data/v043/updates.sqlite3',datetime(2026,10,29,16,2,tzinfo=ET))
+    dump('observation-models.json',models)
+    services={str(port):dict(pid=pid,process=paths(pid),health=audit.health(port)) for port,pid in PORTS.items()}
+    assert all(row['health']==dict(status=200,body='ok') for row in services.values())
+    assert running(22236),'OpenD original PID missing'
+    result=dict(at=datetime.now(timezone.utc).isoformat(),release=RELEASE['commit'],heartbeat=beat,process=info,
+                files=rows,protected=frozen,user=user,user_database_sha256=audit.sha(RUNTIME/'data/v04/desk.sqlite3'),
+                profiles=profiles(),experiment_database_sha256=audit.sha(RUNTIME/'data/v044/experiments.sqlite3'),services=services,opend_pid=22236,
+                models_sha256=audit.sha(HERE/'observation-models.json'),verifier_sha256=audit.sha(SOURCE/'scripts/deployment_protection.py'),
+                owner_source_sha256={name:audit.sha(SOURCE/'desk'/name) for name in owners})
+    dump('before.json',result)
+    return dict(precheck='PASS',pid=beat['pid'],files=len(rows),protected_files=len(frozen),health=audit.health(8506))
+
+def stop(pid):
+    info=paths(pid)
+    assert Path(info['cwd']).resolve()==RUNTIME.resolve(),'Wrong PID root'
+    handle=k.OpenProcess(0x100001,False,pid)
+    if not handle:raise c.WinError(c.get_last_error())
+    try:
+        k.TerminateProcess.argtypes=[c.c_void_p,c.c_uint]
+        k.WaitForSingleObject.argtypes=[c.c_void_p,c.c_uint]
+        if not k.TerminateProcess(handle,0):raise c.WinError(c.get_last_error())
+        assert k.WaitForSingleObject(handle,5000)==0
+    finally:k.CloseHandle(handle)
+
+def launch(environment,expected):
+    began=time.time()
+    with (HERE/'server-out.log').open('ab') as out,(HERE/'server-error.log').open('ab') as err:
+        proc=subprocess.Popen(COMMAND,cwd=RUNTIME,env=environment,stdout=out,stderr=err,creationflags=subprocess.CREATE_NO_WINDOW)
+    for _ in range(80):
+        try:
+            beat,info=identity()
+            if beat['at']>=began-1 and beat['build_sha256']==expected and audit.build(RUNTIME)==expected:
+                return dict(wrapper_pid=proc.pid,heartbeat=beat,process=info,health=audit.health(8506))
+        except (OSError,ValueError,AssertionError):pass
+        if proc.poll() is not None:raise RuntimeError('8506 launcher exited')
+        time.sleep(.3)
+    raise RuntimeError('8506 startup identity/health timeout')
+
+def restore_files(before):
+    for row in before['files']:
+        target=(RUNTIME/row['file']).resolve()
+        assert target.is_relative_to(RUNTIME.resolve()) and row['file'] in FILES
+        if row['originally_exists']:
+            shutil.copy2(HERE/'backup'/row['file'],target)
+            assert audit.sha(target)==row['before_sha256']
+        elif target.exists():
+            assert audit.sha(target)==row['release_sha256'],'Unexpected edit at new file'
+            target.unlink()
+
+def rollback():
+    before=json.loads((HERE/'before.json').read_text(encoding='utf-8'))
+    beat=json.loads((RUNTIME/'data/runtime-8506.json').read_text())
+    assert beat['port']==8506 and Path(beat['root'])==RUNTIME
+    _,environment=paths(beat['pid'],True)
+    stop(beat['pid']);restore_files(before)
+    return dump('rollback.json',dict(status='ROLLED_BACK',**launch(environment,before['heartbeat']['build_sha256'])))
+
+def apply():
+    before=json.loads((HERE/'before.json').read_text(encoding='utf-8'))
+    beat,_=identity()
+    assert beat['pid']==before['heartbeat']['pid'] and audit.build(RUNTIME)==before['heartbeat']['build_sha256']
+    assert protected()==before['protected'] and audit.user_state(RUNTIME/'data/v04/desk.sqlite3')==before['user']
+    assert profiles()==before['profiles']
+    assert user_check(before)['passed'],'Pre-apply layered database protection failed'
+    for row in before['files']:
+        target=RUNTIME/row['file']
+        assert target.exists()==row['originally_exists']
+        if target.exists():assert audit.sha(target)==row['before_sha256']
+        assert audit.sha(SOURCE/row['file'])==row['release_sha256']
+    _,environment=paths(beat['pid'],True) # Never serialize the full environment.
+    try:
+        for row in before['files']:
+            shutil.copy2(SOURCE/row['file'],RUNTIME/row['file'])
+            assert audit.sha(RUNTIME/row['file'])==row['release_sha256']
+        expected=audit.build(RUNTIME)
+        stop(beat['pid'])
+        return dump('release.json',dict(status='STARTED_PENDING_ACCEPTANCE',commit=RELEASE['commit'],files=before['files'],**launch(environment,expected)))
+    except Exception as exc:
+        dump('startup-failure.json',dict(error=type(exc).__name__,detail=str(exc)))
+        current=json.loads((RUNTIME/'data/runtime-8506.json').read_text())
+        if running(current['pid']):stop(current['pid'])
+        restore_files(before)
+        dump('rollback.json',dict(status='ROLLED_BACK',**launch(environment,before['heartbeat']['build_sha256'])))
+        raise
+
+def user_check(before):
+    assert audit.sha(SOURCE/'scripts/deployment_protection.py')==before['verifier_sha256'],'Verifier drift'
+    assert audit.sha(HERE/'observation-models.json')==before['models_sha256'],'Model policy drift'
+    assert all(audit.sha(SOURCE/'desk'/name)==value for name,value in before['owner_source_sha256'].items()),'Model owner source drift'
+    current=snapshot(RUNTIME/'data/v04/desk.sqlite3',HERE/('user-check-'+str(time.time_ns())+'.sqlite3'))
+    models=json.loads((HERE/'observation-models.json').read_text(encoding='utf-8'))
+    return compare(inspect(HERE/'backup/user-before.sqlite3'),current,models,
+                   window=(datetime.fromisoformat(before['at']),datetime.now(timezone.utc)),cycles=1)
+
+def post(allow_ui_save=False):
+    before=json.loads((HERE/'before.json').read_text(encoding='utf-8'));release=json.loads((HERE/'release.json').read_text(encoding='utf-8'))
+    current=protected();changed=[path for path,value in before['protected'].items() if current.get(path)!=value]
+    user=audit.user_state(RUNTIME/'data/v04/desk.sqlite3');current_profiles=profiles()
+    layered=user_check(before)
+    experimental=snapshot(RUNTIME/'data/v044/experiments.sqlite3',HERE/('experiment-check-'+str(time.time_ns())+'.sqlite3'))
+    expected={'8506_v0441_EMA5_20261108':dict(ema_short=5,ema_long=50,atr_period=14,sideways_atr=.5,candidate_atr=.25)} if allow_ui_save else {}
+    experiment_check=compare_experiments(inspect(HERE/'backup/experiments-before.sqlite3'),experimental,expected,
+                                        (datetime.fromisoformat(before['at']),datetime.now(timezone.utc)))
+    beat,info=identity()
+    services={port:dict(pid=row['pid'],same_process=running(row['pid']),health=audit.health(int(port))) for port,row in before['services'].items() if int(port)!=8506}
+    result=dict(status='POSTCHECK',heartbeat=beat,process=info,files=[dict(file=row['file'],sha256=audit.sha(RUNTIME/row['file']),matches_release=audit.sha(RUNTIME/row['file'])==row['release_sha256']) for row in before['files']],
+                protected_unchanged=not changed,changed=changed,user_unchanged=user==before['user'],user_database_bytes_unchanged=audit.sha(RUNTIME/'data/v04/desk.sqlite3')==before['user_database_sha256'],user=user,
+                original_profiles_unchanged=all(current_profiles.get(name)==record for name,record in before['profiles'].items()),
+                new_profile_names=sorted(set(current_profiles)-set(before['profiles'])),services=services,opend_same_process=running(before['opend_pid']),
+                layered_database_protection=layered,experiment_protection=experiment_check)
+    dump('after.json',result)
+    assert all(row['matches_release'] for row in result['files'])
+    assert beat['build_sha256']==audit.build(RUNTIME)==release['heartbeat']['build_sha256']
+    # Byte hash is diagnostic; the fully enumerated table/row protections are mandatory.
+    assert protected()==before['protected'] and result['user_unchanged'] and layered['passed'] and experiment_check['passed'],'Layered protection failure'
+    assert result['opend_same_process'] and all(row['same_process'] and row['health']==dict(status=200,body='ok') for row in services.values())
+    return result
+
+if __name__=='__main__':
+    action=sys.argv[1]
+    if action=='apply' and '--deployment-approved' not in sys.argv:
+        raise SystemExit('A fresh explicit deployment approval is required; this audit is not deployment authorization.')
+    result=post('--allow-ui-save' in sys.argv) if action=='post' else dict(pre=pre,apply=apply,rollback=rollback)[action]()
+    print(json.dumps(result,ensure_ascii=False,indent=2))

@@ -1,5 +1,6 @@
 """Small Chinese controls for historical experiments."""
 from dataclasses import asdict
+from html import escape
 import os
 from pathlib import Path
 import sqlite3
@@ -7,7 +8,7 @@ import sqlite3
 import pandas as pd
 import streamlit as st
 
-from .experiment import BASELINE, Experiment, ExperimentStore, replay_cutoff
+from .experiment import BASELINE, VERSION, Experiment, ExperimentStore, replay_cutoff
 
 FIELDS = (
     ('ema_short', 'EMA短期周期', 5, 30, 1, '越小越快反映近期价格变化。'),
@@ -29,15 +30,52 @@ def apply_config(config):
         st.session_state['experiment_' + key] = value
 
 
+def current_config():
+    return Experiment(**{key: st.session_state['experiment_' + key] for key in asdict(BASELINE)})
+
+
+def activate(name, config, version=VERSION):
+    st.session_state['_experiment_active'] = dict(name=name, parameters=asdict(config), version=version, dirty=False)
+
+
+def mark_unsaved():
+    st.session_state['_experiment_active'] = dict(name=None, parameters=asdict(current_config()), version=None, dirty=True)
+
+
+def restore_baseline():
+    apply_config(BASELINE)
+    activate('Baseline', BASELINE)
+    st.session_state['experiment_preset'] = 'Baseline'
+
+
+def effective_status(config):
+    active = st.session_state['_experiment_active']
+    if active['dirty'] or active['parameters'] != asdict(config):
+        return '当前生效：自定义参数（未保存）', '未保存修改'
+    if active['name'] == 'Baseline':
+        return '当前生效：Baseline（原始参数）', ''
+    suffix = '已修改' if config != BASELINE else '与原始参数相同'
+    return f"当前生效：{active['name']}（{suffix}）", f"已保存组合 · 版本 {active['version']}"
+
+
 def controls(selected, data, wall_asof):
     """Widgets run in the home fragment: changing a factor never reloads market data."""
     store = experiment_store()
-    for key, value in asdict(BASELINE).items():
+    remembered = st.session_state.get('_experiment_active', {}).get('parameters', asdict(BASELINE))
+    for key, value in remembered.items():
         st.session_state.setdefault('experiment_' + key, value)
+    if '_experiment_active' not in st.session_state:
+        activate('Baseline', BASELINE) if current_config() == BASELINE else mark_unsaved()
     # Keep the entry compact; the chart and right action card retain their columns.
-    panel = st.expander('调整分析因子 · v0.4.4', expanded=False)
+    panel = st.expander('调整分析因子 · v0.4.4.1', expanded=False)
     with panel:
+        status, detail = effective_status(current_config())
+        st.markdown('<div class="factor-active" role="status" style="padding:10px 14px;border-left:4px solid #39d6d0;'
+                    'background:#142036;border-radius:6px"><strong>'+escape(status)+'</strong></div>', unsafe_allow_html=True)
+        if detail:
+            st.caption(detail)
         st.caption(f'{selected[3:]} · 独立历史实验 · 拉动后自动重算')
+        st.markdown('[查看同步更新的主图](#current-market-chart)')
         mode_col, date_col, period_col, preset_col = st.columns(4)
         mode = mode_col.selectbox('数据模式', ['最新已保存数据', '历史回放'], key='experiment_mode')
         # Only existing archive session labels are selectable; never fetch missing days.
@@ -58,7 +96,7 @@ def controls(selected, data, wall_asof):
         except (sqlite3.Error, OSError):
             names = ['Baseline']
             st.error('实验组合暂时无法读取，请检查实验数据库；原始参数仍可使用。')
-        preset_col.selectbox('参数组合', names, key='experiment_preset')
+        preset_col.selectbox('选择准备载入的组合', names, key='experiment_preset')
         source = '原历史档案'
         if data.get('independent_coverage'):
             source = st.radio('日K来源（分开计算）', ['原历史档案', '独立更新档案'], horizontal=True,
@@ -66,16 +104,19 @@ def controls(selected, data, wall_asof):
         columns = st.columns(2)
         for index, (key, label, low, high, step, help_text) in enumerate(FIELDS):
             with columns[index % 2]:
-                st.slider(label, low, high, step=step, key='experiment_' + key, help=help_text)
+                st.slider(label, low, high, step=step, key='experiment_' + key, help=help_text, on_change=mark_unsaved)
                 st.caption(help_text)
-        config = Experiment(**{key: st.session_state['experiment_' + key] for key in asdict(BASELINE)})
+        config = current_config()
         a, b, c, d = st.columns([2, 1, 1, 1])
         a.text_input('实验组合名称', placeholder='例如：短期敏感观察', key='experiment_name')
         def save():
             try:
-                values = {key: st.session_state['experiment_' + key] for key in asdict(BASELINE)}
-                store.save(st.session_state['experiment_name'], Experiment(**values))
-                st.session_state['experiment_notice'] = '实验组合已保存，重新打开仍可载入。'
+                name = st.session_state['experiment_name'].strip()
+                saved = current_config()
+                store.save(name, saved)
+                activate(name, saved)
+                st.session_state['experiment_preset'] = name
+                st.session_state['experiment_notice'] = f'保存成功：{name}（版本 {VERSION}）。刷新后仍可载入。'
             except ValueError as exc:
                 st.session_state['experiment_error'] = str(exc)
             except (sqlite3.Error, OSError):
@@ -83,14 +124,17 @@ def controls(selected, data, wall_asof):
         b.button('保存组合', on_click=save, width='stretch')
         def load():
             try:
-                apply_config(store.load(st.session_state['experiment_preset']))
-                st.session_state['experiment_notice'] = '已载入参数组合。'
+                name = st.session_state['experiment_preset']
+                profile = store.load_profile(name)
+                apply_config(profile['config'])
+                activate(name, profile['config'], profile['version'])
+                st.session_state['experiment_notice'] = f"已载入：{name}（版本 {profile['version']}）。"
             except ValueError as exc:
-                st.session_state['experiment_notice'] = str(exc)
+                st.session_state['experiment_error'] = str(exc)
             except (sqlite3.Error, OSError):
-                st.session_state['experiment_notice'] = '实验组合暂时无法载入，请检查实验数据库。'
+                st.session_state['experiment_error'] = '实验组合暂时无法载入，请检查实验数据库。'
         c.button('载入组合', on_click=load, width='stretch')
-        d.button('恢复默认', on_click=apply_config, args=(BASELINE,), width='stretch')
+        d.button('恢复默认', on_click=restore_baseline, width='stretch')
         if notice := st.session_state.pop('experiment_notice', None):
             st.success(notice)
         if error := st.session_state.pop('experiment_error', None):

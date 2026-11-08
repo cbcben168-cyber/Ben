@@ -1,0 +1,63 @@
+........................................................................ [ 40%]
+........................................................................ [ 80%]
+....................................                                     [100%]
+============================== warnings summary ===============================
+..\..\..\..\..\..\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\exchange_calendars\exchange_calendar.py:65
+  C:\Users\cbcbe\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\exchange_calendars\exchange_calendar.py:65: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+    ONE_HOUR = pd.Timedelta("1h")
+
+..\..\..\..\..\..\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\exchange_calendars\utils\pandas_utils.py:60
+..\..\..\..\..\..\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\exchange_calendars\utils\pandas_utils.py:60
+..\..\..\..\..\..\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\exchange_calendars\utils\pandas_utils.py:60
+  C:\Users\cbcbe\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\exchange_calendars\utils\pandas_utils.py:60: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+    delta = pd.Timedelta(
+
+tests/test_experiment_v044.py: 107 warnings
+tests/test_core.py: 3 warnings
+tests/test_ict_v03.py: 809 warnings
+tests/test_decision_v04.py: 703 warnings
+tests/test_v04_live_gate.py: 297 warnings
+tests/test_v04_review_fixes.py: 259 warnings
+tests/test_history_v042.py: 45 warnings
+tests/test_daily_update_v043.py: 20 warnings
+tests/test_plans_levels.py: 80 warnings
+tests/test_observations.py: 92 warnings
+tests/test_v021.py: 28 warnings
+tests/test_watchlist_v041.py: 134 warnings
+  C:\Users\cbcbe\Documents\ChatGPT\ict_trade_assistant\.worktrees\v0441\ict_trade_assistant\desk\clock.py:25: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+    return CAL.date_to_session(pd.Timestamp(day) - pd.Timedelta(days=1), direction='previous').date()
+
+tests/test_experiment_v044.py: 9 warnings
+tests/test_ict_v03.py: 32 warnings
+tests/test_decision_v04.py: 28 warnings
+tests/test_v04_live_gate.py: 11 warnings
+tests/test_v04_review_fixes.py: 8 warnings
+tests/test_plans_levels.py: 4 warnings
+tests/test_watchlist_v041.py: 5 warnings
+  C:\Users\cbcbe\Documents\ChatGPT\ict_trade_assistant\.worktrees\v0441\ict_trade_assistant\desk\ict_v03.py:64: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+    f['usable'] = f.eligible.eq(True) & (f.ts + pd.Timedelta(minutes=3) <= now)
+
+tests/test_v04_review_fixes.py::test_inactive_structure_is_history_only[expired_chain]
+  C:\Users\cbcbe\Documents\ChatGPT\ict_trade_assistant\.worktrees\v0441\ict_trade_assistant\tests\test_v04_review_fixes.py:21: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+    if case=='expired_chain':now=pd.Timestamp(deadline(now,6))+pd.Timedelta(seconds=1)
+
+tests/test_history_v042.py: 27 warnings
+tests/test_daily_update_v043.py: 51 warnings
+  C:\Users\cbcbe\Documents\ChatGPT\ict_trade_assistant\.worktrees\v0441\ict_trade_assistant\desk\history_import.py:27: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+    if acquired > pd.Timestamp.now(tz='UTC')+pd.Timedelta(seconds=5):
+
+tests/test_history_v042.py: 27 warnings
+tests/test_daily_update_v043.py: 51 warnings
+  C:\Users\cbcbe\Documents\ChatGPT\ict_trade_assistant\.worktrees\v0441\ict_trade_assistant\desk\history_import.py:30: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+    end = (pd.Timestamp(request['end']).tz_convert(ET)-pd.Timedelta(microseconds=1)).date()
+
+tests/test_daily_update_v043.py: 50 warnings
+  C:\Users\cbcbe\Documents\ChatGPT\ict_trade_assistant\.worktrees\v0441\ict_trade_assistant\desk\daily_update.py:27: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+    ready=pd.Timestamp(day,tz=ET)+pd.DateOffset(days=1)+pd.Timedelta(minutes=15)
+
+tests/test_daily_update_v043.py: 52 warnings
+  C:\Users\cbcbe\Documents\ChatGPT\ict_trade_assistant\.worktrees\v0441\ict_trade_assistant\tests\test_daily_update_v043.py:32: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+    dates=CAL.sessions_in_range(pd.Timestamp(start).date(),(pd.Timestamp(end)-pd.Timedelta(microseconds=1)).date())
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+180 passed, 2937 warnings in 194.89s (0:03:14)

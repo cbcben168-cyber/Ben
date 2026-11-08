@@ -1,0 +1,80 @@
+{
+  "status": "V0.4.4.1_DEPLOYED_AND_ACCEPTED",
+  "at": "2026-11-08T09:42:03.792965+00:00",
+  "version": "v0.4.4.1",
+  "application_commit": "2a0a29b5ece9af03231efd3a0af14997ed60324d",
+  "pr": "https://github.com/cbcben168-cyber/Ben/pull/48",
+  "draft": true,
+  "heartbeat": {
+    "pid": 58064,
+    "port": 8506,
+    "at": 1794130917.4870133,
+    "uptime_seconds": 861,
+    "root": "C:\\Users\\cbcbe\\TradingCodex\\ict_trade_assistant_v04",
+    "build_sha256": "1da6253b33982fc826b42c79140839c966c8d9c4c0dcfe40a3d94512c6fc06e5"
+  },
+  "process": {
+    "pid": 58064,
+    "cwd": "C:\\Users\\cbcbe\\TradingCodex\\ict_trade_assistant_v04\\",
+    "history_paths": {
+      "ICT_EXPERIMENT_DB": "C:\\Users\\cbcbe\\TradingCodex\\ict_trade_assistant_v04\\data\\v044\\experiments.sqlite3",
+      "ICT_V04_DB": "C:\\Users\\cbcbe\\TradingCodex\\ict_trade_assistant_v04\\data\\v04\\desk.sqlite3",
+      "ICT_V04_HISTORY": "C:\\Users\\cbcbe\\TradingCodex\\ict_trade_assistant_v04\\data\\v04\\history.json"
+    }
+  },
+  "health": {
+    "status": 200,
+    "body": "ok"
+  },
+  "files": [
+    {
+      "file": "app.py",
+      "sha256": "3cc46a565212f5a8d97ce0b3483a854c89784969d140369eec97ff201359c4ed",
+      "matches_release": true
+    },
+    {
+      "file": "desk/dashboard_cards.py",
+      "sha256": "a4374652ee73b9aec79d4b036091b6e150cfcb5154802ea7419a19b731a52cf9",
+      "matches_release": true
+    },
+    {
+      "file": "desk/decision_home.py",
+      "sha256": "732cae8ab7a410a697042d2ce8a9679ac2a1bf1cf61c958947e68fa28168b8c2",
+      "matches_release": true
+    },
+    {
+      "file": "desk/experiment.py",
+      "sha256": "5ce0c71b9eabf3b024a369874605493f9213df88f8d03ed0ff381875a912fdbd",
+      "matches_release": true
+    },
+    {
+      "file": "desk/experiment_ui.py",
+      "sha256": "b77ffabbc042f3b9f0feef9879b94a26eb949b49bbb9b7fb4243f242a1dea48d",
+      "matches_release": true
+    },
+    {
+      "file": "desk/ema_layers.py",
+      "sha256": "a91cf420d254ba30bd9a609498a3f437d9a92a183e5c24a45af0ba10e453364f",
+      "matches_release": true
+    }
+  ],
+  "old_records": 248,
+  "old_rows_preserved": true,
+  "verified_appends": 18,
+  "all_other_tables_unchanged": true,
+  "protected_files": 119,
+  "protected_unchanged": true,
+  "experiment_protection": {
+    "passed": true,
+    "errors": [],
+    "approved_names": [
+      "8506_v0441_EMA5_20261108"
+    ]
+  },
+  "targeted_tests": {
+    "passed": 46,
+    "failed": 0
+  },
+  "full_suite_not_rerun": true,
+  "legacy_full_suite_failures": 3
+}

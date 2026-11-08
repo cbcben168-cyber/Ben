@@ -1,0 +1,76 @@
+{
+  "passed": true,
+  "errors": [],
+  "old_observations": 216,
+  "old_rows_preserved": true,
+  "table_checks": [
+    {
+      "table": "acknowledgements",
+      "unchanged": true,
+      "rows": 0,
+      "sha256": "6708b6a6369aee55ea45786044d7ccea01cf38938b9711704eade3be3b22d6c4"
+    },
+    {
+      "table": "audit",
+      "unchanged": true,
+      "rows": 8,
+      "sha256": "c2c15111cff9366a3bbeba9b46e447e22c5a6139ce784cbc16274065b77f5086"
+    },
+    {
+      "table": "bars",
+      "unchanged": true,
+      "rows": 0,
+      "sha256": "4fabf08113d515fa9493614599c700f29184c672ce8f69a50c6699a88005d722"
+    },
+    {
+      "table": "events",
+      "unchanged": true,
+      "rows": 26,
+      "sha256": "f6bc979452bbe485180d5211fb2fae56a068b3620a691e01e1a769e5ac0cc4d9"
+    },
+    {
+      "table": "levels",
+      "unchanged": true,
+      "rows": 0,
+      "sha256": "d89f74fedbb7e659b9b104e10ea82f989e825887a1a68b1b24a99972ae316d72"
+    },
+    {
+      "table": "notes",
+      "unchanged": true,
+      "rows": 0,
+      "sha256": "03753e042d920f2371195fff85a6681c1c03ad341e28e7333f662d6fecb9862e"
+    },
+    {
+      "table": "observation_snapshots",
+      "unchanged": true,
+      "rows": 23,
+      "sha256": "be8a3c68fa4f12f17980076f4eadedc772d125a6a6e34be1249c7f1167029784"
+    },
+    {
+      "table": "observation_states",
+      "unchanged": true,
+      "rows": 24,
+      "sha256": "0a6bbda84f12e97430adce956576d49cc722f3ad266ef07bb68703edc99216f8"
+    },
+    {
+      "table": "plan_versions",
+      "unchanged": true,
+      "rows": 2,
+      "sha256": "7ec0f5b356abebef497a1602fa5e8b7d3e86bcef45a4a7f88129cd3119068243"
+    },
+    {
+      "table": "settings",
+      "unchanged": true,
+      "rows": 2,
+      "sha256": "d8d25fcf2bdfe68fb2dba2faf0e62b049985b2da90cbeec303cc0ca43291930c"
+    }
+  ],
+  "additions": [],
+  "experiments": {
+    "passed": true,
+    "errors": [],
+    "approved_names": [
+      "v0441验收_EMA5"
+    ]
+  }
+}

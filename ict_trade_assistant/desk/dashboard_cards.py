@@ -89,9 +89,10 @@ def action(symbol, manual, plan, setup, stale):
     st.markdown(html, unsafe_allow_html=True)
 
 
-def candidate(symbol, status, region, next_step, data_at=None):
-    detail = '数据截至　'+data_at if data_at else '观察区　'+region
+def candidate(symbol, status, region, next_step, data_at=None, historical_trend=None):
+    detail = '最近数据　'+data_at if data_at else '观察区　'+region
+    trend = f'<p>旧资料趋势（原始参数）　{escape(historical_trend)}</p>' if historical_trend else ''
     st.markdown(f'<article class="dash-candidate"><h4>{escape(symbol)}</h4>'
                 f'<span class="dash-badge dash-red">{escape(status)}</span>'
-                f'<p>{escape(detail)}</p><p>下一步　{escape(next_step)}</p></article>',
+                f'<p>{escape(detail)}</p>{trend}<p>下一步　{escape(next_step)}</p></article>',
                 unsafe_allow_html=True)

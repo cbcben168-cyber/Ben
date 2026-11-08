@@ -9,7 +9,7 @@ import sqlite3
 
 from .clock import bounds
 
-VERSION = 'v0.4.4'
+VERSION = 'v0.4.4.1'
 
 
 @dataclass(frozen=True)
@@ -129,10 +129,14 @@ class ExperimentStore:
                                 datetime.now(timezone.utc).isoformat()))
 
     def load(self, name):
+        return self.load_profile(name)['config']
+
+    def load_profile(self, name):
+        """Return values and their stored version atomically; retain v0.4.4 profiles."""
         if name == 'Baseline':
-            return BASELINE
+            return dict(config=BASELINE, version=VERSION)
         with closing(sqlite3.connect(self.path, timeout=15)) as connection:
             row = connection.execute('SELECT version,parameters FROM experiments WHERE name=?', (name,)).fetchone()
-        if not row or row[0] != VERSION:
+        if not row or row[0] not in ('v0.4.4', VERSION):
             raise ValueError('参数组合不存在或版本不兼容。')
-        return Experiment(**json.loads(row[1]))
+        return dict(config=Experiment(**json.loads(row[1])), version=row[0])

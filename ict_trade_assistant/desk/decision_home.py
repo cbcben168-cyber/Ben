@@ -10,6 +10,7 @@ from .plans import risk_reward
 from .dashboard_cards import CSS, summary, action, candidate
 from .experiment import BASELINE, completed_snapshot, distance_result
 from .experiment_ui import controls, comparison_view
+from .ema_layers import LAYER_MODES, UNAVAILABLE, ema_points, add_ema_lines
 
 
 def historical_plan(decision):
@@ -65,6 +66,11 @@ def _analysis(frame, period, asof, source, config=BASELINE):
 @st.cache_data(max_entries=96, show_spinner=False)
 def _distance(data, state, config, period):
     return distance_result(data, state, config, period)
+
+
+@st.cache_data(max_entries=128, show_spinner=False)
+def _ema_points(frame, period, asof, source, config):
+    return ema_points(frame, period, asof, source, config)
 
 
 @st.cache_data(max_entries=48, show_spinner=False)
@@ -141,9 +147,12 @@ def render_home(selected, data, plan, decision, rows, decisions, replay_asof, wa
         left, right = st.columns([1.7, 1], gap='medium')
         with left:
             with st.container(key='answer-chart'):
-                st.subheader(f'{selected[3:]} · 主图')
+                st.subheader(f'{selected[3:]} · 主图', anchor='current-market-chart')
                 st.caption(('日K' if period == '1D' else '1小时') + ' · 历史收盘资料')
+                layer_mode = st.selectbox('指标图层', LAYER_MODES, index=1, key='ema_layer_mode')
                 manual_layer = bool(manual and not historical and st.checkbox('叠加用户计划价格（待人工复核）'))
+                if layer_mode != LAYER_MODES[0] and state['trend'] == 'UNKNOWN':
+                    st.info(UNAVAILABLE)
                 if chart.empty:
                     st.info('该时点无可用K线')
                 else:
@@ -151,6 +160,10 @@ def render_home(selected, data, plan, decision, rows, decisions, replay_asof, wa
                     fig = go.Figure(go.Candlestick(x=dates, open=chart.open, high=chart.high,
                                                     low=chart.low, close=chart.close, name=period))
                     x = [dates.iloc[0], dates.iloc[-1]]
+                    if layer_mode != LAYER_MODES[0] and state['trend'] != 'UNKNOWN':
+                        if layer_mode == LAYER_MODES[2]:
+                            add_ema_lines(fig, _ema_points(chart, period, asof, source, BASELINE), BASELINE, original=True)
+                        add_ema_lines(fig, _ema_points(chart, period, asof, source, config), config)
                     if manual_layer:
                         origin = f"用户计划 v{plan['version']} · 保存 {plan['updated_at']} · 周期未指定"
                         _level(fig, x, '人工计划入场下沿', plan['low'], '#ffbd66', origin)
@@ -174,8 +187,8 @@ def render_home(selected, data, plan, decision, rows, decisions, replay_asof, wa
         with right:
             with st.container(key='answer-action'):
                 action(selected[3:], manual, plan, setup if historical else None, stale)
-        st.subheader('Top5 · 观察名单')
-        st.caption('固定观察顺序 · 各证券资料时间可能不同，不是同一时点的当前市场排名；实验仅重算所选证券。')
+        st.subheader('重点观察的5只证券（固定顺序）')
+        st.caption('当前缺少合格的新行情，尚不能评出今日最佳交易候选。')
         watch = [dict(symbol=code) for code in data if code != 'US.VIX'][:5]
         if not watch:
             st.info('暂无观察候选')
@@ -186,8 +199,10 @@ def render_home(selected, data, plan, decision, rows, decisions, replay_asof, wa
                 watch_state, _ = _analysis(watch_frame, '1D', asof, _daily_source(data[code]))
                 watch_at = watch_state['at']
                 watch_date = watch_at.strftime('%Y-%m-%d %H:%M 纽约') if watch_at is not None else '暂无资料'
-                candidate(code[3:], '仅供历史观察', '暂无合格买卖点', '先核对资料时间与完整性', data_at=watch_date)
-                if st.button('查看 '+code[3:], key='watch_'+code, on_click=pick, args=(code, None), width='stretch'):
+                trend = watch_state['trend'] if watch_state['trend'] != 'UNKNOWN' else None
+                candidate(code[3:], '暂无合格买卖点', '暂无合格买卖点', '查看历史图表',
+                          data_at=watch_date, historical_trend=trend)
+                if st.button('查看图表 · '+code[3:], key='watch_'+code, on_click=pick, args=(code, None), width='stretch'):
                     st.rerun()
                 with st.expander('详情'):
                     st.caption('仅日K，1小时条件尚不具备' if data[code].get('daily_only') else '以前的重要价格位置可在历史证据中复核')
@@ -197,6 +212,8 @@ def render_home(selected, data, plan, decision, rows, decisions, replay_asof, wa
         if d.get('independent_coverage'):
             st.write('独立更新档案', d['independent_coverage'])
         st.caption(RULES)
+        st.caption('EMA图线每个点均复用该时点最近50根已完成K线及首根初始化；最早49根不画指标。'
+                   '观察卡历史趋势使用原始参数，不参与评分或排名。')
         st.write({key: str(value) for key, value in state.items()})
         if manual:
             st.write('用户计划计算依据', manual)

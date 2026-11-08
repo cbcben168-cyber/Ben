@@ -33,7 +33,7 @@ def test_separate_versioned_store_and_immutable_baseline(tmp_path):
     assert reopened.load('Baseline') == BASELINE
     with sqlite3.connect(path) as connection:
         version, payload = connection.execute('SELECT version,parameters FROM experiments').fetchone()
-        assert version == 'v0.4.4' and json.loads(payload) == asdict(config)
+        assert version == 'v0.4.4.1' and json.loads(payload) == asdict(config)
         assert connection.execute("SELECT count(*) FROM sqlite_master WHERE name='settings'").fetchone()[0] == 0
 
 

@@ -1,0 +1,14 @@
+[
+  {
+    "ProcessId": 13132,
+    "ParentProcessId": 32560,
+    "ExecutablePath": "C:\\Users\\cbcbe\\TradingCodex\\ict_trade_assistant\\.venv\\Scripts\\python.exe",
+    "CommandLine": "C:\\Users\\cbcbe\\TradingCodex\\ict_trade_assistant\\.venv\\Scripts\\python.exe scripts/run_server.py --history --port 8506"
+  },
+  {
+    "ProcessId": 58064,
+    "ParentProcessId": 13132,
+    "ExecutablePath": "C:\\Users\\cbcbe\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
+    "CommandLine": "\"C:\\Users\\cbcbe\\AppData\\Local\\Programs\\Python\\Python312\\python.exe\" scripts/run_server.py --history --port 8506"
+  }
+]

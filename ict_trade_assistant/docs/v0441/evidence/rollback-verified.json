@@ -1,0 +1,292 @@
+{
+  "status": "ROLLED_BACK",
+  "heartbeat": {
+    "pid": 27228,
+    "port": 8506,
+    "at": 1794126871.7705228,
+    "uptime_seconds": 240,
+    "root": "C:\\Users\\cbcbe\\TradingCodex\\ict_trade_assistant_v04",
+    "build_sha256": "88f7e6227f9da931fe646837b58edfd1108ba88024b72b5d92621afe215dd0a3"
+  },
+  "process": {
+    "pid": 27228,
+    "cwd": "C:\\Users\\cbcbe\\TradingCodex\\ict_trade_assistant_v04\\",
+    "history_paths": {
+      "ICT_EXPERIMENT_DB": "C:\\Users\\cbcbe\\TradingCodex\\ict_trade_assistant_v04\\data\\v044\\experiments.sqlite3",
+      "ICT_V04_DB": "C:\\Users\\cbcbe\\TradingCodex\\ict_trade_assistant_v04\\data\\v04\\desk.sqlite3",
+      "ICT_V04_HISTORY": "C:\\Users\\cbcbe\\TradingCodex\\ict_trade_assistant_v04\\data\\v04\\history.json"
+    }
+  },
+  "health": {
+    "status": 200,
+    "body": "ok"
+  },
+  "files": [
+    {
+      "file": "app.py",
+      "sha256": "de45735e1d0a3b408aae992230b81c4036b4af3a6df488d8db7ed4910e0a0c6a",
+      "restored": true
+    },
+    {
+      "file": "desk/dashboard_cards.py",
+      "sha256": "a97033497a7f0ae5cbe66c06d55551aaeaef6c97b93cb4089e9259cd1bc11f89",
+      "restored": true
+    },
+    {
+      "file": "desk/decision_home.py",
+      "sha256": "1a12e8fc4a1ffc6b2d13a452224f5d602c3a56006a7fb3784f1b0099b7c636a9",
+      "restored": true
+    },
+    {
+      "file": "desk/experiment.py",
+      "sha256": "a88b574c72c836a45ab1eef557ecd63902142c2054e55690e74bcfbac7b699d4",
+      "restored": true
+    },
+    {
+      "file": "desk/experiment_ui.py",
+      "sha256": "d180a5b564b74d2890f7824a1fd9c3a8a9d3227921a7f79f6ae382e98eacddfd",
+      "restored": true
+    },
+    {
+      "file": "desk/ema_layers.py",
+      "sha256": null,
+      "restored": true
+    }
+  ],
+  "protected_unchanged": true,
+  "protected_files": 119,
+  "user_unchanged": true,
+  "user": {
+    "integrity": "ok",
+    "acknowledgements": {
+      "rows": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "audit": {
+      "rows": 8,
+      "sha256": "6a3bcbbceb114640f80e011ee9e308e31c8972855ed2a6865331b642d3988205"
+    },
+    "events": {
+      "rows": 2,
+      "sha256": "10b8ea51fd431da609a21b4d6595fdd78cc6c966678864539c97a1ecc172f94d"
+    },
+    "notes": {
+      "rows": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "plan_versions": {
+      "rows": 2,
+      "sha256": "2d45edc1e29497490c9a6cc76ed7acdbf25b1e5389ffd442684dc0751813ef49"
+    },
+    "settings": {
+      "rows": 2,
+      "sha256": "7f183923fce5dd1f6371d24826e4e83e70ae344b87fce613ba5e6afe52762efc"
+    },
+    "plans": [
+      {
+        "symbol": "US.SMH",
+        "version": 1,
+        "status": "ACTIVE"
+      },
+      {
+        "symbol": "US.SPY",
+        "version": 1,
+        "status": "ACTIVE"
+      }
+    ]
+  },
+  "user_database_before_sha256": "981de7a6634379800df86e5d56dd742a6ba714d4dca930fdab5991d5c7966211",
+  "user_database_after_sha256": "bb13b6802907022f8710f6d7056b2e6121a9002b60876c257bfbb35d43327782",
+  "table_differences": [
+    {
+      "table": "observations",
+      "before_rows": 216,
+      "after_rows": 248,
+      "before_sha256": "5cfde2d795ef75040d0c1b52bc42b48e080b83f36e648ffccd3f540e2ffe10b2",
+      "after_sha256": "09c0516d1cfa8f296295a1bae977f171992d63bade5f7ac49e9186fd7a47c9d7"
+    }
+  ],
+  "observation_additions": [
+    {
+      "at": "2026-11-08T08:29:36.321925+00:00",
+      "rows": 1
+    },
+    {
+      "at": "2026-11-08T08:29:36.422009+00:00",
+      "rows": 1
+    },
+    {
+      "at": "2026-11-08T08:29:36.532171+00:00",
+      "rows": 1
+    },
+    {
+      "at": "2026-11-08T08:29:42.510810+00:00",
+      "rows": 1
+    },
+    {
+      "at": "2026-11-08T08:29:42.539961+00:00",
+      "rows": 1
+    },
+    {
+      "at": "2026-11-08T08:29:42.580773+00:00",
+      "rows": 1
+    },
+    {
+      "at": "2026-11-08T08:30:35.034784+00:00",
+      "rows": 1
+    },
+    {
+      "at": "2026-11-08T08:30:35.067148+00:00",
+      "rows": 1
+    },
+    {
+      "at": "2026-11-08T08:30:35.102067+00:00",
+      "rows": 1
+    },
+    {
+      "at": "2026-11-08T08:30:35.155769+00:00",
+      "rows": 1
+    },
+    {
+      "at": "2026-11-08T08:30:35.183163+00:00",
+      "rows": 1
+    },
+    {
+      "at": "2026-11-08T08:30:35.215818+00:00",
+      "rows": 1
+    },
+    {
+      "at": "2026-11-08T08:30:35.241128+00:00",
+      "rows": 1
+    },
+    {
+      "at": "2026-11-08T08:30:35.296013+00:00",
+      "rows": 1
+    },
+    {
+      "at": "2026-11-08T08:30:35.319076+00:00",
+      "rows": 1
+    },
+    {
+      "at": "2026-11-08T08:30:35.351785+00:00",
+      "rows": 1
+    },
+    {
+      "at": "2026-11-08T08:30:35.365887+00:00",
+      "rows": 1
+    },
+    {
+      "at": "2026-11-08T08:30:35.381185+00:00",
+      "rows": 1
+    },
+    {
+      "at": "2026-11-08T08:30:35.394203+00:00",
+      "rows": 1
+    },
+    {
+      "at": "2026-11-08T08:30:37.981080+00:00",
+      "rows": 1
+    },
+    {
+      "at": "2026-11-08T08:30:38.059399+00:00",
+      "rows": 1
+    },
+    {
+      "at": "2026-11-08T08:30:38.195168+00:00",
+      "rows": 1
+    },
+    {
+      "at": "2026-11-08T08:30:38.309932+00:00",
+      "rows": 1
+    },
+    {
+      "at": "2026-11-08T08:30:38.445969+00:00",
+      "rows": 1
+    },
+    {
+      "at": "2026-11-08T08:30:38.566578+00:00",
+      "rows": 1
+    },
+    {
+      "at": "2026-11-08T08:30:38.665852+00:00",
+      "rows": 1
+    },
+    {
+      "at": "2026-11-08T08:30:38.775539+00:00",
+      "rows": 1
+    },
+    {
+      "at": "2026-11-08T08:30:38.949807+00:00",
+      "rows": 1
+    },
+    {
+      "at": "2026-11-08T08:30:39.031529+00:00",
+      "rows": 1
+    },
+    {
+      "at": "2026-11-08T08:30:39.158748+00:00",
+      "rows": 1
+    },
+    {
+      "at": "2026-11-08T08:30:39.249807+00:00",
+      "rows": 1
+    },
+    {
+      "at": "2026-11-08T08:30:39.356145+00:00",
+      "rows": 1
+    }
+  ],
+  "experiment_profiles_unchanged": true,
+  "experiment_database_bytes_unchanged": true,
+  "services": {
+    "8501": {
+      "pid": 19544,
+      "same_process": true,
+      "health": {
+        "status": 200,
+        "body": "ok"
+      }
+    },
+    "8516": {
+      "pid": 49096,
+      "same_process": true,
+      "health": {
+        "status": 200,
+        "body": "ok"
+      }
+    },
+    "8517": {
+      "pid": 53908,
+      "same_process": true,
+      "health": {
+        "status": 200,
+        "body": "ok"
+      }
+    },
+    "8518": {
+      "pid": 38340,
+      "same_process": true,
+      "health": {
+        "status": 200,
+        "body": "ok"
+      }
+    },
+    "8520": {
+      "pid": 24936,
+      "same_process": true,
+      "health": {
+        "status": 200,
+        "body": "ok"
+      }
+    },
+    "8521": {
+      "pid": 47664,
+      "same_process": true,
+      "health": {
+        "status": 200,
+        "body": "ok"
+      }
+    }
+  },
+  "opend_same_process": true
+}

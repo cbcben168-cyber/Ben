@@ -1,0 +1,17 @@
+{
+  "url": "http://127.0.0.1:8506/",
+  "replay_date": "2026-10-28",
+  "legacy_fold": true,
+  "historical_fold": true,
+  "charts": [
+    {
+      "bars": 83,
+      "last": "2026-10-28 00:00:00-04:00"
+    },
+    {
+      "bars": 28,
+      "last": "2026-10-28 15:30:00-04:00"
+    }
+  ],
+  "restored_latest": true
+}

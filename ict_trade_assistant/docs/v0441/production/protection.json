@@ -1,0 +1,389 @@
+{
+  "status": "POSTCHECK",
+  "heartbeat": {
+    "pid": 58064,
+    "port": 8506,
+    "at": 1794130817.3013365,
+    "uptime_seconds": 761,
+    "root": "C:\\Users\\cbcbe\\TradingCodex\\ict_trade_assistant_v04",
+    "build_sha256": "1da6253b33982fc826b42c79140839c966c8d9c4c0dcfe40a3d94512c6fc06e5"
+  },
+  "process": {
+    "pid": 58064,
+    "cwd": "C:\\Users\\cbcbe\\TradingCodex\\ict_trade_assistant_v04\\",
+    "history_paths": {
+      "ICT_EXPERIMENT_DB": "C:\\Users\\cbcbe\\TradingCodex\\ict_trade_assistant_v04\\data\\v044\\experiments.sqlite3",
+      "ICT_V04_DB": "C:\\Users\\cbcbe\\TradingCodex\\ict_trade_assistant_v04\\data\\v04\\desk.sqlite3",
+      "ICT_V04_HISTORY": "C:\\Users\\cbcbe\\TradingCodex\\ict_trade_assistant_v04\\data\\v04\\history.json"
+    }
+  },
+  "files": [
+    {
+      "file": "app.py",
+      "sha256": "3cc46a565212f5a8d97ce0b3483a854c89784969d140369eec97ff201359c4ed",
+      "matches_release": true
+    },
+    {
+      "file": "desk/dashboard_cards.py",
+      "sha256": "a4374652ee73b9aec79d4b036091b6e150cfcb5154802ea7419a19b731a52cf9",
+      "matches_release": true
+    },
+    {
+      "file": "desk/decision_home.py",
+      "sha256": "732cae8ab7a410a697042d2ce8a9679ac2a1bf1cf61c958947e68fa28168b8c2",
+      "matches_release": true
+    },
+    {
+      "file": "desk/experiment.py",
+      "sha256": "5ce0c71b9eabf3b024a369874605493f9213df88f8d03ed0ff381875a912fdbd",
+      "matches_release": true
+    },
+    {
+      "file": "desk/experiment_ui.py",
+      "sha256": "b77ffabbc042f3b9f0feef9879b94a26eb949b49bbb9b7fb4243f242a1dea48d",
+      "matches_release": true
+    },
+    {
+      "file": "desk/ema_layers.py",
+      "sha256": "a91cf420d254ba30bd9a609498a3f437d9a92a183e5c24a45af0ba10e453364f",
+      "matches_release": true
+    }
+  ],
+  "protected_unchanged": true,
+  "changed": [],
+  "user_unchanged": true,
+  "user_database_bytes_unchanged": false,
+  "user": {
+    "integrity": "ok",
+    "acknowledgements": {
+      "rows": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "audit": {
+      "rows": 8,
+      "sha256": "6a3bcbbceb114640f80e011ee9e308e31c8972855ed2a6865331b642d3988205"
+    },
+    "events": {
+      "rows": 2,
+      "sha256": "10b8ea51fd431da609a21b4d6595fdd78cc6c966678864539c97a1ecc172f94d"
+    },
+    "notes": {
+      "rows": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "plan_versions": {
+      "rows": 2,
+      "sha256": "2d45edc1e29497490c9a6cc76ed7acdbf25b1e5389ffd442684dc0751813ef49"
+    },
+    "settings": {
+      "rows": 2,
+      "sha256": "7f183923fce5dd1f6371d24826e4e83e70ae344b87fce613ba5e6afe52762efc"
+    },
+    "plans": [
+      {
+        "symbol": "US.SMH",
+        "version": 1,
+        "status": "ACTIVE"
+      },
+      {
+        "symbol": "US.SPY",
+        "version": 1,
+        "status": "ACTIVE"
+      }
+    ]
+  },
+  "original_profiles_unchanged": true,
+  "new_profile_names": [
+    "8506_v0441_EMA5_20261108"
+  ],
+  "services": {
+    "8501": {
+      "pid": 19544,
+      "same_process": true,
+      "health": {
+        "status": 200,
+        "body": "ok"
+      }
+    },
+    "8516": {
+      "pid": 49096,
+      "same_process": true,
+      "health": {
+        "status": 200,
+        "body": "ok"
+      }
+    },
+    "8517": {
+      "pid": 53908,
+      "same_process": true,
+      "health": {
+        "status": 200,
+        "body": "ok"
+      }
+    },
+    "8518": {
+      "pid": 38340,
+      "same_process": true,
+      "health": {
+        "status": 200,
+        "body": "ok"
+      }
+    },
+    "8520": {
+      "pid": 24936,
+      "same_process": true,
+      "health": {
+        "status": 200,
+        "body": "ok"
+      }
+    },
+    "8521": {
+      "pid": 42384,
+      "same_process": true,
+      "health": {
+        "status": 200,
+        "body": "ok"
+      }
+    }
+  },
+  "opend_same_process": true,
+  "layered_database_protection": {
+    "passed": true,
+    "errors": [],
+    "old_observations": 248,
+    "old_rows_preserved": true,
+    "table_checks": [
+      {
+        "table": "acknowledgements",
+        "unchanged": true,
+        "rows": 0,
+        "sha256": "6708b6a6369aee55ea45786044d7ccea01cf38938b9711704eade3be3b22d6c4"
+      },
+      {
+        "table": "audit",
+        "unchanged": true,
+        "rows": 8,
+        "sha256": "c2c15111cff9366a3bbeba9b46e447e22c5a6139ce784cbc16274065b77f5086"
+      },
+      {
+        "table": "bars",
+        "unchanged": true,
+        "rows": 0,
+        "sha256": "4fabf08113d515fa9493614599c700f29184c672ce8f69a50c6699a88005d722"
+      },
+      {
+        "table": "events",
+        "unchanged": true,
+        "rows": 26,
+        "sha256": "f6bc979452bbe485180d5211fb2fae56a068b3620a691e01e1a769e5ac0cc4d9"
+      },
+      {
+        "table": "levels",
+        "unchanged": true,
+        "rows": 0,
+        "sha256": "d89f74fedbb7e659b9b104e10ea82f989e825887a1a68b1b24a99972ae316d72"
+      },
+      {
+        "table": "notes",
+        "unchanged": true,
+        "rows": 0,
+        "sha256": "03753e042d920f2371195fff85a6681c1c03ad341e28e7333f662d6fecb9862e"
+      },
+      {
+        "table": "observation_snapshots",
+        "unchanged": true,
+        "rows": 23,
+        "sha256": "be8a3c68fa4f12f17980076f4eadedc772d125a6a6e34be1249c7f1167029784"
+      },
+      {
+        "table": "observation_states",
+        "unchanged": true,
+        "rows": 24,
+        "sha256": "0a6bbda84f12e97430adce956576d49cc722f3ad266ef07bb68703edc99216f8"
+      },
+      {
+        "table": "plan_versions",
+        "unchanged": true,
+        "rows": 2,
+        "sha256": "7ec0f5b356abebef497a1602fa5e8b7d3e86bcef45a4a7f88129cd3119068243"
+      },
+      {
+        "table": "settings",
+        "unchanged": true,
+        "rows": 2,
+        "sha256": "d8d25fcf2bdfe68fb2dba2faf0e62b049985b2da90cbeec303cc0ca43291930c"
+      }
+    ],
+    "additions": [
+      {
+        "id": 249,
+        "symbol": "US.VOO",
+        "at": "2026-11-08T09:27:42.707854+00:00",
+        "payload_sha256": "42762135b352a36180cfda0d9a11ff984061db46bdf725be744e99f45047d0b9",
+        "state": "loading",
+        "verified": true,
+        "errors": []
+      },
+      {
+        "id": 250,
+        "symbol": "US.IVV",
+        "at": "2026-11-08T09:27:43.091496+00:00",
+        "payload_sha256": "e8d1e2e3a59b58c3fc0f1e3b95094a91b65af71176ace52b2f8444829303befb",
+        "state": "loading",
+        "verified": true,
+        "errors": []
+      },
+      {
+        "id": 251,
+        "symbol": "US.VTI",
+        "at": "2026-11-08T09:27:43.784282+00:00",
+        "payload_sha256": "fb082b7c7b90c138a24c51b6b07f7e8185da6a5976d8c3a5979b1c499d9f5860",
+        "state": "loading",
+        "verified": true,
+        "errors": []
+      },
+      {
+        "id": 252,
+        "symbol": "US.VUG",
+        "at": "2026-11-08T09:27:44.468316+00:00",
+        "payload_sha256": "325e608f3fd84a584d659989250d2695e8fe97c849bcc4c5e627b58b93dc204f",
+        "state": "loading",
+        "verified": true,
+        "errors": []
+      },
+      {
+        "id": 253,
+        "symbol": "US.SPYM",
+        "at": "2026-11-08T09:27:44.946670+00:00",
+        "payload_sha256": "7a4d0d3ea19071e3aa3a138d52d5333fc2d15c0794ce89c93b77bc39a5b123c0",
+        "state": "loading",
+        "verified": true,
+        "errors": []
+      },
+      {
+        "id": 254,
+        "symbol": "US.BND",
+        "at": "2026-11-08T09:27:45.464746+00:00",
+        "payload_sha256": "337c85f61847da9133e0f703e7026d2c6c872b240af7da3d50cd27a597082ad7",
+        "state": "loading",
+        "verified": true,
+        "errors": []
+      },
+      {
+        "id": 255,
+        "symbol": "US.IEMG",
+        "at": "2026-11-08T09:27:46.141407+00:00",
+        "payload_sha256": "ffbd01cd4c2945ffacf6d71e36b487e706bcdd592a6b6434e11356c7d1a45525",
+        "state": "loading",
+        "verified": true,
+        "errors": []
+      },
+      {
+        "id": 256,
+        "symbol": "US.GLD",
+        "at": "2026-11-08T09:27:46.707626+00:00",
+        "payload_sha256": "48f37117a2d98b41249acc7a0d27a5fc8148970e2b1cfdc54c0f9b4b14319b7d",
+        "state": "loading",
+        "verified": true,
+        "errors": []
+      },
+      {
+        "id": 257,
+        "symbol": "US.IJH",
+        "at": "2026-11-08T09:27:47.411068+00:00",
+        "payload_sha256": "67877341ec31f9678e98079db3e162660b9992e47aa86e5c7713fd2b74542236",
+        "state": "loading",
+        "verified": true,
+        "errors": []
+      },
+      {
+        "id": 258,
+        "symbol": "US.VOO",
+        "at": "2026-11-08T09:27:53.412457+00:00",
+        "payload_sha256": "73fc9e0e2c8fb49d19ce7ccafbc124d7e44d5e91340a49dabee95d87ca2fedf5",
+        "state": "saved_archive",
+        "verified": true,
+        "errors": []
+      },
+      {
+        "id": 259,
+        "symbol": "US.IVV",
+        "at": "2026-11-08T09:27:54.072230+00:00",
+        "payload_sha256": "c1f0366fd3dde5e48ae6124a6cf78a052e717fd3bf9a88f30d99e1de0b96a445",
+        "state": "saved_archive",
+        "verified": true,
+        "errors": []
+      },
+      {
+        "id": 260,
+        "symbol": "US.VTI",
+        "at": "2026-11-08T09:27:54.619734+00:00",
+        "payload_sha256": "18a4eeedaa7c193abdc8ea87593c7ecc4a9459893119936870e7decf95ec4055",
+        "state": "saved_archive",
+        "verified": true,
+        "errors": []
+      },
+      {
+        "id": 261,
+        "symbol": "US.VUG",
+        "at": "2026-11-08T09:27:55.197755+00:00",
+        "payload_sha256": "b7aac5afeb59eededba153a339d538f21e734d905ac2ab68d4a6b537a6da2b69",
+        "state": "saved_archive",
+        "verified": true,
+        "errors": []
+      },
+      {
+        "id": 262,
+        "symbol": "US.SPYM",
+        "at": "2026-11-08T09:27:55.795553+00:00",
+        "payload_sha256": "f12b93d21904f436969bae4b8e7bf8364a38d4c4adaa4fa0eab6305ed4a537b4",
+        "state": "saved_archive",
+        "verified": true,
+        "errors": []
+      },
+      {
+        "id": 263,
+        "symbol": "US.BND",
+        "at": "2026-11-08T09:27:56.191454+00:00",
+        "payload_sha256": "4cd1e5bce24fd6c170ef6bd0bd9108f25420dc67b7e6bc8162175643249abea2",
+        "state": "saved_archive",
+        "verified": true,
+        "errors": []
+      },
+      {
+        "id": 264,
+        "symbol": "US.IEMG",
+        "at": "2026-11-08T09:27:56.831643+00:00",
+        "payload_sha256": "9a7cc37ef917ce290da4e9c358fec38c19df24d3a9505486d118c6a611dd6de8",
+        "state": "saved_archive",
+        "verified": true,
+        "errors": []
+      },
+      {
+        "id": 265,
+        "symbol": "US.GLD",
+        "at": "2026-11-08T09:27:57.308891+00:00",
+        "payload_sha256": "1289ae3e52beb189b5db2c2162be8dbfa27c5ed404059cbdf4ee97a3076bc9b4",
+        "state": "saved_archive",
+        "verified": true,
+        "errors": []
+      },
+      {
+        "id": 266,
+        "symbol": "US.IJH",
+        "at": "2026-11-08T09:27:57.969451+00:00",
+        "payload_sha256": "160db67e1a6b55a29b459a0f670610ee6090c861d13802888e0609ea136ba7aa",
+        "state": "saved_archive",
+        "verified": true,
+        "errors": []
+      }
+    ]
+  },
+  "experiment_protection": {
+    "passed": true,
+    "errors": [],
+    "approved_names": [
+      "8506_v0441_EMA5_20261108"
+    ]
+  }
+}

@@ -16,10 +16,12 @@ import desk.workspace as workspace_module
 from desk.history_source import HistorySource
 from desk.history_import import DailyArchive
 from desk.futu_daily import FutuDailyArchive, attach_futu
+from desk.futu_update import FutuVersions
 
 SOURCE=Path(os.environ['ICT_V04_HISTORY'])
 FIXED=datetime(2026,10,29,16,2,tzinfo=ET)
 FUTU_PATH=os.environ.get('ICT_FUTU_DAILY_ARCHIVE')
+FUTU_VERSIONS=FutuVersions(FUTU_PATH, os.environ.get('ICT_FUTU_DAILY_ROOT')) if FUTU_PATH else None
 UPDATE_ROOT=Path(os.environ.get('ICT_DAILY_UPDATE_ROOT',str(ROOT/'data/v043')))
 if not hasattr(store_module,'_V04Original'):
     store_module._V04Original=store_module.Store
@@ -41,13 +43,20 @@ def snapshots():
 
 def fetch(self,code):
     value=snapshots().fetch(code)
-    return attach_futu(value,FutuDailyArchive(FUTU_PATH),code) if FUTU_PATH else value
+    if not FUTU_VERSIONS:
+        return value
+    path, version = FUTU_VERSIONS.current()
+    result = attach_futu(value, FutuDailyArchive(path), code)
+    if result.get('futu_coverage'):
+        result['futu_coverage']['archive_version'] = version
+    return result
 
 
 store_module.Store=FixtureStore
 provider_module.Provider.fetch=fetch
 provider_module.Provider.history_revision=lambda self,code:(snapshots().revision(code),
-    Path(FUTU_PATH).stat().st_mtime_ns if FUTU_PATH else None)
+    (FUTU_VERSIONS.current()[1], FUTU_VERSIONS.pointer.stat().st_mtime_ns if FUTU_VERSIONS.pointer.exists() else 0)
+    if FUTU_VERSIONS else None)
 def offline_connect(self):
     raise RuntimeError('历史工作台禁止建立OpenD连接')
 provider_module.Provider.connect=offline_connect

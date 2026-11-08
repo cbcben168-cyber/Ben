@@ -1,0 +1,33 @@
+{
+  "environment": "isolated 8524, controlled synthetic history, same browser page and same server; no reload/restart",
+  "before": {
+    "date": "数据截至 2026-04-09",
+    "ema": [
+      {
+        "name": "实验EMA20",
+        "last": 156.57045383046722
+      },
+      {
+        "name": "实验EMA50",
+        "last": 144.9501293444294
+      }
+    ],
+    "atr": "ATR3.0000003.000000+0.000000"
+  },
+  "after": {
+    "date": "数据截至 2026-04-10",
+    "ema": [
+      {
+        "name": "实验EMA20",
+        "last": 157.57045383046724
+      },
+      {
+        "name": "实验EMA50",
+        "last": 145.9501293444294
+      }
+    ],
+    "atr": "ATR3.3571433.357143+0.000000",
+    "ictLocked": true,
+    "exceptions": 0
+  }
+}

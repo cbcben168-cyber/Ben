@@ -7,16 +7,16 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from capture_futu_daily import SYMBOLS
+from scripts.capture_futu_daily import SYMBOLS
 from desk.futu_daily import FutuDailyArchive, verify_payload
 
 
-def main(directory, database):
-    directory, database = Path(directory), Path(database)
+def load_capture(directory, start='2026-07-02', end='2026-11-06'):
+    directory = Path(directory)
     manifest = json.loads((directory/'manifest.json').read_text(encoding='utf-8'))
     if manifest['format'] != 'FUTU_DAILY_CAPTURE_V1' or set(manifest['files']) != {s+'.json' for s in SYMBOLS}:
         raise ValueError('必须是完整23只证券的独立Futu数据包')
-    payloads = []
+    payloads, valuation, sdk = [], None, None
     for ticker in SYMBOLS:
         encoded = (directory/(ticker+'.json')).read_bytes()
         if hashlib.sha256(encoded).hexdigest() != manifest['files'][ticker+'.json']:
@@ -25,9 +25,19 @@ def main(directory, database):
         if payload.get('symbol') != 'US.'+ticker:
             raise ValueError('文件名与证券不一致')
         checked = verify_payload(payload)
-        if checked['bars'] != 90 or (checked['first'],checked['last']) != ('2026-07-02','2026-11-06'):
-            raise ValueError('必须是已批准区间的90根连续日K')
+        if (checked['first'], checked['last']) != (start, end):
+            raise ValueError('完整请求区间与已完成交易日不一致')
+        if valuation is None:
+            valuation, sdk = payload['valuation_date'], payload['sdk_version']
+        if (payload['valuation_date'], payload['sdk_version']) != (valuation, sdk):
+            raise ValueError('23只证券的复权估值日期或供应商SDK版本不一致')
         payloads.append(payload)
+    return payloads
+
+
+def main(directory, database):
+    database = Path(database)
+    payloads = load_capture(directory)
     archive = FutuDailyArchive(database) if database.exists() else FutuDailyArchive.create(database)
     results = [archive.import_payload(p) for p in payloads]
     print(json.dumps(dict(database=str(database.resolve()), added=sum(r['added'] for r in results),

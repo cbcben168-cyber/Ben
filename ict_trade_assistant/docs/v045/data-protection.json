@@ -1,0 +1,45 @@
+{
+  "user.sqlite3": {
+    "plan_versions": {
+      "unchanged": true,
+      "rows": 2
+    },
+    "settings": {
+      "unchanged": true,
+      "rows": 2
+    },
+    "notes": {
+      "unchanged": true,
+      "rows": 0
+    },
+    "audit": {
+      "unchanged": true,
+      "rows": 8
+    },
+    "acknowledgements": {
+      "unchanged": true,
+      "rows": 0
+    }
+  },
+  "experiments.sqlite3": {
+    "experiments": {
+      "unchanged": true,
+      "rows": 3
+    }
+  },
+  "v043/updates.sqlite3": {
+    "daily_bars": {
+      "unchanged": true,
+      "rows": 0
+    },
+    "daily_coverage": {
+      "unchanged": true,
+      "rows": 0
+    },
+    "daily_imports": {
+      "unchanged": true,
+      "rows": 0
+    }
+  },
+  "protected_unchanged": true
+}

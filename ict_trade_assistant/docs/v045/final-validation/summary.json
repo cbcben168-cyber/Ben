@@ -1,0 +1,15 @@
+{
+  "real_opend": "PASS",
+  "lifecycle": "PASS",
+  "page_stability": "PASS",
+  "tests": 48,
+  "failures": 0,
+  "skipped": 0,
+  "baseline": "d495bd8",
+  "sandbox_current_timeout_seconds": 100,
+  "sandbox_baseline_timeout_seconds": 45,
+  "common_block": "Windows asyncio socket._fallback_socketpair accept before Streamlit script execution",
+  "unrestricted_current_seconds": 3.76,
+  "unrestricted_baseline_seconds": 4.06,
+  "page_test_modified": false
+}

@@ -1,0 +1,351 @@
+{
+  "files": [
+    {
+      "file": "app.py",
+      "sha256": "3cc46a565212f5a8d97ce0b3483a854c89784969d140369eec97ff201359c4ed",
+      "unchanged": true
+    },
+    {
+      "file": "desk\\analytics.py",
+      "sha256": "f2479f2b006956e05d728f9c6b7ca7982a983839c50e35175866b1f8b75ee9d0",
+      "unchanged": true
+    },
+    {
+      "file": "desk\\clock.py",
+      "sha256": "30d88d95273ff063880dfec9d02f19cad584b3cd9a06f23cb7296b0be2812ab3",
+      "unchanged": true
+    },
+    {
+      "file": "desk\\daily_update.py",
+      "sha256": "c62f4fc06696a95f77b6ea6504670391ff8212dd337102951a7a778e29f37617",
+      "unchanged": true
+    },
+    {
+      "file": "desk\\daily_update_ui.py",
+      "sha256": "5cf951e165964c8a7c271589012e72291ad4052c4b61d50dcf5d7ae46499e3e0",
+      "unchanged": true
+    },
+    {
+      "file": "desk\\dashboard_cards.py",
+      "sha256": "a4374652ee73b9aec79d4b036091b6e150cfcb5154802ea7419a19b731a52cf9",
+      "unchanged": true
+    },
+    {
+      "file": "desk\\decision.py",
+      "sha256": "fdae63a8991b0fd4159386c285cb1285b5fd49d38e1cb138582ae79a4fea4ffe",
+      "unchanged": true
+    },
+    {
+      "file": "desk\\decision_home.py",
+      "sha256": "732cae8ab7a410a697042d2ce8a9679ac2a1bf1cf61c958947e68fa28168b8c2",
+      "unchanged": true
+    },
+    {
+      "file": "desk\\diagnostics.py",
+      "sha256": "46e3e075cde48d6bbddd1523c701f08bf5a7738c6120c941531adc9088aa603a",
+      "unchanged": true
+    },
+    {
+      "file": "desk\\ema_layers.py",
+      "sha256": "a91cf420d254ba30bd9a609498a3f437d9a92a183e5c24a45af0ba10e453364f",
+      "unchanged": true
+    },
+    {
+      "file": "desk\\event_contract.py",
+      "sha256": "34c43cfbf1cc2a1097860a8bd1d074e959e88df899f3d3d8f867b7cb30393f95",
+      "unchanged": true
+    },
+    {
+      "file": "desk\\experiment.py",
+      "sha256": "5ce0c71b9eabf3b024a369874605493f9213df88f8d03ed0ff381875a912fdbd",
+      "unchanged": true
+    },
+    {
+      "file": "desk\\experiment_ui.py",
+      "sha256": "b77ffabbc042f3b9f0feef9879b94a26eb949b49bbb9b7fb4243f242a1dea48d",
+      "unchanged": true
+    },
+    {
+      "file": "desk\\history_import.py",
+      "sha256": "b6a779c4e1baefa17ef7671d941558904f4ed84269c1b11db1d083134ecf46e0",
+      "unchanged": true
+    },
+    {
+      "file": "desk\\history_source.py",
+      "sha256": "370821892035fc67e7196bfb283975b8862e53c7b62fb37cd995e7feb46142de",
+      "unchanged": true
+    },
+    {
+      "file": "desk\\history_ui.py",
+      "sha256": "07207bacc091e7c1420e4e1e676652bd2bffb1623113a019f3606ad3864fe5d8",
+      "unchanged": true
+    },
+    {
+      "file": "desk\\i18n.py",
+      "sha256": "332de98f52c3cd451ebdb740e059fd2261c299ba13e8b806006713e2ffea8462",
+      "unchanged": true
+    },
+    {
+      "file": "desk\\ict_live_gate.py",
+      "sha256": "cadac85322a245ffeb60b184ba0bcd905e063365c7d9824a3c3737fdb2996378",
+      "unchanged": true
+    },
+    {
+      "file": "desk\\ict_v03.py",
+      "sha256": "e320f1f019e0b331d59c57008f696a245a446a1be2a857fabe77ce18c08a0690",
+      "unchanged": true
+    },
+    {
+      "file": "desk\\ict_view.py",
+      "sha256": "458071849a8840064a02c49f29ec76f4d2d29d6978dc9b19dd52143781c11971",
+      "unchanged": true
+    },
+    {
+      "file": "desk\\market_loader.py",
+      "sha256": "981269b82c650da131a2a13cd32f1a6f91f6b449b3eeffcbd2cabf0e34c58939",
+      "unchanged": true
+    },
+    {
+      "file": "desk\\market_state.py",
+      "sha256": "b2819ab4d60dd33a68e69532d139d8e491c601a0f621de5b62d50974307825ff",
+      "unchanged": true
+    },
+    {
+      "file": "desk\\observations.py",
+      "sha256": "96b8bc6e86363b752ca15fdcd01d65c63921f8215919639701ad52a60e08cf68",
+      "unchanged": true
+    },
+    {
+      "file": "desk\\plans.py",
+      "sha256": "f2ead03e857864b92db3cbcd94a95072c5c300e5e0e961e655519fa2765c3c43",
+      "unchanged": true
+    },
+    {
+      "file": "desk\\plan_editor.py",
+      "sha256": "e99122e669ef5d04bbef309b65a081033b302a6052bc6007d042c44ab83b23bf",
+      "unchanged": true
+    },
+    {
+      "file": "desk\\provider.py",
+      "sha256": "381a655ae842729eeb67c132f238dbc43d5590622b36637f2defd8bf03545dd9",
+      "unchanged": true
+    },
+    {
+      "file": "desk\\store.py",
+      "sha256": "1b6950f77335fd9d9ada30f746d354432ee50cce63788418a3afbbb691f4a617",
+      "unchanged": true
+    },
+    {
+      "file": "desk\\watchlist.py",
+      "sha256": "5cd4b4db0bd7e63e226716ae149c7089020f42260d3b126ee839ebab2abcbeb8",
+      "unchanged": true
+    },
+    {
+      "file": "desk\\watchlist_ui.py",
+      "sha256": "84771481ebd0cc5047b7ca02cfce839621eec875c3db059231b815e0a3b2c6d1",
+      "unchanged": true
+    },
+    {
+      "file": "desk\\workspace.py",
+      "sha256": "f133a4c03910ec251c43c6630dc90f73eb6375911b828b7222114faa999e7bad",
+      "unchanged": true
+    },
+    {
+      "file": "desk\\__init__.py",
+      "sha256": "da09528784151947bf50ccf18dc163d5e3fc5becf7251a85489d79b70a7931a7",
+      "unchanged": true
+    },
+    {
+      "file": "scripts\\check_real_periods.py",
+      "sha256": "7349550215cc1aa7f96c5d068ff669fb9caae681c5d6f94e1684466cd32884c0",
+      "unchanged": true
+    },
+    {
+      "file": "scripts\\import_daily_history.py",
+      "sha256": "ac1a76146e62896b8baa4abce0d9b44a4c0cfde05e7b57a6e60b5acbaf163270",
+      "unchanged": true
+    },
+    {
+      "file": "scripts\\live_rth_acceptance.py",
+      "sha256": "67c68dab9d46bbfae7ca60231483e3160c966e101c7dbd6332dab3db8f39478a",
+      "unchanged": true
+    },
+    {
+      "file": "scripts\\preflight.py",
+      "sha256": "713e05a4acbfba52b2ada755097032dae9a8c883f2416f2ff68bdf2c65cf2440",
+      "unchanged": true
+    },
+    {
+      "file": "scripts\\run_server.py",
+      "sha256": "df06c368940849de2c6045e2d2455737fd41b53c5b5e0e577ce28879fd476509",
+      "unchanged": true
+    },
+    {
+      "file": "scripts\\stability_soak.py",
+      "sha256": "e286207a4e99fc94758960937c658f966269fd6d8cda52384b29f69137864369",
+      "unchanged": true
+    },
+    {
+      "file": "scripts\\ui_acceptance_fixture.py",
+      "sha256": "124da1207dfa00a6edf96845a64a780e39b05bb2014ae7b2d90c71f002e52e3b",
+      "unchanged": true
+    },
+    {
+      "file": "scripts\\update_daily_history.py",
+      "sha256": "1aabf13fedf423dc0db6afc40b7a67b86334e682c4e004f5c223722a76a75354",
+      "unchanged": true
+    },
+    {
+      "file": "scripts\\v021_acceptance.py",
+      "sha256": "1c2a73c94273beaf7efe835ea5d341367d2aef9d47f254861f76669f2838d3a1",
+      "unchanged": true
+    },
+    {
+      "file": "scripts\\v02_real_acceptance.py",
+      "sha256": "4f1061157301ce816198531078a8e2bc12940557d6f4964417294783a0b751b9",
+      "unchanged": true
+    },
+    {
+      "file": "scripts\\v03_browser_soak.py",
+      "sha256": "fe258d660d809cb4b308e7e4fd8430881be54f9ac0e88146a036e9ab63e4e56b",
+      "unchanged": true
+    },
+    {
+      "file": "scripts\\v03_data_preservation.py",
+      "sha256": "a9f6d96129582ef85c2e55a39e8da7fda38729e9ff3c5685709c3b36fae6866b",
+      "unchanged": true
+    },
+    {
+      "file": "scripts\\v03_offline_acceptance.py",
+      "sha256": "433ca417d29dd32ae88da8cf6c661112536adcd56ad7eb025d111ad4c970d3fa",
+      "unchanged": true
+    },
+    {
+      "file": "scripts\\v03_stability_summary.py",
+      "sha256": "506e40c0c3b0ab3477be240f2a9732506f283a36dfdc49c03024ac6d5c58e96f",
+      "unchanged": true
+    },
+    {
+      "file": "scripts\\v04_history_fixture.py",
+      "sha256": "107eb421923857f53f2ab8b3e1d8c32335dc9a6fc3b2cc66f688b4df916e6d9d",
+      "unchanged": true
+    },
+    {
+      "file": "scripts\\v04_offline_acceptance.py",
+      "sha256": "d8a8152835a3843586fad6280492f5deeede134bbfb04bc7059a14b30a3d4560",
+      "unchanged": true
+    },
+    {
+      "file": "scripts\\verify_saved_data.py",
+      "sha256": "aad8bac2dbaaefda2fdba67468695650bc17ebe16218e18d66901c8dababfbd0",
+      "unchanged": true
+    },
+    {
+      "file": "data\\v04\\history.json",
+      "sha256": "4e9296cbcd37b605db5e5ae98661477e87cc81dd580cb15072daba982c4ed5cc",
+      "unchanged": true
+    },
+    {
+      "file": "data\\v042\\history.sqlite3",
+      "sha256": "726c2839653a2d88d78e0f33c5ce535dc2546e140c4f0393be0c5aa9c0595220",
+      "unchanged": true
+    },
+    {
+      "file": "data\\v043\\updates.sqlite3",
+      "sha256": "f6c6a00bd5b89b8514daa13f2a0c94963bb8b6afc7378f461154bf90630421ef",
+      "unchanged": true
+    },
+    {
+      "file": "data\\v043\\latest.json",
+      "sha256": "ae5505b55c722282d4be2ec206de212d6f2154731caa8c5cdb6319f37f1d98d0",
+      "unchanged": true
+    }
+  ],
+  "databases": {
+    "user": {
+      "unchanged": true,
+      "schema_unchanged": true,
+      "tables": {
+        "acknowledgements": {
+          "unchanged": true,
+          "before_rows": 0,
+          "after_rows": 0,
+          "sha256": "6708b6a6369aee55ea45786044d7ccea01cf38938b9711704eade3be3b22d6c4"
+        },
+        "audit": {
+          "unchanged": true,
+          "before_rows": 8,
+          "after_rows": 8,
+          "sha256": "c2c15111cff9366a3bbeba9b46e447e22c5a6139ce784cbc16274065b77f5086"
+        },
+        "bars": {
+          "unchanged": true,
+          "before_rows": 0,
+          "after_rows": 0,
+          "sha256": "4fabf08113d515fa9493614599c700f29184c672ce8f69a50c6699a88005d722"
+        },
+        "events": {
+          "unchanged": true,
+          "before_rows": 26,
+          "after_rows": 26,
+          "sha256": "f6bc979452bbe485180d5211fb2fae56a068b3620a691e01e1a769e5ac0cc4d9"
+        },
+        "levels": {
+          "unchanged": true,
+          "before_rows": 0,
+          "after_rows": 0,
+          "sha256": "d89f74fedbb7e659b9b104e10ea82f989e825887a1a68b1b24a99972ae316d72"
+        },
+        "notes": {
+          "unchanged": true,
+          "before_rows": 0,
+          "after_rows": 0,
+          "sha256": "03753e042d920f2371195fff85a6681c1c03ad341e28e7333f662d6fecb9862e"
+        },
+        "observation_snapshots": {
+          "unchanged": true,
+          "before_rows": 23,
+          "after_rows": 23,
+          "sha256": "be8a3c68fa4f12f17980076f4eadedc772d125a6a6e34be1249c7f1167029784"
+        },
+        "observation_states": {
+          "unchanged": true,
+          "before_rows": 24,
+          "after_rows": 24,
+          "sha256": "0a6bbda84f12e97430adce956576d49cc722f3ad266ef07bb68703edc99216f8"
+        },
+        "observations": {
+          "unchanged": true,
+          "before_rows": 266,
+          "after_rows": 266,
+          "sha256": "eacd67e717d3ac1eb6d6d43514f0959550a61d86a5528856029183a7aaa47430"
+        },
+        "plan_versions": {
+          "unchanged": true,
+          "before_rows": 2,
+          "after_rows": 2,
+          "sha256": "7ec0f5b356abebef497a1602fa5e8b7d3e86bcef45a4a7f88129cd3119068243"
+        },
+        "settings": {
+          "unchanged": true,
+          "before_rows": 2,
+          "after_rows": 2,
+          "sha256": "d8d25fcf2bdfe68fb2dba2faf0e62b049985b2da90cbeec303cc0ca43291930c"
+        }
+      }
+    },
+    "experiments": {
+      "unchanged": true,
+      "schema_unchanged": true,
+      "tables": {
+        "experiments": {
+          "unchanged": true,
+          "before_rows": 2,
+          "after_rows": 2,
+          "sha256": "94a99e5b086dfa7339cf709614555536f52d301ab0b1c97d7451a78a2b1e3fc1"
+        }
+      }
+    }
+  },
+  "passed": true
+}

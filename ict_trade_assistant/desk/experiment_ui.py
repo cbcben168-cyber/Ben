@@ -9,6 +9,7 @@ import pandas as pd
 import streamlit as st
 
 from .experiment import BASELINE, VERSION, Experiment, ExperimentStore, replay_cutoff
+from .futu_daily import FUTU, ORIGINAL, UPDATE
 
 FIELDS = (
     ('ema_short', 'EMA短期周期', 5, 30, 1, '越小越快反映近期价格变化。'),
@@ -78,11 +79,22 @@ def controls(selected, data, wall_asof):
         st.markdown('[查看同步更新的主图](#current-market-chart)')
         mode_col, date_col, period_col, preset_col = st.columns(4)
         mode = mode_col.selectbox('数据模式', ['最新已保存数据', '历史回放'], key='experiment_mode')
+        source = ORIGINAL
+        original = data.get('_original_history', data)
+        options = ([FUTU, ORIGINAL] if data.get('futu_coverage') else [ORIGINAL])
+        if original.get('independent_coverage'):
+            options.append(UPDATE)
+        if len(options) > 1:
+            if st.session_state.get('experiment_source') not in options:
+                st.session_state['experiment_source'] = options[0]
+            source = st.radio('日K来源（分开计算）', options, horizontal=True, key='experiment_source')
         # Only existing archive session labels are selectable; never fetch missing days.
-        dates = {d for d in data.get('_archive_dates', []) if d <= wall_asof.date()}
-        date_keys = ('daily', 'independent_daily') if not data['daily'].empty else ('minute', 'independent_daily')
+        date_data = data if source == FUTU else original
+        dates = {d for d in date_data.get('_archive_dates', []) if d <= wall_asof.date()}
+        date_keys = (('futu_daily',) if source == FUTU else ('independent_daily',) if source == UPDATE
+                     else ('daily',) if not original['daily'].empty else ('minute',))
         for key in date_keys:
-            frame = data.get(key, pd.DataFrame())
+            frame = date_data.get(key, pd.DataFrame())
             if not frame.empty:
                 dates.update(d for d in frame.ts.dt.date if d <= wall_asof.date())
         dates = sorted(dates, reverse=True) or [wall_asof.date()]
@@ -97,10 +109,6 @@ def controls(selected, data, wall_asof):
             names = ['Baseline']
             st.error('实验组合暂时无法读取，请检查实验数据库；原始参数仍可使用。')
         preset_col.selectbox('选择准备载入的组合', names, key='experiment_preset')
-        source = '原历史档案'
-        if data.get('independent_coverage'):
-            source = st.radio('日K来源（分开计算）', ['原历史档案', '独立更新档案'], horizontal=True,
-                              key='experiment_source')
         columns = st.columns(2)
         for index, (key, label, low, high, step, help_text) in enumerate(FIELDS):
             with columns[index % 2]:
@@ -149,7 +157,9 @@ def controls(selected, data, wall_asof):
     if previous != contract:
         st.rerun()
     try:
-        asof = replay_cutoff(day) if mode == '历史回放' else wall_asof
+        asof = (replay_cutoff(day) if mode == '历史回放' else
+                replay_cutoff(pd.Timestamp(data['futu_coverage']['last']).date())
+                if source == FUTU and data['futu_coverage'].get('last') else wall_asof)
         if asof > wall_asof:
             raise ValueError('所选交易日尚未完成收盘及2分钟确认，请选择更早日期。')
     except ValueError as exc:

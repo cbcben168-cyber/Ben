@@ -1,0 +1,61 @@
+{
+  "base_commit": "80cece3032642a91ea58341b8696f667536aa9bc",
+  "runtime_files": [
+    {
+      "file": "desk/futu_daily.py",
+      "sha256": "8abe8316e98d3acb43d3a3ed3b12658abd20a55f451111329c2ed15cfd756a12"
+    },
+    {
+      "file": "desk/decision_home.py",
+      "sha256": "49cc4d5c5fda533b1dbef5d127fba1cad7ce3d55b6c7b6927c81f6f7e27745f0"
+    },
+    {
+      "file": "desk/experiment_ui.py",
+      "sha256": "acce703c777054ede182b927d6a878d28507433cce1102a5456a19ad8f89ef08"
+    },
+    {
+      "file": "desk/workspace.py",
+      "sha256": "194f71e12cb793c94a743c6b1ab772f738c182a00fbcdad47ec615b88780ac8f"
+    },
+    {
+      "file": "desk/dashboard_cards.py",
+      "sha256": "22448e93cd8a006a8d61fa4330a029094d1ebb0574a719820b8c6cab7dfde01d"
+    },
+    {
+      "file": "scripts/v04_history_fixture.py",
+      "sha256": "3a322acdbdf964331d7e2cbe9ad116b4a9fc4de27c1df20e97cf20ae5f3085e6"
+    }
+  ],
+  "frozen_files": [
+    {
+      "file": "desk/market_state.py",
+      "sha256": "b2819ab4d60dd33a68e69532d139d8e491c601a0f621de5b62d50974307825ff"
+    },
+    {
+      "file": "desk/experiment.py",
+      "sha256": "5ce0c71b9eabf3b024a369874605493f9213df88f8d03ed0ff381875a912fdbd"
+    },
+    {
+      "file": "desk/ema_layers.py",
+      "sha256": "55cf21f72be2662e6079cc09df34497ac4df12da0c396fa125aa8a23fcd75de8"
+    },
+    {
+      "file": "desk/analytics.py",
+      "sha256": "f2479f2b006956e05d728f9c6b7ca7982a983839c50e35175866b1f8b75ee9d0"
+    },
+    {
+      "file": "desk/ict_v03.py",
+      "sha256": "e320f1f019e0b331d59c57008f696a245a446a1be2a857fabe77ce18c08a0690"
+    },
+    {
+      "file": "desk/ict_live_gate.py",
+      "sha256": "c80fc18e0a3e1d6a149ccc72722e61451fb1623cb21a58c51429032406c67429"
+    },
+    {
+      "file": "desk/clock.py",
+      "sha256": "30d88d95273ff063880dfec9d02f19cad584b3cd9a06f23cb7296b0be2812ab3"
+    }
+  ],
+  "preview_stopped": true,
+  "production_deployed": false
+}

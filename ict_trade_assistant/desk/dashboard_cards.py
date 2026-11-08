@@ -56,11 +56,13 @@ def summary(symbol, state, stale, missing, at, historical):
                 unsafe_allow_html=True)
 
 
-def action(symbol, manual, plan, setup, stale):
+def action(symbol, manual, plan, setup, stale, basis_blocked=False):
     reason = '行情太旧，暂时不能判断今天买卖点' if stale else '当前实时审查条件尚未满足'
     values = [('目标2', None, 'target'), ('目标1', None, 'target'),
               ('观察区', None, 'entry'), ('失效／止损参考', None, 'stop')]
     origin = '暂无合格买卖点'
+    if basis_blocked and plan:
+        origin = '已保存计划保持原价；复权价格尺度未核实，暂停叠加与风险回报计算'
     if manual:
         is_test = '测试' in plan.get('memo','') or 'test' in (plan.get('memo','')+' '+plan['strategy_version']).lower()
         origin = ('测试用途 · ' if is_test else '') + '这是你保存的计划，不是系统实时建议'

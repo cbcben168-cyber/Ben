@@ -1,0 +1,61 @@
+........................................................................ [ 66%]
+.....................................                                    [100%]
+============================== warnings summary ===============================
+..\..\..\..\..\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\exchange_calendars\exchange_calendar.py:65
+  C:\Users\cbcbe\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\exchange_calendars\exchange_calendar.py:65: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+    ONE_HOUR = pd.Timedelta("1h")
+
+..\..\..\..\..\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\exchange_calendars\utils\pandas_utils.py:60
+..\..\..\..\..\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\exchange_calendars\utils\pandas_utils.py:60
+..\..\..\..\..\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\exchange_calendars\utils\pandas_utils.py:60
+  C:\Users\cbcbe\TradingCodex\ict_trade_assistant\.venv\Lib\site-packages\exchange_calendars\utils\pandas_utils.py:60: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+    delta = pd.Timedelta(
+
+tests/test_futu_daily.py: 41 warnings
+  C:\Users\cbcbe\.codex\worktrees\ict-history-recovery\ict_trade_assistant\ict_trade_assistant\desk\futu_daily.py:73: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+    now = utc(now or datetime.now(timezone.utc)) + pd.Timedelta(seconds=5)
+
+tests/test_futu_daily.py::test_symbols_cannot_use_different_adjustment_valuation_dates
+tests/test_futu_daily.py::test_symbols_cannot_use_different_adjustment_valuation_dates
+tests/test_futu_daily.py::test_symbols_cannot_use_different_adjustment_valuation_dates
+tests/test_futu_daily.py::test_symbols_cannot_use_different_adjustment_valuation_dates
+  C:\Users\cbcbe\.codex\worktrees\ict-history-recovery\ict_trade_assistant\ict_trade_assistant\tests\test_futu_daily.py:77: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+    target[key]=(pd.Timestamp(target[key])-pd.Timedelta(days=1)).isoformat()
+
+tests/test_futu_daily.py::test_symbols_cannot_use_different_adjustment_valuation_dates
+tests/test_futu_daily.py::test_symbols_cannot_use_different_adjustment_valuation_dates
+  C:\Users\cbcbe\.codex\worktrees\ict-history-recovery\ict_trade_assistant\ict_trade_assistant\tests\test_futu_daily.py:80: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+    target[key]=(pd.Timestamp(target[key])-pd.Timedelta(days=1)).isoformat()
+
+tests/test_experiment_v044.py: 107 warnings
+tests/test_history_v042.py: 45 warnings
+tests/test_daily_update_v043.py: 20 warnings
+tests/test_v04_live_gate.py: 297 warnings
+  C:\Users\cbcbe\.codex\worktrees\ict-history-recovery\ict_trade_assistant\ict_trade_assistant\desk\clock.py:25: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+    return CAL.date_to_session(pd.Timestamp(day) - pd.Timedelta(days=1), direction='previous').date()
+
+tests/test_experiment_v044.py: 9 warnings
+tests/test_v04_live_gate.py: 11 warnings
+  C:\Users\cbcbe\.codex\worktrees\ict-history-recovery\ict_trade_assistant\ict_trade_assistant\desk\ict_v03.py:64: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+    f['usable'] = f.eligible.eq(True) & (f.ts + pd.Timedelta(minutes=3) <= now)
+
+tests/test_history_v042.py: 27 warnings
+tests/test_daily_update_v043.py: 51 warnings
+  C:\Users\cbcbe\.codex\worktrees\ict-history-recovery\ict_trade_assistant\ict_trade_assistant\desk\history_import.py:27: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+    if acquired > pd.Timestamp.now(tz='UTC')+pd.Timedelta(seconds=5):
+
+tests/test_history_v042.py: 27 warnings
+tests/test_daily_update_v043.py: 51 warnings
+  C:\Users\cbcbe\.codex\worktrees\ict-history-recovery\ict_trade_assistant\ict_trade_assistant\desk\history_import.py:30: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+    end = (pd.Timestamp(request['end']).tz_convert(ET)-pd.Timedelta(microseconds=1)).date()
+
+tests/test_daily_update_v043.py: 50 warnings
+  C:\Users\cbcbe\.codex\worktrees\ict-history-recovery\ict_trade_assistant\ict_trade_assistant\desk\daily_update.py:27: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+    ready=pd.Timestamp(day,tz=ET)+pd.DateOffset(days=1)+pd.Timedelta(minutes=15)
+
+tests/test_daily_update_v043.py: 52 warnings
+  C:\Users\cbcbe\.codex\worktrees\ict-history-recovery\ict_trade_assistant\ict_trade_assistant\tests\test_daily_update_v043.py:32: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+    dates=CAL.sessions_in_range(pd.Timestamp(start).date(),(pd.Timestamp(end)-pd.Timedelta(microseconds=1)).date())
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+109 passed, 798 warnings in 132.54s (0:02:12)

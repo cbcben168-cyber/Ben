@@ -2,6 +2,7 @@
 __pycache__/
 .pytest_cache/
 data/
+.local/
 *.log
 .streamlit/secrets.toml
 

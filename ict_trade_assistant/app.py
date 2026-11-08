@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 import re
 import pandas as pd
 import plotly.graph_objects as go
@@ -72,12 +73,27 @@ def daily_revision_watch():
         clear_market_data();st.rerun()
 
 
+@st.fragment(run_every=15)
+def futu_revision_watch():
+    from desk.futu_update import FutuVersions
+    from desk.workspace import chart_data, historical_ict
+    versions = FutuVersions(os.environ['ICT_FUTU_DAILY_ARCHIVE'],
+                            os.environ.get('ICT_FUTU_DAILY_ROOT'))
+    token = versions.pointer.stat().st_mtime_ns if versions.pointer.exists() else None
+    old = st.session_state.get('_futu_version_seen', token)
+    st.session_state['_futu_version_seen'] = token
+    if token != old:
+        clear_market_data();chart_data.clear();historical_ict.clear();st.rerun()
+
+
 def events_table():
     channel=st.radio('事件类别',['市场观察与人工记录','系统健康诊断'],horizontal=True)
     st.dataframe(table(store.table('market_events' if channel=='市场观察与人工记录' else 'system_events')), width='stretch', hide_index=True)
 
 
 if page == '交易工作台':
+    if os.environ.get('ICT_FUTU_DAILY_ARCHIVE'):
+        futu_revision_watch()
     if '_daily_update_root' in st.session_state:
         daily_revision_watch()
         from desk.daily_update_ui import read_json
@@ -89,6 +105,10 @@ elif page == '设置与审计':
     st.title(TEXT['文案5'])
     from desk.watchlist_ui import render_watchlist
     render_watchlist(store)
+    if os.environ.get('ICT_FUTU_DAILY_ARCHIVE'):
+        from desk.futu_update_ui import render_futu_update
+        render_futu_update(os.environ['ICT_FUTU_DAILY_ARCHIVE'], clear_market_data,
+                           os.environ.get('ICT_FUTU_DAILY_ROOT'))
     if '_history_archive_path' in st.session_state:
         from desk.history_import import DailyArchive
         from desk.history_ui import render_history

@@ -1,0 +1,23 @@
+{
+  "environment": "isolated 8524 preview; controlled synthetic 23-symbol Futu-format captures",
+  "same_page_url": "http://127.0.0.1:8524/",
+  "restart_between_observations": false,
+  "before": {
+    "last_day": "2026-04-09",
+    "spy_ema20": 156.570454,
+    "spy_ema50": 144.950129,
+    "spy_atr14": 3.0
+  },
+  "publication": {
+    "status": "SUCCESS",
+    "added_sessions": 1,
+    "last_day": "2026-04-10"
+  },
+  "after": {
+    "last_day": "2026-04-10",
+    "spy_ema20": 157.570454,
+    "spy_ema50": 145.950129,
+    "spy_atr14": 3.357143
+  },
+  "note": "These values are synthetic isolation evidence, not a newly acquired real trading day."
+}

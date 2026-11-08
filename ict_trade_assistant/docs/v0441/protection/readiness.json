@@ -1,0 +1,198 @@
+{
+  "status": "READY_FOR_REDEPLOYMENT_APPROVAL",
+  "deployed": false,
+  "heartbeat": {
+    "pid": 27228,
+    "port": 8506,
+    "at": 1794129004.8091128,
+    "uptime_seconds": 2373,
+    "root": "C:\\Users\\cbcbe\\TradingCodex\\ict_trade_assistant_v04",
+    "build_sha256": "88f7e6227f9da931fe646837b58edfd1108ba88024b72b5d92621afe215dd0a3"
+  },
+  "process": {
+    "pid": 27228,
+    "cwd": "C:\\Users\\cbcbe\\TradingCodex\\ict_trade_assistant_v04\\",
+    "history_paths": {
+      "ICT_EXPERIMENT_DB": "C:\\Users\\cbcbe\\TradingCodex\\ict_trade_assistant_v04\\data\\v044\\experiments.sqlite3",
+      "ICT_V04_DB": "C:\\Users\\cbcbe\\TradingCodex\\ict_trade_assistant_v04\\data\\v04\\desk.sqlite3",
+      "ICT_V04_HISTORY": "C:\\Users\\cbcbe\\TradingCodex\\ict_trade_assistant_v04\\data\\v04\\history.json"
+    }
+  },
+  "files": [
+    {
+      "file": "app.py",
+      "runtime_matches_v044": true,
+      "source_matches_accepted_v0441": true,
+      "release_sha256": "3cc46a565212f5a8d97ce0b3483a854c89784969d140369eec97ff201359c4ed",
+      "runtime_sha256": "de45735e1d0a3b408aae992230b81c4036b4af3a6df488d8db7ed4910e0a0c6a"
+    },
+    {
+      "file": "desk/dashboard_cards.py",
+      "runtime_matches_v044": true,
+      "source_matches_accepted_v0441": true,
+      "release_sha256": "a4374652ee73b9aec79d4b036091b6e150cfcb5154802ea7419a19b731a52cf9",
+      "runtime_sha256": "a97033497a7f0ae5cbe66c06d55551aaeaef6c97b93cb4089e9259cd1bc11f89"
+    },
+    {
+      "file": "desk/decision_home.py",
+      "runtime_matches_v044": true,
+      "source_matches_accepted_v0441": true,
+      "release_sha256": "732cae8ab7a410a697042d2ce8a9679ac2a1bf1cf61c958947e68fa28168b8c2",
+      "runtime_sha256": "1a12e8fc4a1ffc6b2d13a452224f5d602c3a56006a7fb3784f1b0099b7c636a9"
+    },
+    {
+      "file": "desk/experiment.py",
+      "runtime_matches_v044": true,
+      "source_matches_accepted_v0441": true,
+      "release_sha256": "5ce0c71b9eabf3b024a369874605493f9213df88f8d03ed0ff381875a912fdbd",
+      "runtime_sha256": "a88b574c72c836a45ab1eef557ecd63902142c2054e55690e74bcfbac7b699d4"
+    },
+    {
+      "file": "desk/experiment_ui.py",
+      "runtime_matches_v044": true,
+      "source_matches_accepted_v0441": true,
+      "release_sha256": "b77ffabbc042f3b9f0feef9879b94a26eb949b49bbb9b7fb4243f242a1dea48d",
+      "runtime_sha256": "d180a5b564b74d2890f7824a1fd9c3a8a9d3227921a7f79f6ae382e98eacddfd"
+    },
+    {
+      "file": "desk/ema_layers.py",
+      "runtime_matches_v044": true,
+      "source_matches_accepted_v0441": true,
+      "release_sha256": "a91cf420d254ba30bd9a609498a3f437d9a92a183e5c24a45af0ba10e453364f",
+      "runtime_sha256": null
+    }
+  ],
+  "layered_database_protection": {
+    "passed": true,
+    "errors": [],
+    "old_observations": 248,
+    "old_rows_preserved": true,
+    "table_checks": [
+      {
+        "table": "acknowledgements",
+        "unchanged": true,
+        "rows": 0,
+        "sha256": "6708b6a6369aee55ea45786044d7ccea01cf38938b9711704eade3be3b22d6c4"
+      },
+      {
+        "table": "audit",
+        "unchanged": true,
+        "rows": 8,
+        "sha256": "c2c15111cff9366a3bbeba9b46e447e22c5a6139ce784cbc16274065b77f5086"
+      },
+      {
+        "table": "bars",
+        "unchanged": true,
+        "rows": 0,
+        "sha256": "4fabf08113d515fa9493614599c700f29184c672ce8f69a50c6699a88005d722"
+      },
+      {
+        "table": "events",
+        "unchanged": true,
+        "rows": 26,
+        "sha256": "f6bc979452bbe485180d5211fb2fae56a068b3620a691e01e1a769e5ac0cc4d9"
+      },
+      {
+        "table": "levels",
+        "unchanged": true,
+        "rows": 0,
+        "sha256": "d89f74fedbb7e659b9b104e10ea82f989e825887a1a68b1b24a99972ae316d72"
+      },
+      {
+        "table": "notes",
+        "unchanged": true,
+        "rows": 0,
+        "sha256": "03753e042d920f2371195fff85a6681c1c03ad341e28e7333f662d6fecb9862e"
+      },
+      {
+        "table": "observation_snapshots",
+        "unchanged": true,
+        "rows": 23,
+        "sha256": "be8a3c68fa4f12f17980076f4eadedc772d125a6a6e34be1249c7f1167029784"
+      },
+      {
+        "table": "observation_states",
+        "unchanged": true,
+        "rows": 24,
+        "sha256": "0a6bbda84f12e97430adce956576d49cc722f3ad266ef07bb68703edc99216f8"
+      },
+      {
+        "table": "plan_versions",
+        "unchanged": true,
+        "rows": 2,
+        "sha256": "7ec0f5b356abebef497a1602fa5e8b7d3e86bcef45a4a7f88129cd3119068243"
+      },
+      {
+        "table": "settings",
+        "unchanged": true,
+        "rows": 2,
+        "sha256": "d8d25fcf2bdfe68fb2dba2faf0e62b049985b2da90cbeec303cc0ca43291930c"
+      }
+    ],
+    "additions": []
+  },
+  "production_database_unchanged_during_audit": true,
+  "protected_files": 119,
+  "protected_unchanged": true,
+  "experiment_database_unchanged": true,
+  "services": {
+    "8501": {
+      "pid": 19544,
+      "same_process": true,
+      "health": {
+        "status": 200,
+        "body": "ok"
+      }
+    },
+    "8506": {
+      "pid": 27228,
+      "same_process": true,
+      "health": {
+        "status": 200,
+        "body": "ok"
+      }
+    },
+    "8516": {
+      "pid": 49096,
+      "same_process": true,
+      "health": {
+        "status": 200,
+        "body": "ok"
+      }
+    },
+    "8517": {
+      "pid": 53908,
+      "same_process": true,
+      "health": {
+        "status": 200,
+        "body": "ok"
+      }
+    },
+    "8518": {
+      "pid": 38340,
+      "same_process": true,
+      "health": {
+        "status": 200,
+        "body": "ok"
+      }
+    },
+    "8520": {
+      "pid": 24936,
+      "same_process": true,
+      "health": {
+        "status": 200,
+        "body": "ok"
+      }
+    },
+    "8521": {
+      "pid": 42384,
+      "same_process": true,
+      "health": {
+        "status": 200,
+        "body": "ok"
+      }
+    }
+  },
+  "opend_same_pid": true,
+  "validator_sha256": "96a4998fcac604e1d7f53f96e054471294164df298253379f373e02438b522a5"
+}

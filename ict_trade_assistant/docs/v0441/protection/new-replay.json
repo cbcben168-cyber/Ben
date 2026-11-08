@@ -1,0 +1,361 @@
+{
+  "passed": true,
+  "errors": [],
+  "old_observations": 216,
+  "old_rows_preserved": true,
+  "table_checks": [
+    {
+      "table": "acknowledgements",
+      "unchanged": true,
+      "rows": 0,
+      "sha256": "6708b6a6369aee55ea45786044d7ccea01cf38938b9711704eade3be3b22d6c4"
+    },
+    {
+      "table": "audit",
+      "unchanged": true,
+      "rows": 8,
+      "sha256": "c2c15111cff9366a3bbeba9b46e447e22c5a6139ce784cbc16274065b77f5086"
+    },
+    {
+      "table": "bars",
+      "unchanged": true,
+      "rows": 0,
+      "sha256": "4fabf08113d515fa9493614599c700f29184c672ce8f69a50c6699a88005d722"
+    },
+    {
+      "table": "events",
+      "unchanged": true,
+      "rows": 26,
+      "sha256": "f6bc979452bbe485180d5211fb2fae56a068b3620a691e01e1a769e5ac0cc4d9"
+    },
+    {
+      "table": "levels",
+      "unchanged": true,
+      "rows": 0,
+      "sha256": "d89f74fedbb7e659b9b104e10ea82f989e825887a1a68b1b24a99972ae316d72"
+    },
+    {
+      "table": "notes",
+      "unchanged": true,
+      "rows": 0,
+      "sha256": "03753e042d920f2371195fff85a6681c1c03ad341e28e7333f662d6fecb9862e"
+    },
+    {
+      "table": "observation_snapshots",
+      "unchanged": true,
+      "rows": 23,
+      "sha256": "be8a3c68fa4f12f17980076f4eadedc772d125a6a6e34be1249c7f1167029784"
+    },
+    {
+      "table": "observation_states",
+      "unchanged": true,
+      "rows": 24,
+      "sha256": "0a6bbda84f12e97430adce956576d49cc722f3ad266ef07bb68703edc99216f8"
+    },
+    {
+      "table": "plan_versions",
+      "unchanged": true,
+      "rows": 2,
+      "sha256": "7ec0f5b356abebef497a1602fa5e8b7d3e86bcef45a4a7f88129cd3119068243"
+    },
+    {
+      "table": "settings",
+      "unchanged": true,
+      "rows": 2,
+      "sha256": "d8d25fcf2bdfe68fb2dba2faf0e62b049985b2da90cbeec303cc0ca43291930c"
+    }
+  ],
+  "additions": [
+    {
+      "id": 217,
+      "symbol": "US.IEMG",
+      "at": "2026-11-08T08:59:13.517522+00:00",
+      "payload_sha256": "ffbd01cd4c2945ffacf6d71e36b487e706bcdd592a6b6434e11356c7d1a45525",
+      "state": "loading",
+      "verified": true,
+      "errors": []
+    },
+    {
+      "id": 218,
+      "symbol": "US.AGG",
+      "at": "2026-11-08T08:59:13.999888+00:00",
+      "payload_sha256": "7a333a9e52c4e5d9a7b3067efdd183e59cfedbd8873508d1af8bc056ecdff24a",
+      "state": "loading",
+      "verified": true,
+      "errors": []
+    },
+    {
+      "id": 219,
+      "symbol": "US.IJH",
+      "at": "2026-11-08T08:59:14.630444+00:00",
+      "payload_sha256": "67877341ec31f9678e98079db3e162660b9992e47aa86e5c7713fd2b74542236",
+      "state": "loading",
+      "verified": true,
+      "errors": []
+    },
+    {
+      "id": 220,
+      "symbol": "US.IEMG",
+      "at": "2026-11-08T08:59:15.249975+00:00",
+      "payload_sha256": "9a7cc37ef917ce290da4e9c358fec38c19df24d3a9505486d118c6a611dd6de8",
+      "state": "saved_archive",
+      "verified": true,
+      "errors": []
+    },
+    {
+      "id": 221,
+      "symbol": "US.AGG",
+      "at": "2026-11-08T08:59:15.933499+00:00",
+      "payload_sha256": "7dbed5d13a5ed2dfa4c7cb3b7c03365b6be2718d988b3c3a8800a5d34695511b",
+      "state": "saved_archive",
+      "verified": true,
+      "errors": []
+    },
+    {
+      "id": 222,
+      "symbol": "US.IJH",
+      "at": "2026-11-08T08:59:16.484926+00:00",
+      "payload_sha256": "160db67e1a6b55a29b459a0f670610ee6090c861d13802888e0609ea136ba7aa",
+      "state": "saved_archive",
+      "verified": true,
+      "errors": []
+    },
+    {
+      "id": 223,
+      "symbol": "US.VEA",
+      "at": "2026-11-08T08:59:17.169230+00:00",
+      "payload_sha256": "cb19ac28bc2263c1cf2e03a7ad131b40b3c943684a91e757dcdf84eda693f45c",
+      "state": "loading",
+      "verified": true,
+      "errors": []
+    },
+    {
+      "id": 224,
+      "symbol": "US.IEFA",
+      "at": "2026-11-08T08:59:17.751559+00:00",
+      "payload_sha256": "89ddaf5c3d2f38f12a59ad7f43728585979dfc2cb4f6d8b78f4a8c1f2b6fc9e6",
+      "state": "loading",
+      "verified": true,
+      "errors": []
+    },
+    {
+      "id": 225,
+      "symbol": "US.VTV",
+      "at": "2026-11-08T08:59:18.302310+00:00",
+      "payload_sha256": "fdf62fd06ed80f1cb6a454c84e0cb2b9235787192d2ca72f571472b44ef91acc",
+      "state": "loading",
+      "verified": true,
+      "errors": []
+    },
+    {
+      "id": 226,
+      "symbol": "US.SPYM",
+      "at": "2026-11-08T08:59:18.963754+00:00",
+      "payload_sha256": "7a4d0d3ea19071e3aa3a138d52d5333fc2d15c0794ce89c93b77bc39a5b123c0",
+      "state": "loading",
+      "verified": true,
+      "errors": []
+    },
+    {
+      "id": 227,
+      "symbol": "US.BND",
+      "at": "2026-11-08T08:59:19.504431+00:00",
+      "payload_sha256": "337c85f61847da9133e0f703e7026d2c6c872b240af7da3d50cd27a597082ad7",
+      "state": "loading",
+      "verified": true,
+      "errors": []
+    },
+    {
+      "id": 228,
+      "symbol": "US.VXUS",
+      "at": "2026-11-08T08:59:20.073044+00:00",
+      "payload_sha256": "510a0a142f8231a36a003516db8c9e3e80675be01444a9caef4373f3273039de",
+      "state": "loading",
+      "verified": true,
+      "errors": []
+    },
+    {
+      "id": 229,
+      "symbol": "US.IEMG",
+      "at": "2026-11-08T08:59:20.648038+00:00",
+      "payload_sha256": "ffbd01cd4c2945ffacf6d71e36b487e706bcdd592a6b6434e11356c7d1a45525",
+      "state": "loading",
+      "verified": true,
+      "errors": []
+    },
+    {
+      "id": 230,
+      "symbol": "US.GLD",
+      "at": "2026-11-08T08:59:21.256353+00:00",
+      "payload_sha256": "48f37117a2d98b41249acc7a0d27a5fc8148970e2b1cfdc54c0f9b4b14319b7d",
+      "state": "loading",
+      "verified": true,
+      "errors": []
+    },
+    {
+      "id": 231,
+      "symbol": "US.AGG",
+      "at": "2026-11-08T08:59:21.880238+00:00",
+      "payload_sha256": "7a333a9e52c4e5d9a7b3067efdd183e59cfedbd8873508d1af8bc056ecdff24a",
+      "state": "loading",
+      "verified": true,
+      "errors": []
+    },
+    {
+      "id": 232,
+      "symbol": "US.IWF",
+      "at": "2026-11-08T08:59:22.275134+00:00",
+      "payload_sha256": "cbc5185921f87baad1d42854f390146b3cab99607fe61f5603faafb8b97f5766",
+      "state": "loading",
+      "verified": true,
+      "errors": []
+    },
+    {
+      "id": 233,
+      "symbol": "US.IJH",
+      "at": "2026-11-08T08:59:22.794473+00:00",
+      "payload_sha256": "67877341ec31f9678e98079db3e162660b9992e47aa86e5c7713fd2b74542236",
+      "state": "loading",
+      "verified": true,
+      "errors": []
+    },
+    {
+      "id": 234,
+      "symbol": "US.VWO",
+      "at": "2026-11-08T08:59:23.492446+00:00",
+      "payload_sha256": "8a827d7761926b41f0da6da6280e8bae78374e7fe88243fe2a88c67ed80f6dd9",
+      "state": "loading",
+      "verified": true,
+      "errors": []
+    },
+    {
+      "id": 235,
+      "symbol": "US.XLK",
+      "at": "2026-11-08T08:59:23.706239+00:00",
+      "payload_sha256": "ef10a63f77dd9739af9bb8f572b404b20517f2b7bbbbf6d95e941fc2326fb2c9",
+      "state": "loading",
+      "verified": true,
+      "errors": []
+    },
+    {
+      "id": 236,
+      "symbol": "US.VEA",
+      "at": "2026-11-08T08:59:24.028418+00:00",
+      "payload_sha256": "26f1ca8dbd67600a8e5543ca00a7c6f00967ea1bbd83ad0c602c6cafd928d0d7",
+      "state": "saved_archive",
+      "verified": true,
+      "errors": []
+    },
+    {
+      "id": 237,
+      "symbol": "US.IEFA",
+      "at": "2026-11-08T08:59:24.315531+00:00",
+      "payload_sha256": "876c5a0c68f0e708c8854a437e4a5c52f2be9d45f8fea9936e738605956e8fea",
+      "state": "saved_archive",
+      "verified": true,
+      "errors": []
+    },
+    {
+      "id": 238,
+      "symbol": "US.VTV",
+      "at": "2026-11-08T08:59:24.658042+00:00",
+      "payload_sha256": "c38e77d6c362def5d07b98d2079763158d9ae676369d9772066284cd39fa5524",
+      "state": "saved_archive",
+      "verified": true,
+      "errors": []
+    },
+    {
+      "id": 239,
+      "symbol": "US.SPYM",
+      "at": "2026-11-08T08:59:24.968018+00:00",
+      "payload_sha256": "f12b93d21904f436969bae4b8e7bf8364a38d4c4adaa4fa0eab6305ed4a537b4",
+      "state": "saved_archive",
+      "verified": true,
+      "errors": []
+    },
+    {
+      "id": 240,
+      "symbol": "US.BND",
+      "at": "2026-11-08T08:59:25.290286+00:00",
+      "payload_sha256": "4cd1e5bce24fd6c170ef6bd0bd9108f25420dc67b7e6bc8162175643249abea2",
+      "state": "saved_archive",
+      "verified": true,
+      "errors": []
+    },
+    {
+      "id": 241,
+      "symbol": "US.VXUS",
+      "at": "2026-11-08T08:59:25.553056+00:00",
+      "payload_sha256": "6893ba70096855911bc360a4cfc8940de4c59da98acf66d89693d77da2b4fc96",
+      "state": "saved_archive",
+      "verified": true,
+      "errors": []
+    },
+    {
+      "id": 242,
+      "symbol": "US.IEMG",
+      "at": "2026-11-08T08:59:25.886640+00:00",
+      "payload_sha256": "9a7cc37ef917ce290da4e9c358fec38c19df24d3a9505486d118c6a611dd6de8",
+      "state": "saved_archive",
+      "verified": true,
+      "errors": []
+    },
+    {
+      "id": 243,
+      "symbol": "US.GLD",
+      "at": "2026-11-08T08:59:26.235476+00:00",
+      "payload_sha256": "1289ae3e52beb189b5db2c2162be8dbfa27c5ed404059cbdf4ee97a3076bc9b4",
+      "state": "saved_archive",
+      "verified": true,
+      "errors": []
+    },
+    {
+      "id": 244,
+      "symbol": "US.AGG",
+      "at": "2026-11-08T08:59:26.543490+00:00",
+      "payload_sha256": "7dbed5d13a5ed2dfa4c7cb3b7c03365b6be2718d988b3c3a8800a5d34695511b",
+      "state": "saved_archive",
+      "verified": true,
+      "errors": []
+    },
+    {
+      "id": 245,
+      "symbol": "US.IWF",
+      "at": "2026-11-08T08:59:26.872321+00:00",
+      "payload_sha256": "b04e5090e324b7545fd020e291e95db6977652c6a42c8fb944110258c5a9147d",
+      "state": "saved_archive",
+      "verified": true,
+      "errors": []
+    },
+    {
+      "id": 246,
+      "symbol": "US.IJH",
+      "at": "2026-11-08T08:59:27.161237+00:00",
+      "payload_sha256": "160db67e1a6b55a29b459a0f670610ee6090c861d13802888e0609ea136ba7aa",
+      "state": "saved_archive",
+      "verified": true,
+      "errors": []
+    },
+    {
+      "id": 247,
+      "symbol": "US.VWO",
+      "at": "2026-11-08T08:59:27.620233+00:00",
+      "payload_sha256": "e5f631b0dfb80f3e9cb16a5d077b720f7f57e3a21f25c8c52be24394589fd386",
+      "state": "saved_archive",
+      "verified": true,
+      "errors": []
+    },
+    {
+      "id": 248,
+      "symbol": "US.XLK",
+      "at": "2026-11-08T08:59:27.721491+00:00",
+      "payload_sha256": "df7935ca4b4f33a5b6a152105119a5c608378c96d12aa5ffb9ff78fc2acad4c2",
+      "state": "saved_archive",
+      "verified": true,
+      "errors": []
+    }
+  ],
+  "stage": "new",
+  "source": "C:\\Users\\cbcbe\\Documents\\ChatGPT\\ict_trade_assistant\\.worktrees\\v0441\\ict_trade_assistant\\desk\\store.py",
+  "expected_replayed": 32
+}

@@ -1,0 +1,95 @@
+"""Operate only the approved 8521 isolation; all test writes go to copied DBs."""
+import ctypes as c
+from datetime import datetime,timezone
+import json
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import time
+import urllib.request
+
+HERE=Path(__file__).resolve().parent;REPO=HERE.parents[1]
+NEW=REPO/'.worktrees/v0441/ict_trade_assistant';OLD=HERE/'old-app'
+RUNTIME=Path('C:/Users/cbcbe/TradingCodex/ict_trade_assistant_v04')
+sys.path.insert(0,str(NEW/'scripts'));sys.path.insert(0,str(NEW))
+sys.path.insert(0,str(REPO/'output/v044-deployment-20261107'))
+from deployment_protection import snapshot,inspect,compare,compare_experiments,reconstruct_models,records
+from process_paths import paths,k
+from desk.clock import ET
+PYTHON='C:/Users/cbcbe/TradingCodex/ict_trade_assistant/.venv/Scripts/python.exe'
+
+def dump(name,value):
+    (HERE/name).write_text(json.dumps(value,ensure_ascii=False,indent=2,default=str),encoding='utf-8')
+    return value
+
+def prepare():
+    assert not OLD.exists(),'Do not overwrite old isolation'
+    for folder in ['desk','scripts','data/v043','.streamlit']:(OLD/folder).mkdir(parents=True,exist_ok=True)
+    for path in (RUNTIME/'desk').glob('*.py'):shutil.copy2(path,OLD/'desk'/path.name)
+    for name in ['app.py','scripts/run_server.py','scripts/v04_history_fixture.py','.streamlit/config.toml','data/v043/latest.json']:
+        shutil.copy2(RUNTIME/name,OLD/name)
+    snapshot(RUNTIME/'data/v043/updates.sqlite3',OLD/'data/v043/updates.sqlite3')
+    shared=HERE/'data';shared.mkdir()
+    shutil.copy2(RUNTIME/'data/v04/history.json',shared/'history.json')
+    snapshot(RUNTIME/'data/v042/history.sqlite3',shared/'archive.sqlite3')
+    for stage in ['old','new']:
+        snapshot(HERE/'before.sqlite3',HERE/(stage+'-before.sqlite3'))
+        snapshot(HERE/'before.sqlite3',HERE/(stage+'-user.sqlite3'))
+        snapshot(HERE/'experiments.sqlite3',HERE/(stage+'-experiment-before.sqlite3'))
+        snapshot(HERE/'experiments.sqlite3',HERE/(stage+'-experiments.sqlite3'))
+    models=reconstruct_models(HERE/'before.sqlite3',shared/'history.json',shared/'archive.sqlite3',OLD/'data/v043/updates.sqlite3',datetime(2026,10,29,16,2,tzinfo=ET))
+    dump('expected-models.json',models)
+    current=inspect(HERE/'before.sqlite3')
+    unmatched=[row['symbol'] for row in records(current['tables']['observation_snapshots']) if row['signature'] not in models.get(row['symbol'],{})]
+    return dict(prepared=True,models=len(models),unmatched_baseline=unmatched)
+
+def start(stage):
+    root=OLD if stage=='old' else NEW
+    oldroot=NEW if stage=='old' else OLD
+    beat=json.loads((oldroot/'data/runtime-8521.json').read_text())
+    assert beat['port']==8521 and Path(beat['root'])==oldroot
+    info,environment=paths(beat['pid'],True)
+    assert Path(info['cwd']).resolve()==oldroot.resolve()
+    handle=k.OpenProcess(0x100001,False,beat['pid'])
+    if not handle:raise c.WinError(c.get_last_error())
+    try:
+        k.TerminateProcess.argtypes=[c.c_void_p,c.c_uint];k.WaitForSingleObject.argtypes=[c.c_void_p,c.c_uint]
+        assert k.TerminateProcess(handle,0) and k.WaitForSingleObject(handle,5000)==0
+    finally:k.CloseHandle(handle)
+    environment.update(ICT_V04_HISTORY=str(HERE/'data/history.json'),ICT_V04_DB=str(HERE/(stage+'-user.sqlite3')),
+                       ICT_EXPERIMENT_DB=str(HERE/(stage+'-experiments.sqlite3')),ICT_DAILY_ARCHIVE=str(HERE/'data/archive.sqlite3'))
+    began=datetime.now(timezone.utc)
+    with (HERE/(stage+'-out.log')).open('ab') as out,(HERE/(stage+'-error.log')).open('ab') as err:
+        proc=subprocess.Popen([PYTHON,'scripts/run_server.py','--history','--port','8521'],cwd=root,env=environment,stdout=out,stderr=err,creationflags=subprocess.CREATE_NO_WINDOW)
+    for _ in range(70):
+        try:
+            current=json.loads((root/'data/runtime-8521.json').read_text())
+            with urllib.request.urlopen('http://127.0.0.1:8521/_stcore/health',timeout=2) as response:healthy=response.read()==b'ok'
+            if current['at']>=began.timestamp()-1 and Path(current['root'])==root and healthy:
+                return dump(stage+'-start.json',dict(stage=stage,start=began.isoformat(),wrapper_pid=proc.pid,heartbeat=current,process=paths(current['pid'])))
+        except (OSError,ValueError):pass
+        if proc.poll() is not None:raise RuntimeError('8521 exited')
+        time.sleep(.3)
+    raise RuntimeError('8521 health timeout')
+
+def check(stage):
+    target=HERE/(stage+'-after.sqlite3')
+    after=snapshot(HERE/(stage+'-user.sqlite3'),target)
+    before=inspect(HERE/(stage+'-before.sqlite3'))
+    start=datetime.fromisoformat(json.loads((HERE/(stage+'-start.json')).read_text())['start'])
+    models=json.loads((HERE/'expected-models.json').read_text())
+    result=compare(before,after,models,window=(start,datetime.now(timezone.utc)))
+    expafter=snapshot(HERE/(stage+'-experiments.sqlite3'),HERE/(stage+'-experiment-after.sqlite3'))
+    expbefore=inspect(HERE/(stage+'-experiment-before.sqlite3'))
+    expected={}
+    if stage=='new':expected={'v0441验收_EMA5':dict(ema_short=5,ema_long=50,atr_period=14,sideways_atr=.5,candidate_atr=.25)}
+    experiments=compare_experiments(expbefore,expafter,expected,(start,datetime.now(timezone.utc)))
+    report=dump(stage+'-protection.json',dict(**result,experiments=experiments))
+    assert report['passed'] and experiments['passed'],report['errors']+experiments['errors']
+    return dict(stage=stage,passed=True,old_preserved=result['old_rows_preserved'],appended=len(result['additions']),experiments=experiments)
+
+if __name__=='__main__':
+    action=sys.argv[1]
+    value=prepare() if action=='prepare' else start(sys.argv[2]) if action=='start' else check(sys.argv[2])
+    print(json.dumps(value,ensure_ascii=False,indent=2))

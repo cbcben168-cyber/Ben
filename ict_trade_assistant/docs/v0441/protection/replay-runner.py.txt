@@ -1,0 +1,28 @@
+"""Deterministic replay of the 32 audited state changes into a disposable DB."""
+from datetime import datetime,timezone
+import json
+from pathlib import Path
+import sys
+
+HERE=Path(__file__).resolve().parent;REPO=HERE.parents[1]
+stage=sys.argv[1]
+root=HERE/'old-app' if stage=='old' else REPO/'.worktrees/v0441/ict_trade_assistant'
+sys.path.insert(0,str(root));sys.path.insert(0,str(REPO/'.worktrees/v0441/ict_trade_assistant/scripts'))
+from desk.store import Store
+from deployment_protection import snapshot,inspect,compare,records
+
+target=HERE/(stage+'-replay.sqlite3')
+before=snapshot(HERE/'before.sqlite3',target)
+models=json.loads((HERE/'expected-models.json').read_text())
+old_ids={row['id'] for row in records(before['tables']['observations'])}
+after_original=inspect(HERE/'current.sqlite3')
+events=sorted((row for row in records(after_original['tables']['observations']) if row['id'] not in old_ids),key=lambda row:row['id'])
+start=datetime.now(timezone.utc)
+store=Store(target)
+for row in events:store.observation(json.loads(row['payload']))
+after=inspect(target)
+result=compare(before,after,models,window=(start,datetime.now(timezone.utc)),cycles=2)
+result.update(stage=stage,source=str(root/'desk/store.py'),expected_replayed=32)
+(HERE/(stage+'-replay.json')).write_text(json.dumps(result,ensure_ascii=False,indent=2),encoding='utf-8')
+assert result['passed'] and len(result['additions'])==32
+print(json.dumps(dict(stage=stage,passed=True,appended=32,old_rows_preserved=result['old_rows_preserved'])))

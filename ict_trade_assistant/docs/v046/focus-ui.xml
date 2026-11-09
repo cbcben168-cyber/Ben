@@ -1,0 +1,1 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="0" skipped="0" tests="1" time="3.014" timestamp="2026-11-09T15:37:04.154620+08:00" hostname="DESKTOP-5DD8A2F"><testcase classname="tests.test_v046" name="test_focus_ui_fifteen_reorders_selects_and_reopens_without_persistence" time="1.724" /></testsuite></testsuites>

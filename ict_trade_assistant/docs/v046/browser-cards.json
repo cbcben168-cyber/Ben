@@ -1,0 +1,125 @@
+{
+  "count": 15,
+  "results": [
+    {
+      "code": "SPY",
+      "close": 735.29,
+      "region": "前交易日 734.58–742.2104",
+      "hourly": true,
+      "selection": true,
+      "detail": true
+    },
+    {
+      "code": "QQQ",
+      "close": 656.1,
+      "region": "前交易日 653.99–664.52",
+      "hourly": true,
+      "selection": true,
+      "detail": true
+    },
+    {
+      "code": "IWM",
+      "close": 273.67,
+      "region": "前交易日 270.23–274.55",
+      "hourly": true,
+      "selection": true,
+      "detail": true
+    },
+    {
+      "code": "SOXX",
+      "close": 136.53,
+      "region": "前交易日 133.8–140.21",
+      "hourly": true,
+      "selection": true,
+      "detail": true
+    },
+    {
+      "code": "SMH",
+      "close": 463.96,
+      "region": "前交易日 456.435–476.2499",
+      "hourly": true,
+      "selection": true,
+      "detail": true
+    },
+    {
+      "code": "VOO",
+      "close": 675.99,
+      "region": "前交易日 675.3–682.25",
+      "hourly": true,
+      "selection": true,
+      "detail": true
+    },
+    {
+      "code": "IVV",
+      "close": 738.68,
+      "region": "前交易日 737.86–745.49",
+      "hourly": true,
+      "selection": true,
+      "detail": true
+    },
+    {
+      "code": "VTI",
+      "close": 361.93,
+      "region": "前交易日 361.05–364.64",
+      "hourly": true,
+      "selection": true,
+      "detail": true
+    },
+    {
+      "code": "VEA",
+      "close": 67.9,
+      "region": "前交易日 67.525–68.3",
+      "hourly": false,
+      "selection": true,
+      "detail": true
+    },
+    {
+      "code": "VUG",
+      "close": 82.17,
+      "region": "前交易日 82–83.24",
+      "hourly": true,
+      "selection": true,
+      "detail": true
+    },
+    {
+      "code": "IEFA",
+      "close": 94.8,
+      "region": "前交易日 94.3–95.425",
+      "hourly": false,
+      "selection": true,
+      "detail": true
+    },
+    {
+      "code": "VTV",
+      "close": 223.01,
+      "region": "前交易日 221.305–224.23",
+      "hourly": true,
+      "selection": true,
+      "detail": true
+    },
+    {
+      "code": "SPYM",
+      "close": 86.56,
+      "region": "前交易日 86.46–87.355",
+      "hourly": true,
+      "selection": true,
+      "detail": true
+    },
+    {
+      "code": "BND",
+      "close": 71.59,
+      "region": "前交易日 71.505–71.765",
+      "hourly": false,
+      "selection": true,
+      "detail": true
+    },
+    {
+      "code": "VXUS",
+      "close": 80.92,
+      "region": "前交易日 80.5522–81.375",
+      "hourly": true,
+      "selection": true,
+      "detail": true
+    }
+  ]
+}

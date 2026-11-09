@@ -171,7 +171,7 @@ def test_chart_modes_match_table_and_manual_layers_remain_independent(tmp_path,m
     assert not app.exception and not ema_traces(app)
     spec=json.loads(app.get('plotly_chart')[0].proto.spec)
     assert any(t.get('name','').startswith('人工计划') for t in spec['data'])
-    assert any('重点观察的5只证券（固定顺序）' in h.value for h in app.subheader)
+    assert any('重点观察的15只证券（自选显示顺序）' in h.value for h in app.subheader)
     assert not any('Top5' in h.value for h in app.subheader)
 
 

@@ -59,7 +59,7 @@ def effective_status(config):
     return f"当前生效：{active['name']}（{suffix}）", f"已保存组合 · 版本 {active['version']}"
 
 
-def controls(selected, data, wall_asof):
+def controls(selected, data, wall_asof, toolbar=None):
     """Widgets run in the home fragment: changing a factor never reloads market data."""
     store = experiment_store()
     remembered = st.session_state.get('_experiment_active', {}).get('parameters', asdict(BASELINE))
@@ -77,7 +77,11 @@ def controls(selected, data, wall_asof):
             st.caption(detail)
         st.caption(f'{selected[3:]} · 独立历史实验 · 拉动后自动重算')
         st.markdown('[查看同步更新的主图](#current-market-chart)')
-        mode_col, date_col, period_col, preset_col = st.columns(4)
+        if toolbar is not None:
+            mode_col, date_col, period_col = toolbar.columns(3)
+            preset_col = st
+        else:
+            mode_col, date_col, period_col, preset_col = st.columns(4)
         mode = mode_col.selectbox('数据模式', ['最新已保存数据', '历史回放'], key='experiment_mode')
         source = ORIGINAL
         original = data.get('_original_history', data)
@@ -87,7 +91,7 @@ def controls(selected, data, wall_asof):
         if len(options) > 1:
             if st.session_state.get('experiment_source') not in options:
                 st.session_state['experiment_source'] = options[0]
-            source = st.radio('日K来源（分开计算）', options, horizontal=True, key='experiment_source')
+            source = (toolbar if toolbar is not None else st).radio('日K来源（分开计算）', options, horizontal=True, key='experiment_source')
         # Only existing archive session labels are selectable; never fetch missing days.
         date_data = data if source == FUTU else original
         dates = {d for d in date_data.get('_archive_dates', []) if d <= wall_asof.date()}

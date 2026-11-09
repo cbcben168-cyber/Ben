@@ -175,7 +175,7 @@ def render(store, settings, market_data):
         for p in store.plans():
             if not replaying and p['symbol'] in pool and p['symbol'] in health and not data[p['symbol']].get('_price_basis_unverified'): evaluate_plan(store,p,health[p['symbol']],now.date(),settings['distance_bps'])
         render_home(selected, data, plan, decision, rows, decisions, now,
-                    datetime.now(ET).replace(second=0, microsecond=0), select_candidate)
+                    datetime.now(ET).replace(second=0, microsecond=0), select_candidate, enabled=pool)
         with st.expander('详细证据与历史分析图层'):
             if d.get('daily_only'):
                 st.caption(f"◈ 供应商历史日K · {selected} · 数据截至 {d['coverage']['last']} · 取得 {d['coverage']['acquired_at']} · 非实时行情")

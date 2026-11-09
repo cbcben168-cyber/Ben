@@ -1,0 +1,65 @@
+{
+  "US.VEA": {
+    "reason": "US.VEA/2026-11-06/QFQ：60分钟汇总与同批日K不一致",
+    "differences": [
+      {
+        "date": "2026-11-06",
+        "adjustment": "QFQ",
+        "field": "low",
+        "hourly_aggregate": 67.53,
+        "native_daily": 67.525,
+        "difference": 0.0049999999999954525
+      },
+      {
+        "date": "2026-11-06",
+        "adjustment": "NONE",
+        "field": "low",
+        "hourly_aggregate": 67.53,
+        "native_daily": 67.525,
+        "difference": 0.0049999999999954525
+      }
+    ]
+  },
+  "US.IEFA": {
+    "reason": "US.IEFA/2026-11-03/QFQ：60分钟汇总与同批日K不一致",
+    "differences": [
+      {
+        "date": "2026-11-03",
+        "adjustment": "QFQ",
+        "field": "high",
+        "hourly_aggregate": 96.7785,
+        "native_daily": 96.79,
+        "difference": -0.011500000000012278
+      },
+      {
+        "date": "2026-11-03",
+        "adjustment": "NONE",
+        "field": "high",
+        "hourly_aggregate": 96.7785,
+        "native_daily": 96.79,
+        "difference": -0.011500000000012278
+      }
+    ]
+  },
+  "US.BND": {
+    "reason": "US.BND/2026-09-30/QFQ：60分钟汇总与同批日K不一致",
+    "differences": [
+      {
+        "date": "2026-09-30",
+        "adjustment": "QFQ",
+        "field": "low",
+        "hourly_aggregate": 69.541434618,
+        "native_daily": 69.475606561,
+        "difference": 0.06582805699999028
+      },
+      {
+        "date": "2026-09-30",
+        "adjustment": "NONE",
+        "field": "low",
+        "hourly_aggregate": 70.04,
+        "native_daily": 69.9737,
+        "difference": 0.06630000000001246
+      }
+    ]
+  }
+}

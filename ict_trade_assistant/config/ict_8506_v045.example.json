@@ -1,0 +1,29 @@
+{
+  "schema": "ICT_FUTU_DAILY_RUNTIME_V1",
+  "app_root": "C:\\Users\\cbcbe\\TradingCodex\\ict_trade_assistant_v04",
+  "python": "C:\\Users\\cbcbe\\TradingCodex\\ict_trade_assistant\\.venv\\Scripts\\python.exe",
+  "environment": {
+    "ICT_V04_DB": "C:\\Users\\cbcbe\\TradingCodex\\ict_trade_assistant_v04\\data\\v04\\desk.sqlite3",
+    "ICT_V04_HISTORY": "C:\\Users\\cbcbe\\TradingCodex\\ict_trade_assistant_v04\\data\\v04\\history.json",
+    "ICT_EXPERIMENT_DB": "C:\\Users\\cbcbe\\TradingCodex\\ict_trade_assistant_v04\\data\\v044\\experiments.sqlite3",
+    "ICT_DAILY_ARCHIVE": null,
+    "ICT_DAILY_UPDATE_ROOT": null,
+    "ICT_FUTU_DAILY_ARCHIVE": "C:\\Users\\cbcbe\\TradingCodex\\ict_trade_assistant_v04\\data\\history_recovery\\20261106_d495bd8\\futu_qfq_20261106.sqlite3",
+    "ICT_FUTU_DAILY_ROOT": "C:\\Users\\cbcbe\\TradingCodex\\ict_trade_assistant_v04\\data\\futu_history_versions_8506_v045"
+  },
+  "baseline_sha256": "b39d76abd5993f60934ea753041aa46a468971d5b9879b3a0fa8957e64d5f3ec",
+  "build_sha256": "25e762129a9793e57282623f7cc652bb01670fd2e144a48349f3182d3151bbd6",
+  "engine_sha256": {
+    "app.py": "c85f057368d30efc570051993474e263841e2ba0eb8c0bdf7ca0cca9ff913f7a",
+    "desk/futu_update.py": "12ae94d0fdf9712b6991c5540fc4ba44dbe40b76e0633a7f47ff84cd52cbfa49",
+    "desk/futu_update_ui.py": "a9b55ac74d6e65eb5c4c2c3dbf44fb52157aa83b09ddc1a4407c8d8438709ed3",
+    "desk/futu_task.py": "d5b9c3312c9ae50058c1f71d96b07db86b717a2ff1b52f692ffc6d62327ffb65",
+    "scripts/capture_futu_daily.py": "785260cd027e4abfa2fa7645523f707f9114ef24e26887d5c189d7f9f0f12cea",
+    "scripts/import_futu_daily.py": "2af77aeb724f7122d0e4cc5181c968185abe264a5aabd57fc2b73b265bd2831d",
+    "scripts/update_futu_daily.py": "c8d2de65563341e0efb3ce51b366eac800d5c20e87b3463994f4a79945081f59",
+    "scripts/v04_history_fixture.py": "eb13c851def47be497907f92a0ee500f7fef49742506a55b63b57ee68d398e51"
+  },
+  "unattended_enabled": false,
+  "real_new_day_accepted": false,
+  "vendor_finality_accepted": false
+}

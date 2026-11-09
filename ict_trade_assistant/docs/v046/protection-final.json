@@ -1,0 +1,209 @@
+{
+  "production_files": {
+    "desk\\analytics.py": true,
+    "desk\\clock.py": true,
+    "desk\\daily_update.py": true,
+    "desk\\daily_update_ui.py": true,
+    "desk\\dashboard_cards.py": true,
+    "desk\\decision.py": true,
+    "desk\\decision_home.py": true,
+    "desk\\diagnostics.py": true,
+    "desk\\ema_layers.py": true,
+    "desk\\event_contract.py": true,
+    "desk\\experiment.py": true,
+    "desk\\experiment_ui.py": true,
+    "desk\\futu_daily.py": true,
+    "desk\\futu_task.py": true,
+    "desk\\futu_update.py": true,
+    "desk\\futu_update_ui.py": true,
+    "desk\\history_import.py": true,
+    "desk\\history_source.py": true,
+    "desk\\history_ui.py": true,
+    "desk\\i18n.py": true,
+    "desk\\ict_live_gate.py": true,
+    "desk\\ict_v03.py": true,
+    "desk\\ict_view.py": true,
+    "desk\\market_loader.py": true,
+    "desk\\market_state.py": true,
+    "desk\\observations.py": true,
+    "desk\\plans.py": true,
+    "desk\\plan_editor.py": true,
+    "desk\\provider.py": true,
+    "desk\\store.py": true,
+    "desk\\watchlist.py": true,
+    "desk\\watchlist_ui.py": true,
+    "desk\\workspace.py": true,
+    "desk\\__init__.py": true,
+    "scripts\\capture_futu_daily.py": true,
+    "scripts\\check_real_periods.py": true,
+    "scripts\\import_daily_history.py": true,
+    "scripts\\import_futu_daily.py": true,
+    "scripts\\live_rth_acceptance.py": true,
+    "scripts\\preflight.py": true,
+    "scripts\\run_server.py": true,
+    "scripts\\stability_soak.py": true,
+    "scripts\\ui_acceptance_fixture.py": true,
+    "scripts\\update_daily_history.py": true,
+    "scripts\\update_futu_daily.py": true,
+    "scripts\\v021_acceptance.py": true,
+    "scripts\\v02_real_acceptance.py": true,
+    "scripts\\v03_browser_soak.py": true,
+    "scripts\\v03_data_preservation.py": true,
+    "scripts\\v03_offline_acceptance.py": true,
+    "scripts\\v03_stability_summary.py": true,
+    "scripts\\v04_history_fixture.py": true,
+    "scripts\\v04_offline_acceptance.py": true,
+    "scripts\\verify_saved_data.py": true,
+    "app.py": true
+  },
+  "history_files": {
+    "data\\history_recovery\\20261106_d495bd8\\futu_qfq_20261106.sqlite3": true,
+    "data\\history_recovery\\20261106_d495bd8\\local-data-inventory.json": true,
+    "data\\history_recovery\\20261106_d495bd8\\real-data.json": true,
+    "data\\history_recovery\\20261106_d495bd8\\runtime-file-manifest.json": true,
+    "data\\history_recovery\\20261106_d495bd8\\vendor\\AGG.json": true,
+    "data\\history_recovery\\20261106_d495bd8\\vendor\\BND.json": true,
+    "data\\history_recovery\\20261106_d495bd8\\vendor\\GLD.json": true,
+    "data\\history_recovery\\20261106_d495bd8\\vendor\\IEFA.json": true,
+    "data\\history_recovery\\20261106_d495bd8\\vendor\\IEMG.json": true,
+    "data\\history_recovery\\20261106_d495bd8\\vendor\\IJH.json": true,
+    "data\\history_recovery\\20261106_d495bd8\\vendor\\IVV.json": true,
+    "data\\history_recovery\\20261106_d495bd8\\vendor\\IWF.json": true,
+    "data\\history_recovery\\20261106_d495bd8\\vendor\\IWM.json": true,
+    "data\\history_recovery\\20261106_d495bd8\\vendor\\manifest.json": true,
+    "data\\history_recovery\\20261106_d495bd8\\vendor\\QQQ.json": true,
+    "data\\history_recovery\\20261106_d495bd8\\vendor\\SMH.json": true,
+    "data\\history_recovery\\20261106_d495bd8\\vendor\\SOXX.json": true,
+    "data\\history_recovery\\20261106_d495bd8\\vendor\\SPY.json": true,
+    "data\\history_recovery\\20261106_d495bd8\\vendor\\SPYM.json": true,
+    "data\\history_recovery\\20261106_d495bd8\\vendor\\VEA.json": true,
+    "data\\history_recovery\\20261106_d495bd8\\vendor\\VGT.json": true,
+    "data\\history_recovery\\20261106_d495bd8\\vendor\\VOO.json": true,
+    "data\\history_recovery\\20261106_d495bd8\\vendor\\VTI.json": true,
+    "data\\history_recovery\\20261106_d495bd8\\vendor\\VTV.json": true,
+    "data\\history_recovery\\20261106_d495bd8\\vendor\\VUG.json": true,
+    "data\\history_recovery\\20261106_d495bd8\\vendor\\VWO.json": true,
+    "data\\history_recovery\\20261106_d495bd8\\vendor\\VXUS.json": true,
+    "data\\history_recovery\\20261106_d495bd8\\vendor\\XLK.json": true
+  },
+  "user": {
+    "user": {
+      "schema_unchanged": true,
+      "tables": {
+        "acknowledgements": {
+          "before_rows": 0,
+          "after_rows": 0,
+          "unchanged": true,
+          "before_sha256": "6708b6a6369aee55ea45786044d7ccea01cf38938b9711704eade3be3b22d6c4",
+          "after_sha256": "6708b6a6369aee55ea45786044d7ccea01cf38938b9711704eade3be3b22d6c4"
+        },
+        "audit": {
+          "before_rows": 8,
+          "after_rows": 8,
+          "unchanged": true,
+          "before_sha256": "c2c15111cff9366a3bbeba9b46e447e22c5a6139ce784cbc16274065b77f5086",
+          "after_sha256": "c2c15111cff9366a3bbeba9b46e447e22c5a6139ce784cbc16274065b77f5086"
+        },
+        "bars": {
+          "before_rows": 0,
+          "after_rows": 0,
+          "unchanged": true,
+          "before_sha256": "4fabf08113d515fa9493614599c700f29184c672ce8f69a50c6699a88005d722",
+          "after_sha256": "4fabf08113d515fa9493614599c700f29184c672ce8f69a50c6699a88005d722"
+        },
+        "events": {
+          "before_rows": 31,
+          "after_rows": 31,
+          "unchanged": true,
+          "before_sha256": "c100d07f0e264fe31a33018670c62edd430ac7b2c6c9bfca83a3db80f790b4a6",
+          "after_sha256": "c100d07f0e264fe31a33018670c62edd430ac7b2c6c9bfca83a3db80f790b4a6"
+        },
+        "levels": {
+          "before_rows": 0,
+          "after_rows": 0,
+          "unchanged": true,
+          "before_sha256": "d89f74fedbb7e659b9b104e10ea82f989e825887a1a68b1b24a99972ae316d72",
+          "after_sha256": "d89f74fedbb7e659b9b104e10ea82f989e825887a1a68b1b24a99972ae316d72"
+        },
+        "notes": {
+          "before_rows": 0,
+          "after_rows": 0,
+          "unchanged": true,
+          "before_sha256": "03753e042d920f2371195fff85a6681c1c03ad341e28e7333f662d6fecb9862e",
+          "after_sha256": "03753e042d920f2371195fff85a6681c1c03ad341e28e7333f662d6fecb9862e"
+        },
+        "observation_snapshots": {
+          "before_rows": 23,
+          "after_rows": 23,
+          "unchanged": true,
+          "before_sha256": "59d1b8f18cdf83d0d67272bc1fa531956759596996651ac47105021cebb41d04",
+          "after_sha256": "59d1b8f18cdf83d0d67272bc1fa531956759596996651ac47105021cebb41d04"
+        },
+        "observation_states": {
+          "before_rows": 24,
+          "after_rows": 24,
+          "unchanged": true,
+          "before_sha256": "94ec0efd6cf371cd9284d8f1be71a0e25350a2d07161bb6653b5dca6650505f1",
+          "after_sha256": "94ec0efd6cf371cd9284d8f1be71a0e25350a2d07161bb6653b5dca6650505f1"
+        },
+        "observations": {
+          "before_rows": 422,
+          "after_rows": 422,
+          "unchanged": true,
+          "before_sha256": "2173f026bed864e10d1574cc5f9c73290976c20fa5d4f4882fcd53f91bf59d38",
+          "after_sha256": "2173f026bed864e10d1574cc5f9c73290976c20fa5d4f4882fcd53f91bf59d38"
+        },
+        "plan_versions": {
+          "before_rows": 2,
+          "after_rows": 2,
+          "unchanged": true,
+          "before_sha256": "7ec0f5b356abebef497a1602fa5e8b7d3e86bcef45a4a7f88129cd3119068243",
+          "after_sha256": "7ec0f5b356abebef497a1602fa5e8b7d3e86bcef45a4a7f88129cd3119068243"
+        },
+        "settings": {
+          "before_rows": 2,
+          "after_rows": 2,
+          "unchanged": true,
+          "before_sha256": "d8d25fcf2bdfe68fb2dba2faf0e62b049985b2da90cbeec303cc0ca43291930c",
+          "after_sha256": "d8d25fcf2bdfe68fb2dba2faf0e62b049985b2da90cbeec303cc0ca43291930c"
+        }
+      }
+    },
+    "experiments": {
+      "schema_unchanged": true,
+      "tables": {
+        "experiments": {
+          "before_rows": 2,
+          "after_rows": 2,
+          "unchanged": true,
+          "before_sha256": "94a99e5b086dfa7339cf709614555536f52d301ab0b1c97d7451a78a2b1e3fc1",
+          "after_sha256": "94a99e5b086dfa7339cf709614555536f52d301ab0b1c97d7451a78a2b1e3fc1"
+        }
+      }
+    }
+  },
+  "frozen": {
+    "analytics.py": true,
+    "clock.py": true,
+    "market_state.py": true,
+    "ict_v03.py": true,
+    "ict_live_gate.py": true,
+    "provider.py": true,
+    "observations.py": true,
+    "plans.py": true,
+    "decision.py": true,
+    "experiment.py": true,
+    "ema_layers.py": true
+  },
+  "previews": {
+    "user": {
+      "notes": true,
+      "plan_versions": true,
+      "settings": true
+    },
+    "experiments": {
+      "experiments": true
+    }
+  },
+  "passed": true
+}

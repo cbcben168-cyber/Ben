@@ -17,6 +17,7 @@ from desk.history_source import HistorySource
 from desk.history_import import DailyArchive
 from desk.futu_daily import FutuDailyArchive, attach_futu
 from desk.futu_update import FutuVersions
+from desk.futu_hourly import attach_hourly
 
 SOURCE=Path(os.environ['ICT_V04_HISTORY'])
 FIXED=datetime(2026,10,29,16,2,tzinfo=ET)
@@ -49,7 +50,7 @@ def fetch(self,code):
     result = attach_futu(value, FutuDailyArchive(path), code)
     if result.get('futu_coverage'):
         result['futu_coverage']['archive_version'] = version
-    return result
+    return attach_hourly(result, os.environ.get('ICT_FUTU_HOURLY_ARCHIVE'), code)
 
 
 store_module.Store=FixtureStore

@@ -12,6 +12,9 @@ from .experiment import BASELINE, completed_snapshot, distance_result
 from .experiment_ui import controls, comparison_view
 from .ema_layers import LAYER_MODES, UNAVAILABLE, ema_points, add_ema_lines
 from .futu_daily import FUTU, CONTRACT, PRICE_NOTE, PLAN_NOTE, select_history
+from .futu_hourly import CONTRACT as HOURLY, MISSING, hourly_prefix
+from .historical_prices import references, target_readiness, focus_symbols, nearest_reference
+from .history_status import period_pair
 
 
 def historical_plan(decision):
@@ -59,8 +62,11 @@ def _level(fig, x, name, value, color, source):
 @st.cache_data(max_entries=96, show_spinner=False)
 def _analysis(frame, period, asof, source, config=BASELINE):
     if period == '1H' and not frame.empty:
-        frame = frame.loc[frame.eligible.eq(True) & (frame.ts + pd.Timedelta(minutes=3) <= asof)]
-        frame = aggregate_rth(frame, 60, asof)
+        if source == HOURLY:
+            frame = hourly_prefix(frame, asof)
+        else:
+            frame = frame.loc[frame.eligible.eq(True) & (frame.ts + pd.Timedelta(minutes=3) <= asof)]
+            frame = aggregate_rth(frame, 60, asof)
     return market_state(frame, period, asof, source, config)
 
 
@@ -87,7 +93,7 @@ def _replay_decision(selected, data, asof):
 
 def _daily_source(data):
     if data.get('_history_selection') == FUTU:
-        return CONTRACT + ' · 事后前复权'
+        return (data.get('futu_coverage', {}).get('contract') or CONTRACT) + ' · 事后前复权'
     if data.get('history_origin'):
         return '富途原生日K归档'
     meta = data.get('coverage') or data.get('health', {})
@@ -99,22 +105,34 @@ def _pick_history(pick, code, key):
     st.session_state['experiment_mode'] = '历史回放'
 
 
+def _hourly_series(data):
+    if data.get('_history_selection') == FUTU or 'hourly_coverage' in data:
+        return data.get('futu_hourly', pd.DataFrame()), HOURLY
+    return data['minute'], '富途分钟归档 → 纽约RTH 1H'
+
+
 @st.fragment
-def render_home(selected, data, plan, decision, rows, decisions, replay_asof, wall_asof, pick):
+def render_home(selected, data, plan, decision, rows, decisions, replay_asof, wall_asof, pick, enabled=None):
     d = data[selected]
     st.markdown(CSS, unsafe_allow_html=True)
+    toolbar = st.container(key='history-toolbar')
     display = st.container()
-    config, asof, cycle, source_choice, comparison, mode = controls(selected, d, wall_asof)
+    config, asof, cycle, source_choice, comparison, mode = controls(selected, d, wall_asof, toolbar=toolbar)
     if asof is None:
         asof = wall_asof.replace(hour=0, minute=0)  # Empty analysis; never silently use another date.
         invalid_date = True
     else:
         invalid_date = False
+        if mode != '历史回放':
+            asof = wall_asof  # Each period is cut at the same clock, not at the daily archive's last date.
     data = {code: select_history(value, source_choice) for code,value in data.items()}
     d = data[selected]
     historical = mode == '历史回放'
     period = '1H' if cycle == '1小时' else '1D'
-    frame, source = (d['minute'], '富途分钟归档 → 纽约RTH 1H') if period == '1H' else (d['daily'], _daily_source(d))
+    frame, source = _hourly_series(d) if period == '1H' else (d['daily'], _daily_source(d))
+    native_hourly = period == '1H' and (source_choice == FUTU or 'hourly_coverage' in d)
+    if native_hourly:
+        frame, source = d.get('futu_hourly', pd.DataFrame()), HOURLY
     candidate_data = d
     if period == '1D' and d.get('independent_coverage') and source_choice == '独立更新档案':
         meta = d['independent_coverage']
@@ -129,6 +147,11 @@ def render_home(selected, data, plan, decision, rows, decisions, replay_asof, wa
     comparison_view(comparison, baseline, state, before, after, config)
     latest_state, _ = _analysis(d['daily'] if not invalid_date else d['daily'].iloc[:0], '1D', asof, _daily_source(d))
     latest_date = latest_state['at'].date().isoformat() if latest_state['at'] is not None else None
+    hourly_frame, hourly_source = _hourly_series(d)
+    hourly_state, _ = _analysis(hourly_frame.iloc[:0] if invalid_date else hourly_frame, '1H', asof, hourly_source)
+    daily_meta = d.get('futu_coverage') if source_choice == FUTU else d.get('coverage')
+    periods = period_pair(latest_state, hourly_state, daily_meta, d.get('hourly_coverage'),
+                          asof if historical else wall_asof, _daily_source(d), hourly_source)
     expected = latest_completed(asof if historical else wall_asof)
     freshness = '无可用日K' if latest_date is None else '行情已过期' if latest_date < expected else '日K截至最近完成交易日'
     if historical and not invalid_date:
@@ -136,24 +159,39 @@ def render_home(selected, data, plan, decision, rows, decisions, replay_asof, wa
         rows = [decision['focus']] if decision.get('focus') else []
     elif invalid_date:
         rows, decision = [], None
-    setup = historical_plan(decision) if period == '1H' else None
-    basis_blocked = bool(d.get('_price_basis_unverified'))
+    setup = historical_plan(decision) if period == '1H' and not native_hourly else None
+    basis_blocked = bool(d.get('_price_basis_unverified') or native_hourly or periods['cross_scale_blocked'])
     manual = None if basis_blocked else manual_prices(plan)
     if historical and plan and pd.Timestamp(plan['updated_at']) > asof:
         manual = None
     missing = state['at'] is None
-    stale = latest_date is not None and latest_date < expected
+    selected_status = periods['hourly' if period == '1H' else 'daily']
+    stale = selected_status['stale']
     at_text = state['at'].strftime('%Y-%m-%d %H:%M 纽约') if state['at'] is not None else '暂无有效行情'
+    if state['at'] is not None:
+        at_text = pd.Timestamp(state['at']).tz_convert('America/New_York').strftime('%Y-%m-%d %H:%M 纽约')
+    reference_asof = asof if historical else wall_asof
+    price_refs = references(d['daily'] if not invalid_date else d['daily'].iloc[:0], reference_asof, _daily_source(d),
+                            d.get('futu_coverage') if source_choice == FUTU else d.get('coverage'),
+                            d.get('futu_hourly'), d.get('hourly_coverage'))
+    readiness = target_readiness(plan, asof, basis_verified=not basis_blocked)
+    if periods['cross_scale_blocked']:
+        readiness['missing'].append('跨周期价格尺度未获统一认证')
     # Fill the earlier container so the main layout stays above the expanded lab.
     with display:
-        st.caption(f'{mode} · {source} · {cycle} · 数据截至 {at_text} · {freshness}')
+        st.caption(f'{mode} · {source} · {cycle} · 数据截至 {at_text} · {selected_status["description"]}')
         if basis_blocked:
-            st.caption(PRICE_NOTE + ' 最新历史日K不是实时行情；1H ICT及实时交易资格关闭。')
+            st.caption(PRICE_NOTE + ' 历史1H只描述趋势；1分钟ICT证据及实时交易资格关闭。')
             if plan:
                 st.caption(PLAN_NOTE)
         if state['trend'] == 'UNKNOWN':
             st.info('资料不足：' + state['reason'])
-        summary(selected[3:], state, stale, missing, at_text, historical)
+        if native_hourly and (frame.empty or state['trend'] == 'UNKNOWN'):
+            st.warning(MISSING + ' · ' + d.get('hourly_coverage', {}).get('reason', state['reason']))
+            def switch_daily():
+                st.session_state['experiment_period'] = '日K'
+            st.button('切换至日K', key='hourly_fallback_daily', on_click=switch_daily)
+        summary(selected[3:], state, stale, missing, at_text, historical, periods=periods)
         left, right = st.columns([1.7, 1], gap='medium')
         with left:
             with st.container(key='answer-chart'):
@@ -167,8 +205,12 @@ def render_home(selected, data, plan, decision, rows, decisions, replay_asof, wa
                     st.info('该时点无可用K线')
                 else:
                     dates = chart.ts.map(str)
-                    fig = go.Figure(go.Candlestick(x=dates, open=chart.open, high=chart.high,
-                                                    low=chart.low, close=chart.close, name=period))
+                    candle = dict(x=dates, open=chart.open, high=chart.high, low=chart.low, close=chart.close, name=period)
+                    if native_hourly:
+                        candle.update(text=[f"纽约 {a.tz_convert('America/New_York'):%Y-%m-%d %H:%M}–{b.tz_convert('America/New_York'):%H:%M} · 已完成 · {n:g}分钟<br>开 {o:g} 高 {h:g} 低 {l:g} 收 {c:g}<br>{HOURLY}"
+                            for a,b,n,o,h,l,c in zip(chart.ts,chart.end_at,chart.duration_minutes,chart.open,chart.high,chart.low,chart.close)], hoverinfo='text')
+                        st.caption('横轴UTC开始时间；悬浮查看纽约开始／结束与完整性。末根为收盘前30分钟。')
+                    fig = go.Figure(go.Candlestick(**candle))
                     x = [dates.iloc[0], dates.iloc[-1]]
                     if layer_mode != LAYER_MODES[0] and state['trend'] != 'UNKNOWN':
                         if layer_mode == LAYER_MODES[2]:
@@ -196,33 +238,63 @@ def render_home(selected, data, plan, decision, rows, decisions, replay_asof, wa
                     st.plotly_chart(fig, width='stretch', key='decision_main_chart')
         with right:
             with st.container(key='answer-action'):
-                action(selected[3:], manual, plan, setup if historical else None, stale, basis_blocked=basis_blocked)
-        st.subheader('重点观察的5只证券（固定顺序）')
-        st.caption('当前缺少合格的新行情，尚不能评出今日最佳交易候选。')
-        watch = [dict(symbol=code) for code in data if code != 'US.VIX'][:5]
+                action(selected[3:], manual, plan, setup if historical else None, stale, basis_blocked=basis_blocked,
+                       price_refs=price_refs, readiness=readiness)
+                with st.expander('历史参考价计算证据'):
+                    for level in price_refs['levels']:
+                        st.write(level)
+                    for reason in price_refs['missing']:
+                        st.caption(reason)
+        st.subheader('重点观察的15只证券（自选显示顺序）')
+        st.caption('历史资料观察 · 显示顺序不是盈利概率排名；调整仅保留在当前浏览器会话。')
+        allowed = focus_symbols(enabled if enabled is not None else list(data))
+        all_enabled = [code for code in (enabled if enabled is not None else data) if code != 'US.VIX']
+        preference = st.session_state.get('focus_symbols', allowed)
+        preference = focus_symbols(all_enabled, preference)
+        st.session_state['focus_symbols'] = preference
+        with st.expander('调整重点观察证券及顺序'):
+            st.multiselect('按加入顺序显示，最多15只；移除后重新加入可调整顺序', all_enabled,
+                           max_selections=15, key='focus_symbols')
+            def reset_focus():
+                st.session_state['focus_symbols'] = focus_symbols(all_enabled)
+            st.button('恢复已启用名单前15只', on_click=reset_focus)
+        watch = [dict(symbol=code) for code in focus_symbols(all_enabled, st.session_state['focus_symbols'])]
         if not watch:
             st.info('暂无观察候选')
-        for col, item in zip(st.columns(max(len(watch), 1)), watch):
+        with st.container(key='focus-grid'):
+          for item in watch:
             code = item['symbol']
-            with col:
+            with st.container(key='focus-card-'+code.replace('.', '-')):
                 watch_frame = data[code]['daily'] if not invalid_date else data[code]['daily'].iloc[:0]
                 watch_state, _ = _analysis(watch_frame, '1D', asof, _daily_source(data[code]))
                 watch_at = watch_state['at']
-                watch_date = watch_at.strftime('%Y-%m-%d %H:%M 纽约') if watch_at is not None else '暂无资料'
+                watch_date = pd.Timestamp(watch_at).tz_convert('America/New_York').strftime('%Y-%m-%d %H:%M 纽约') if watch_at is not None else '暂无资料'
                 trend = watch_state['trend'] if watch_state['trend'] != 'UNKNOWN' else None
-                candidate(code[3:], '暂无合格买卖点', '暂无合格买卖点', '查看历史图表',
-                          data_at=watch_date, historical_trend=trend)
+                hourly_frame, watch_hourly_source = _hourly_series(data[code])
+                hourly_state, _ = _analysis(hourly_frame.iloc[:0] if invalid_date else hourly_frame, '1H', asof, watch_hourly_source)
+                watch_periods = period_pair(watch_state, hourly_state,
+                    data[code].get('futu_coverage') if source_choice == FUTU else data[code].get('coverage'),
+                    data[code].get('hourly_coverage'), asof if historical else wall_asof,
+                    _daily_source(data[code]), watch_hourly_source)
+                refs = references(watch_frame, reference_asof, _daily_source(data[code]), data[code].get('futu_coverage'))
+                candidate(code[3:], '历史资料 · 实时资格关闭', nearest_reference(refs), '查看历史图表',
+                          data_at=watch_date, historical_trend=trend, volatility=watch_state['volatility'],
+                          hourly_trend=hourly_state['trend'], close=watch_state['close'], source=_daily_source(data[code]),
+                          data_status=watch_periods['daily']['description']+' / '+watch_periods['hourly']['description'],
+                          periods=watch_periods)
                 if st.button('查看图表 · '+code[3:], key='watch_'+code, on_click=pick, args=(code, None), width='stretch'):
                     st.rerun()
                 with st.expander('详情'):
-                    st.caption('仅日K，1小时条件尚不具备' if data[code].get('daily_only') else '以前的重要价格位置可在历史证据中复核')
+                    st.caption(data[code].get('hourly_coverage', {}).get('reason', '1H仅限历史图表；无1分钟ICT资格'))
     with st.expander('专业分析和计算依据'):
         st.caption(f'分析时点 {asof.isoformat()} · 周期 {period} · {source}')
         st.caption(f'最新原归档日K收盘 {latest_state["at"] or "暂无"} · 最近完成纽约交易日 {expected} · {freshness}')
         if d.get('independent_coverage'):
             st.write('独立更新档案', d['independent_coverage'])
-        if basis_blocked:
+        if basis_blocked and d.get('futu_coverage'):
             st.write('独立Futu日K来源与校验', d['futu_coverage'])
+        if d.get('hourly_coverage'):
+            st.write('独立原生60分钟来源与校验', d['hourly_coverage'])
         st.caption(RULES)
         st.caption('EMA图线每个点均复用该时点最近50根已完成K线及首根初始化；最早49根不画指标。'
                    '观察卡历史趋势使用原始参数，不参与评分或排名。')

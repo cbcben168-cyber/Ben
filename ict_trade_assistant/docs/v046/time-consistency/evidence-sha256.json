@@ -1,0 +1,21 @@
+{
+  "browser.json": "459526880d12c2c72d554aac6fb101a2dec69b6f0c16ae68d5a9260e87ea4c72",
+  "CHANGED_FILES.md": "9f7b14c8aaa286c645d91c13799b6fc77a8458882547ae3feec852ca153c5115",
+  "deployment-manifest.json": "1c21ff194ef4ea1ac3d468e53a802236e2cbad0c4ed02194050d06eeb97d300d",
+  "hourly-audit.json": "119fce594a2e99a6dfc75a20ee8384ed48af7001e979095bab5f7735e12402b1",
+  "new-tests.xml": "17e1fb2f3b1c134c745c13f7ca9235014866a6bf9257947529324fe754c2fd26",
+  "original-199-nodeids.txt": "e81952d7c32f9953aafddb8040158f5ecc3a3f5bc4ea58769d621e44377f61b8",
+  "original-199.xml": "1d5579b7a480c44c2e0ae69a0c9610cfd16b9976c6eaedf8b87e7b5411596b04",
+  "preview-stopped.json": "8962678a33ac5371a75bfef1fdd81afdb1bf15126f934ba5972bf761b22ff981",
+  "protected-code-sha256.json": "689d337762706dff71f1bae811b43ed3705ed3f80a412dbebedca775d30ab796",
+  "protection-final.json": "aa1dad2c2fbe298c991726c77255d117c82f8b9f30d1d682f279d11431a3d2b3",
+  "README.md": "da7e065e72ee33e0bcb07e8b8bb9f47e6e5acf9625452a1cdb03162b024e9995",
+  "related-final.xml": "92026cc8ad5b0d6986a658e5ce7b7c23ea25a54b76b53fda5000929050d9d10b",
+  "services.json": "944ff9003e680ce7b2fe660b87542df4ba317aa2630fb772c7bc57b29ba173fc",
+  "summary.json": "bd663f6fec059972619367322487ac0ad6caddc100a4e9b94b99548fa48a21b4",
+  "screenshots/baseline-landscape-cards.png": "2af6f2dca59a46ed74397ae876bfff0661e60cb8b6039f6962bc958a800a955c",
+  "screenshots/landscape-simulated-cards.png": "8f204361fad21584ee0902f0e147b46b142666b7c8aaa5129be64d107ea37146",
+  "screenshots/landscape-simulated-main.png": "8e7c04d9ae863f3d4316b681ee1132de9bb5145d9484915164ea05392c7bb8ff",
+  "screenshots/portrait-simulated-cards.png": "d188eff591694d217c8342a3619fc5c6bbc60ee4f016d57a613ad8fabc43a69e",
+  "screenshots/portrait-simulated-main.png": "27d19c99f52d16599c064aed807ea5a7689f6cabe6a6042cda881fd4c7c04ebf"
+}

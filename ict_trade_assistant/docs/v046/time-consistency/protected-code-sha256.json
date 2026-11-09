@@ -1,0 +1,166 @@
+{
+  "tests\\test_core.py": {
+    "before": "e855f0ff3c78ea39d51c7c86bac18104b137afb726fe148aef0f045ccd9bb251",
+    "after": "e855f0ff3c78ea39d51c7c86bac18104b137afb726fe148aef0f045ccd9bb251"
+  },
+  "tests\\test_daily_update_v043.py": {
+    "before": "a44bf372be3a67b28a8e63649d1a5286c231e91ff3bf4a3a28191317e69bc574",
+    "after": "a44bf372be3a67b28a8e63649d1a5286c231e91ff3bf4a3a28191317e69bc574"
+  },
+  "tests\\test_decision_first.py": {
+    "before": "c152cd81d97ecc530ff5bf5a1573703d81a3756b3e4a34eda09d6e7acdf289db",
+    "after": "c152cd81d97ecc530ff5bf5a1573703d81a3756b3e4a34eda09d6e7acdf289db"
+  },
+  "tests\\test_decision_v04.py": {
+    "before": "c3bd70697dcfe16576191fa455cdb0ed79372c51b7b6d1a11eca6b8f61bf5d67",
+    "after": "c3bd70697dcfe16576191fa455cdb0ed79372c51b7b6d1a11eca6b8f61bf5d67"
+  },
+  "tests\\test_deployment_protection.py": {
+    "before": "89c27c9bfeccaaac7f9eccc9c3710c524bf8ab0ac30eb7e6375e20f028e25cf0",
+    "after": "89c27c9bfeccaaac7f9eccc9c3710c524bf8ab0ac30eb7e6375e20f028e25cf0"
+  },
+  "tests\\test_experiment_v044.py": {
+    "before": "f1804c98c59140189a228118bac425e08bd8630f38faf59c3f73fedda5d2e66b",
+    "after": "f1804c98c59140189a228118bac425e08bd8630f38faf59c3f73fedda5d2e66b"
+  },
+  "tests\\test_futu_daily.py": {
+    "before": "ebde5c32367a79ba503798596fa0f0a2e899dc23d2f522d9d22dd356fb4ff905",
+    "after": "ebde5c32367a79ba503798596fa0f0a2e899dc23d2f522d9d22dd356fb4ff905"
+  },
+  "tests\\test_futu_task_lifecycle.py": {
+    "before": "0966d2423fd2bd3adeb7984e1490af92e2c243b7d5ed8f973fbdf3eb8cf645e6",
+    "after": "0966d2423fd2bd3adeb7984e1490af92e2c243b7d5ed8f973fbdf3eb8cf645e6"
+  },
+  "tests\\test_futu_update_v045.py": {
+    "before": "4f1f6408010ca9318842dce9f37b519555204f3999e06df8b4d96c6325f3449a",
+    "after": "4f1f6408010ca9318842dce9f37b519555204f3999e06df8b4d96c6325f3449a"
+  },
+  "tests\\test_history_v042.py": {
+    "before": "fc62b6cdb8323be4421cf2a9b45f5fcb9ef84732a6e2671839b5261abcb23c83",
+    "after": "fc62b6cdb8323be4421cf2a9b45f5fcb9ef84732a6e2671839b5261abcb23c83"
+  },
+  "tests\\test_ict_v03.py": {
+    "before": "68ef569c858a7513b22008d48432de60fda1dba70018b1a6d8b0717531d7940b",
+    "after": "68ef569c858a7513b22008d48432de60fda1dba70018b1a6d8b0717531d7940b"
+  },
+  "tests\\test_ict_v03_ui.py": {
+    "before": "97eb87427de0f3786443d6f5de83e1a6a9edffe817137b3b05a5bef9c4c52b76",
+    "after": "97eb87427de0f3786443d6f5de83e1a6a9edffe817137b3b05a5bef9c4c52b76"
+  },
+  "tests\\test_live_rth_acceptance.py": {
+    "before": "9da062cadbff139c3d5d83d614c8cff9d1f60ed9943092bf086d39f3c638b2f0",
+    "after": "9da062cadbff139c3d5d83d614c8cff9d1f60ed9943092bf086d39f3c638b2f0"
+  },
+  "tests\\test_loading.py": {
+    "before": "ebc135e3e096ba78195fe0878ecb805d1e7ff0fc482f0b2903557e7a3f686680",
+    "after": "ebc135e3e096ba78195fe0878ecb805d1e7ff0fc482f0b2903557e7a3f686680"
+  },
+  "tests\\test_localization.py": {
+    "before": "e2ab11f4480311d14dc8f11f632c826b9d868790ee47a4fde2b1d204172c194b",
+    "after": "e2ab11f4480311d14dc8f11f632c826b9d868790ee47a4fde2b1d204172c194b"
+  },
+  "tests\\test_observations.py": {
+    "before": "d1a29d5d87e83ea98cb611b8f8aeb2fc809d733957c69bb57bdb1b490ea5abf5",
+    "after": "d1a29d5d87e83ea98cb611b8f8aeb2fc809d733957c69bb57bdb1b490ea5abf5"
+  },
+  "tests\\test_plans_levels.py": {
+    "before": "18b458c85a6ece4b9ad28cf158a4514600032c264d52382073ea9d44db9241b8",
+    "after": "18b458c85a6ece4b9ad28cf158a4514600032c264d52382073ea9d44db9241b8"
+  },
+  "tests\\test_portrait_layout.py": {
+    "before": "448fff3e57c933c14960d318ed9e9dcf95efaca5e53a329da8418b280e3b6a45",
+    "after": "448fff3e57c933c14960d318ed9e9dcf95efaca5e53a329da8418b280e3b6a45"
+  },
+  "tests\\test_service_entry.py": {
+    "before": "f66674b9990b10471b15f9dc8606083877838ebe1cfcb069941a1b2fb55371f1",
+    "after": "f66674b9990b10471b15f9dc8606083877838ebe1cfcb069941a1b2fb55371f1"
+  },
+  "tests\\test_stability.py": {
+    "before": "4925bd09ea0cd3b9480630707ab1bed7d580e99e44a9ad92ab3bdbcb2f4ebdd4",
+    "after": "4925bd09ea0cd3b9480630707ab1bed7d580e99e44a9ad92ab3bdbcb2f4ebdd4"
+  },
+  "tests\\test_ui.py": {
+    "before": "777f7d9c974efe91b4e6a58f4197223691b6ceeaeb3dc4e80c76a21a743c19f5",
+    "after": "777f7d9c974efe91b4e6a58f4197223691b6ceeaeb3dc4e80c76a21a743c19f5"
+  },
+  "tests\\test_v021.py": {
+    "before": "8843257578bfffa94242ed033e9c5b84f34d5ccfef298d97ddac9c337ede616c",
+    "after": "8843257578bfffa94242ed033e9c5b84f34d5ccfef298d97ddac9c337ede616c"
+  },
+  "tests\\test_v0441.py": {
+    "before": "954cf548138d082cc2a772e3e9699165d9be6914caaf9b95fa7de562c9197824",
+    "after": "954cf548138d082cc2a772e3e9699165d9be6914caaf9b95fa7de562c9197824"
+  },
+  "tests\\test_v046.py": {
+    "before": "45906afcc1b43a9a830d99d695328d29da9169b2fde46fe42f3c6fee8322181a",
+    "after": "45906afcc1b43a9a830d99d695328d29da9169b2fde46fe42f3c6fee8322181a"
+  },
+  "tests\\test_v04_live_gate.py": {
+    "before": "e4465151621608015104d585a0c05e439f7ce2bf8ad19ec1b28a701d13e799cd",
+    "after": "e4465151621608015104d585a0c05e439f7ce2bf8ad19ec1b28a701d13e799cd"
+  },
+  "tests\\test_v04_review_fixes.py": {
+    "before": "7a17bf397b346ede1204cd686730905446ed954a039f65f20902f418c8d6d588",
+    "after": "7a17bf397b346ede1204cd686730905446ed954a039f65f20902f418c8d6d588"
+  },
+  "tests\\test_watchlist_v041.py": {
+    "before": "e122aa968d03f414189848d78371fb44fc427dbdc2d67ea45822cc6ffd27e189",
+    "after": "e122aa968d03f414189848d78371fb44fc427dbdc2d67ea45822cc6ffd27e189"
+  },
+  "tests\\test_weekend_stability.py": {
+    "before": "5efa07506fe1967820cae6ee07907f8d005a5f5a526118b005c5cc19361ea601",
+    "after": "5efa07506fe1967820cae6ee07907f8d005a5f5a526118b005c5cc19361ea601"
+  },
+  "desk\\futu_hourly.py": {
+    "before": "76d2da55ad1e0a0a32c685e9ab82317ea59d9f2854f9b1aa13c29d774f959eb5",
+    "after": "76d2da55ad1e0a0a32c685e9ab82317ea59d9f2854f9b1aa13c29d774f959eb5"
+  },
+  "desk\\futu_daily.py": {
+    "before": "3fc689641c5596ed3bf0cdc42c9fec110312f65e150e88d112ea6eb4ece2b423",
+    "after": "3fc689641c5596ed3bf0cdc42c9fec110312f65e150e88d112ea6eb4ece2b423"
+  },
+  "desk\\market_state.py": {
+    "before": "b2819ab4d60dd33a68e69532d139d8e491c601a0f621de5b62d50974307825ff",
+    "after": "b2819ab4d60dd33a68e69532d139d8e491c601a0f621de5b62d50974307825ff"
+  },
+  "desk\\analytics.py": {
+    "before": "f2479f2b006956e05d728f9c6b7ca7982a983839c50e35175866b1f8b75ee9d0",
+    "after": "f2479f2b006956e05d728f9c6b7ca7982a983839c50e35175866b1f8b75ee9d0"
+  },
+  "desk\\clock.py": {
+    "before": "30d88d95273ff063880dfec9d02f19cad584b3cd9a06f23cb7296b0be2812ab3",
+    "after": "30d88d95273ff063880dfec9d02f19cad584b3cd9a06f23cb7296b0be2812ab3"
+  },
+  "desk\\ict_v03.py": {
+    "before": "e320f1f019e0b331d59c57008f696a245a446a1be2a857fabe77ce18c08a0690",
+    "after": "e320f1f019e0b331d59c57008f696a245a446a1be2a857fabe77ce18c08a0690"
+  },
+  "desk\\ict_live_gate.py": {
+    "before": "c80fc18e0a3e1d6a149ccc72722e61451fb1623cb21a58c51429032406c67429",
+    "after": "c80fc18e0a3e1d6a149ccc72722e61451fb1623cb21a58c51429032406c67429"
+  },
+  "desk\\provider.py": {
+    "before": "381a655ae842729eeb67c132f238dbc43d5590622b36637f2defd8bf03545dd9",
+    "after": "381a655ae842729eeb67c132f238dbc43d5590622b36637f2defd8bf03545dd9"
+  },
+  "desk\\observations.py": {
+    "before": "96b8bc6e86363b752ca15fdcd01d65c63921f8215919639701ad52a60e08cf68",
+    "after": "96b8bc6e86363b752ca15fdcd01d65c63921f8215919639701ad52a60e08cf68"
+  },
+  "desk\\plans.py": {
+    "before": "f2ead03e857864b92db3cbcd94a95072c5c300e5e0e961e655519fa2765c3c43",
+    "after": "f2ead03e857864b92db3cbcd94a95072c5c300e5e0e961e655519fa2765c3c43"
+  },
+  "desk\\decision.py": {
+    "before": "c52d27ba379601806049555cab582a05daf0697657082a5fdf971bc04de8950e",
+    "after": "c52d27ba379601806049555cab582a05daf0697657082a5fdf971bc04de8950e"
+  },
+  "desk\\experiment.py": {
+    "before": "5ce0c71b9eabf3b024a369874605493f9213df88f8d03ed0ff381875a912fdbd",
+    "after": "5ce0c71b9eabf3b024a369874605493f9213df88f8d03ed0ff381875a912fdbd"
+  },
+  "desk\\ema_layers.py": {
+    "before": "55cf21f72be2662e6079cc09df34497ac4df12da0c396fa125aa8a23fcd75de8",
+    "after": "55cf21f72be2662e6079cc09df34497ac4df12da0c396fa125aa8a23fcd75de8"
+  }
+}

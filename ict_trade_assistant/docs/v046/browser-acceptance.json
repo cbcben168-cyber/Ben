@@ -1,0 +1,328 @@
+{
+  "checks": [
+    "15 real watch cards",
+    "SMH native 630 candles",
+    "SMH hourly EMA20/50",
+    "SMH no unverified plan overlay",
+    "SMH trading lock",
+    "SMH independent daily references",
+    "SPY native 630 candles",
+    "SPY hourly EMA20/50",
+    "SPY no unverified plan overlay",
+    "SPY trading lock",
+    "SPY independent daily references",
+    "QQQ native 630 candles",
+    "QQQ hourly EMA20/50",
+    "QQQ no unverified plan overlay",
+    "QQQ trading lock",
+    "QQQ independent daily references",
+    "IWM native 630 candles",
+    "IWM hourly EMA20/50",
+    "IWM no unverified plan overlay",
+    "IWM trading lock",
+    "IWM independent daily references",
+    "SOXX native 630 candles",
+    "SOXX hourly EMA20/50",
+    "SOXX no unverified plan overlay",
+    "SOXX trading lock",
+    "SOXX independent daily references",
+    "failed hourly has explicit daily fallback",
+    "BND daily survives hourly failure",
+    "landscape exact 100% scale",
+    "landscape exact viewport",
+    "landscape grid 5x3",
+    "landscape no overflow or Python exceptions",
+    "landscape factors folded",
+    "landscape chart and details aligned",
+    "portrait exact 100% scale",
+    "portrait exact viewport",
+    "portrait grid 3x5",
+    "portrait no overflow or Python exceptions",
+    "portrait factors folded",
+    "portrait chart and details aligned"
+  ],
+  "symbols": [
+    {
+      "code": "SMH",
+      "traces": [
+        {
+          "name": "1H",
+          "points": 630,
+          "lastClose": 463.96
+        },
+        {
+          "name": "实验EMA20",
+          "points": 50,
+          "last": 474.23055851221784
+        },
+        {
+          "name": "实验EMA50",
+          "points": 50,
+          "last": 500.88149000151896
+        }
+      ]
+    },
+    {
+      "code": "SPY",
+      "traces": [
+        {
+          "name": "1H",
+          "points": 630,
+          "lastClose": 735.29
+        },
+        {
+          "name": "实验EMA20",
+          "points": 50,
+          "last": 743.9551667116001
+        },
+        {
+          "name": "实验EMA50",
+          "points": 50,
+          "last": 752.8283955231867
+        }
+      ]
+    },
+    {
+      "code": "QQQ",
+      "traces": [
+        {
+          "name": "1H",
+          "points": 630,
+          "lastClose": 656.1
+        },
+        {
+          "name": "实验EMA20",
+          "points": 50,
+          "last": 665.4338788743127
+        },
+        {
+          "name": "实验EMA50",
+          "points": 50,
+          "last": 681.8181583235956
+        }
+      ]
+    },
+    {
+      "code": "IWM",
+      "traces": [
+        {
+          "name": "1H",
+          "points": 630,
+          "lastClose": 273.67
+        },
+        {
+          "name": "实验EMA20",
+          "points": 50,
+          "last": 275.52503257433136
+        },
+        {
+          "name": "实验EMA50",
+          "points": 50,
+          "last": 278.0800643098822
+        }
+      ]
+    },
+    {
+      "code": "SOXX",
+      "traces": [
+        {
+          "name": "1H",
+          "points": 630,
+          "lastClose": 136.53
+        },
+        {
+          "name": "实验EMA20",
+          "points": 50,
+          "last": 140.1052615982399
+        },
+        {
+          "name": "实验EMA50",
+          "points": 50,
+          "last": 149.5002436080305
+        }
+      ]
+    }
+  ],
+  "layouts": [
+    {
+      "width": 2560,
+      "height": 1440,
+      "dpr": 1,
+      "scale": 1,
+      "zoom": "1",
+      "chart": {
+        "x": 19.1875,
+        "y": 639.734375,
+        "w": 1571.6875,
+        "h": 612.78125,
+        "right": 1590.875,
+        "bottom": 1252.515625
+      },
+      "action": {
+        "x": 1622.875,
+        "y": 639.734375,
+        "w": 917.9375,
+        "h": 699.84375,
+        "right": 2540.8125,
+        "bottom": 1339.578125
+      },
+      "positions": [
+        {
+          "x": 19,
+          "y": 1512
+        },
+        {
+          "x": 526,
+          "y": 1512
+        },
+        {
+          "x": 1032,
+          "y": 1512
+        },
+        {
+          "x": 1538,
+          "y": 1512
+        },
+        {
+          "x": 2044,
+          "y": 1512
+        },
+        {
+          "x": 19,
+          "y": 1813
+        },
+        {
+          "x": 526,
+          "y": 1813
+        },
+        {
+          "x": 1032,
+          "y": 1813
+        },
+        {
+          "x": 1538,
+          "y": 1813
+        },
+        {
+          "x": 2044,
+          "y": 1813
+        },
+        {
+          "x": 19,
+          "y": 2114
+        },
+        {
+          "x": 526,
+          "y": 2114
+        },
+        {
+          "x": 1032,
+          "y": 2114
+        },
+        {
+          "x": 1538,
+          "y": 2114
+        },
+        {
+          "x": 2044,
+          "y": 2114
+        }
+      ],
+      "columns": 5,
+      "rows": 3,
+      "horizontalOverflow": false,
+      "exceptions": 0,
+      "factorsFolded": true
+    },
+    {
+      "width": 1440,
+      "height": 2560,
+      "dpr": 1,
+      "scale": 1,
+      "zoom": "1",
+      "chart": {
+        "x": 19.1875,
+        "y": 702.3125,
+        "w": 866.5,
+        "h": 612.78125,
+        "right": 885.6875,
+        "bottom": 1315.09375
+      },
+      "action": {
+        "x": 917.6875,
+        "y": 702.3125,
+        "w": 503.125,
+        "h": 703.84375,
+        "right": 1420.8125,
+        "bottom": 1406.15625
+      },
+      "positions": [
+        {
+          "x": 19,
+          "y": 1578
+        },
+        {
+          "x": 490,
+          "y": 1578
+        },
+        {
+          "x": 960,
+          "y": 1578
+        },
+        {
+          "x": 19,
+          "y": 1879
+        },
+        {
+          "x": 490,
+          "y": 1879
+        },
+        {
+          "x": 960,
+          "y": 1879
+        },
+        {
+          "x": 19,
+          "y": 2180
+        },
+        {
+          "x": 490,
+          "y": 2180
+        },
+        {
+          "x": 960,
+          "y": 2180
+        },
+        {
+          "x": 19,
+          "y": 2481
+        },
+        {
+          "x": 490,
+          "y": 2481
+        },
+        {
+          "x": 960,
+          "y": 2481
+        },
+        {
+          "x": 19,
+          "y": 2782
+        },
+        {
+          "x": 490,
+          "y": 2782
+        },
+        {
+          "x": 960,
+          "y": 2782
+        }
+      ],
+      "columns": 3,
+      "rows": 5,
+      "horizontalOverflow": false,
+      "exceptions": 0,
+      "factorsFolded": true
+    }
+  ]
+}

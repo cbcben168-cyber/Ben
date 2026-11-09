@@ -1,0 +1,37 @@
+{
+  "status": "ISOLATED_ACCEPTED_WITH_EXPLICIT_SOURCE_GAPS",
+  "tests": {
+    "unique_passed": 199,
+    "runs": {
+      "final-regression.xml": 197,
+      "price-scale-final.xml": 59,
+      "focus-ui.xml": 1,
+      "v046-final.xml": 16
+    },
+    "failures": 0,
+    "skipped": 0
+  },
+  "browser_checks": 40,
+  "cards_selected": 15,
+  "hourly_symbols_passed": 20,
+  "hourly_symbols_unavailable": 3,
+  "health": {
+    "8501": {
+      "status": 200,
+      "body": "ok"
+    },
+    "8506": {
+      "status": 200,
+      "body": "ok"
+    },
+    "8526": {
+      "status": 200,
+      "body": "ok"
+    }
+  },
+  "deployed": false,
+  "merged": false,
+  "real_time_ict_unlocked": false,
+  "preview_status": "STOPPED_AFTER_ACCEPTANCE",
+  "health_snapshot_note": "Captured before isolated preview stop; production ports untouched"
+}

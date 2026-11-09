@@ -1,0 +1,31 @@
+{
+  "status": "ISOLATED_ACCEPTED_NOT_DEPLOYED",
+  "tests": {
+    "unique_passed": 207,
+    "runs": {
+      "original-199.xml": 199,
+      "new-tests.xml": 8,
+      "related-final.xml": 51
+    },
+    "failures": 0,
+    "skipped": 0
+  },
+  "browser_checks": 98,
+  "original_hourly_pass": 20,
+  "original_hourly_rejected": 3,
+  "archive_changed": false,
+  "threshold_changed": false,
+  "production_health": {
+    "8501": {
+      "status": 200,
+      "body": "ok"
+    },
+    "8506": {
+      "status": 200,
+      "body": "ok"
+    }
+  },
+  "preview_stopped": true,
+  "merged": false,
+  "trading_unlocked": false
+}

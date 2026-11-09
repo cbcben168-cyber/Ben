@@ -1,0 +1,22 @@
+{
+  ".gitignore": "182932d09187292f89c828d8a0e5975fcf23614f3db1ab9700a8d457c2acc08b",
+  "browser-acceptance.json": "6f2e4fe7f16afabb27a009b1b7756f9aefcc9d2904023a4f991035cb38979753",
+  "browser-cards.json": "6eecb323f765be83e4c6a5a1972c35836be5d35ab02098aef8e025482162d972",
+  "CHANGED_FILES.md": "2c640b79acf00df6582162cd3127b738375275efe1f69295cdfb5be99c35ca16",
+  "data-evidence.json": "c72a9856e7defa660f4cbad0a6998216ba1ea1e444b282b8c0df74a04b145155",
+  "deployment-manifest.json": "804e52f885fb30f9bcba5115b4453111fbd9730844badbc081fd78844d3d0a00",
+  "final-regression.xml": "f6e914aceca06216dd471d4e112663b6cf7b89b32aa3ad6a57ae881d60d3d5d5",
+  "focus-ui.xml": "b82fe9fd28df6e8e4c05446a4d7e45373c22007257260e4f50ea1588b2bb9aab",
+  "price-scale-final.xml": "74802eb820d10384b31304dae9f3b56f9648be3addb9c4f4266f73969ed1a861",
+  "protection-final.json": "6ba6b484af1f71f2fe4ca2aa12f068e413ce38687011bc892a910ed6c237f757",
+  "README.md": "723f4b81e6cb846906547241d0721201861a070bc0236688669e2dee102b122d",
+  "reconciliation-differences.json": "1352fac7c64bcb84f36a8fbac6cf8327ce7d2ef69b08d234162f87827da02301",
+  "services.json": "ad53971bab2ce6b19e5ff4d90d22a642bebe375eba817c5ae6ae7137e230b385",
+  "summary.json": "2ea8554f816c4b8441f0b7f88d4fd695746fa7cdaf6061ae447218fbcb58d798",
+  "tasks-comparison.json": "62d2c27d117443dee90a4920ca899c0e8e0998b3ee0e8be7437e5c8998b9bf71",
+  "v046-final.xml": "15fec360f2b92e578fc12cb38f17aa83d46a067166416a88790b9e2adf1ce768",
+  "screenshots/landscape-15-cards.png": "a58f536139113170b3acc208e8ba0e1d7c12d0d544571b6f9da472c0c0d320b7",
+  "screenshots/landscape-main.png": "e5c17aa8dc6ec2c16bb23ceedc77040b60bda19a41e96a3cb3cad9bea76784e2",
+  "screenshots/portrait-15-cards.png": "5dd5e24c564d4d8a44c3ab310dc5d8fc665ccc2bcb5ea08b9246a70d63bcbb98",
+  "screenshots/portrait-main.png": "ac220db0673992cd0f43208cb843440e8314930875a62e5af9fa10b3ed73f22c"
+}

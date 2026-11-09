@@ -1,0 +1,29 @@
+{
+  "passed": true,
+  "file_count": 125,
+  "unchanged_files": 125,
+  "databases": {
+    "user": {
+      "schema_unchanged": true,
+      "tables": {
+        "acknowledgements": true,
+        "audit": true,
+        "bars": true,
+        "events": true,
+        "levels": true,
+        "notes": true,
+        "observation_snapshots": true,
+        "observation_states": true,
+        "observations": true,
+        "plan_versions": true,
+        "settings": true
+      }
+    },
+    "experiments": {
+      "schema_unchanged": true,
+      "tables": {
+        "experiments": true
+      }
+    }
+  }
+}

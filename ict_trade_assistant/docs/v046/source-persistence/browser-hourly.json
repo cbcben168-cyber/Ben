@@ -1,0 +1,32 @@
+[
+  {
+    "symbol": "SPY",
+    "candles": 630,
+    "data_through": "2026-11-06 16:00 America/New_York",
+    "trading_eligible": false
+  },
+  {
+    "symbol": "QQQ",
+    "candles": 630,
+    "data_through": "2026-11-06 16:00 America/New_York",
+    "trading_eligible": false
+  },
+  {
+    "symbol": "IWM",
+    "candles": 630,
+    "data_through": "2026-11-06 16:00 America/New_York",
+    "trading_eligible": false
+  },
+  {
+    "symbol": "SOXX",
+    "candles": 630,
+    "data_through": "2026-11-06 16:00 America/New_York",
+    "trading_eligible": false
+  },
+  {
+    "symbol": "SMH",
+    "candles": 630,
+    "data_through": "2026-11-06 16:00 America/New_York",
+    "trading_eligible": false
+  }
+]

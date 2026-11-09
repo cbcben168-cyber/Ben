@@ -1,0 +1,11 @@
+{
+  "format": "ICT_HISTORY_RUNTIME_V1",
+  "paths": {
+    "ICT_V04_HISTORY": "v04/history.json",
+    "ICT_V04_DB": "v04/desk.sqlite3",
+    "ICT_EXPERIMENT_DB": "v044/experiments.sqlite3",
+    "ICT_FUTU_DAILY_ARCHIVE": "history_recovery/20261106_d495bd8/futu_qfq_20261106.sqlite3",
+    "ICT_FUTU_DAILY_ROOT": "futu_history_versions_8506_v045",
+    "ICT_FUTU_HOURLY_ARCHIVE": "hourly_history_v046/20261109_ce7fe180"
+  }
+}

@@ -81,18 +81,21 @@ def period_details(periods):
 
 def summary(symbol, state, stale, missing, at, historical, periods=None):
     trend = {'上涨': '↑ 偏多', '下跌': '↓ 偏空', '横盘': '↔ 横盘', '过渡': '↔ 过渡'}.get(state['trend'], '? 无法判断')
-    current = '? 无法判断' if stale or missing else trend
-    conclusion = '数据太旧不能判断' if stale else '目前无法确定' if missing else '继续等待'
-    reason = '现在不能根据这份旧数据直接买卖' if stale else '资料不足，暂时不能判断买卖点' if missing else '实时审查尚未开放，等待合格数据和结构'
-    fields = [('1 · 市场状态', current), ('2 · 当前结论', conclusion), ('3 · 原因', reason),
-              ('4 · 最近有效数据', at), ('5 · 当前可否给出买卖点', '不能 · 暂无合格买卖点'),
-              ('6 · 下一步动作', '先取得新行情，再复核条件')]
+    current = '暂无已验收历史资料' if missing else trend
+    conclusion = ('暂无已验收历史资料' if missing else '历史资料已过期' if stale else
+                  '历史样本不足' if state['trend'] == 'UNKNOWN' else '历史趋势可分析')
+    reason = ('请核对独立档案与数据诊断' if missing else '数据太旧不能判断当前行情；历史趋势仅截至所示日期，需更新资料' if stale else
+              state.get('reason', '尚未满足指标预热条件') if state['trend'] == 'UNKNOWN' else
+              '已完成历史K线可用于趋势、波动及历史参考价格')
+    fields = [('1 · 历史趋势', current), ('2 · 历史资料状态', conclusion), ('3 · 分析依据', reason),
+              ('4 · 所选周期最后完成', at), ('5 · 实时可执行资格', '实时交易资格关闭'),
+              ('6 · 下一步动作', '核对并更新所选周期历史档案' if stale or missing else '查看历史参考价；人工计划独立复核')]
     facts = ''.join(f'<div><div class="dash-label">{escape(k)}</div><div class="dash-value">{escape(v)}</div></div>' for k,v in fields)
     st.markdown(f'<section class="dash-summary" aria-label="{escape(symbol)} 现在怎么看">'
                 f'<div class="dash-heading"><h2>{escape(symbol)}｜现在怎么看</h2>'
-                '<span class="dash-badge dash-red">● 暂停买卖判断</span></div>'
+                '<span class="dash-badge dash-gray">历史分析 · 实时交易资格关闭</span></div>'
                 f'<div class="dash-facts">{facts}</div>'
-                f'<div class="dash-foot">旧资料趋势 {escape(trend)} · '
+                f'<div class="dash-foot">截至所示时点的历史趋势 {escape(trend)} · '
                 f'{"历史时点回顾" if historical else "最新可用历史收盘"} · 波动 {escape(str(state["volatility"]).replace("UNKNOWN","目前无法确定"))}</div>'
                 f'{period_details(periods)}</section>',
                 unsafe_allow_html=True)

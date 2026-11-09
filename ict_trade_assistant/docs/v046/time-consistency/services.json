@@ -1,0 +1,17 @@
+[
+  {
+    "pid": 22236,
+    "created_utc": "2026-11-04T01:19:47.0656714Z",
+    "executable": "C:\\Users\\cbcbe\\AppData\\Roaming\\Futu_OpenD\\Futu_OpenD.exe"
+  },
+  {
+    "pid": 19544,
+    "created_utc": "2026-11-04T11:12:01.6922207Z",
+    "executable": "C:\\Users\\cbcbe\\AppData\\Local\\Programs\\Python\\Python312\\python.exe"
+  },
+  {
+    "pid": 63264,
+    "created_utc": "2026-11-08T18:04:07.3568958Z",
+    "executable": "C:\\Users\\cbcbe\\AppData\\Local\\Programs\\Python\\Python312\\python.exe"
+  }
+]

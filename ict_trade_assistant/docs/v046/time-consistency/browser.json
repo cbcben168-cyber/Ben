@@ -1,0 +1,492 @@
+{
+  "checks": [
+    "baseline SPY daily date",
+    "baseline SPY independent hourly basis",
+    "baseline SPY cross basis warning",
+    "baseline QQQ daily date",
+    "baseline QQQ independent hourly basis",
+    "baseline QQQ cross basis warning",
+    "baseline IWM daily date",
+    "baseline IWM independent hourly basis",
+    "baseline IWM cross basis warning",
+    "baseline SOXX daily date",
+    "baseline SOXX independent hourly basis",
+    "baseline SOXX cross basis warning",
+    "baseline SMH daily date",
+    "baseline SMH independent hourly basis",
+    "baseline SMH cross basis warning",
+    "baseline VOO daily date",
+    "baseline VOO independent hourly basis",
+    "baseline VOO cross basis warning",
+    "baseline IVV daily date",
+    "baseline IVV independent hourly basis",
+    "baseline IVV cross basis warning",
+    "baseline VTI daily date",
+    "baseline VTI independent hourly basis",
+    "baseline VTI cross basis warning",
+    "baseline VEA daily date",
+    "baseline VEA actual rejection",
+    "baseline VEA cross basis warning",
+    "baseline VUG daily date",
+    "baseline VUG independent hourly basis",
+    "baseline VUG cross basis warning",
+    "baseline IEFA daily date",
+    "baseline IEFA actual rejection",
+    "baseline IEFA cross basis warning",
+    "baseline VTV daily date",
+    "baseline VTV independent hourly basis",
+    "baseline VTV cross basis warning",
+    "baseline SPYM daily date",
+    "baseline SPYM independent hourly basis",
+    "baseline SPYM cross basis warning",
+    "baseline BND daily date",
+    "baseline BND actual rejection",
+    "baseline BND cross basis warning",
+    "baseline VXUS daily date",
+    "baseline VXUS independent hourly basis",
+    "baseline VXUS cross basis warning",
+    "mismatch SPY daily valuation",
+    "mismatch SPY hourly date and valuation",
+    "mismatch SPY stale not qualified",
+    "mismatch QQQ daily valuation",
+    "mismatch QQQ hourly date and valuation",
+    "mismatch QQQ stale not qualified",
+    "mismatch IWM daily valuation",
+    "mismatch IWM hourly date and valuation",
+    "mismatch IWM stale not qualified",
+    "mismatch SOXX daily valuation",
+    "mismatch SOXX hourly date and valuation",
+    "mismatch SOXX stale not qualified",
+    "mismatch SMH daily valuation",
+    "mismatch SMH hourly date and valuation",
+    "mismatch SMH stale not qualified",
+    "mismatch VOO daily valuation",
+    "mismatch VOO hourly date and valuation",
+    "mismatch VOO stale not qualified",
+    "mismatch IVV daily valuation",
+    "mismatch IVV hourly date and valuation",
+    "mismatch IVV stale not qualified",
+    "mismatch VTI daily valuation",
+    "mismatch VTI hourly date and valuation",
+    "mismatch VTI stale not qualified",
+    "mismatch VEA daily valuation",
+    "mismatch VEA rejection unchanged",
+    "mismatch VUG daily valuation",
+    "mismatch VUG hourly date and valuation",
+    "mismatch VUG stale not qualified",
+    "mismatch IEFA daily valuation",
+    "mismatch IEFA rejection unchanged",
+    "mismatch VTV daily valuation",
+    "mismatch VTV hourly date and valuation",
+    "mismatch VTV stale not qualified",
+    "mismatch SPYM daily valuation",
+    "mismatch SPYM hourly date and valuation",
+    "mismatch SPYM stale not qualified",
+    "mismatch BND daily valuation",
+    "mismatch BND rejection unchanged",
+    "mismatch VXUS daily valuation",
+    "mismatch VXUS hourly date and valuation",
+    "mismatch VXUS stale not qualified",
+    "main shows independent dates",
+    "main uses selected 1H freshness",
+    "real SPY 1H price retained after simulated daily update",
+    "no cross-basis price overlays",
+    "no executable cross-period risk reward",
+    "landscape grid 5x3",
+    "landscape 100% and no overflow/exceptions",
+    "portrait grid 3x5",
+    "portrait 100% and no overflow/exceptions",
+    "replay ignores today and synthetic future daily bar",
+    "replay excludes synthetic Nov9 candle"
+  ],
+  "layouts": [
+    {
+      "width": 2560,
+      "height": 1440,
+      "dpr": 1,
+      "scale": 1,
+      "zoom": "1",
+      "columns": 5,
+      "rows": 3,
+      "overflow": false,
+      "exceptions": 0
+    },
+    {
+      "width": 1440,
+      "height": 2560,
+      "dpr": 1,
+      "scale": 1,
+      "zoom": "1",
+      "columns": 3,
+      "rows": 5,
+      "overflow": false,
+      "exceptions": 0
+    }
+  ],
+  "baseline": [
+    {
+      "code": "SPY",
+      "text": "SPY\n日K最后完成：2026-11-06 16:00 纽约 · 收盘 735.29\n日K来源：FUTU_OPEND/K_DAY/RTH/QFQ · 复权估值日：2026-11-08\n日K合格（仅历史）\n1H最后完成：2026-11-06 16:00 纽约 · 收盘 735.29\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H合格（仅历史）\n价格尺度未获统一认证；不跨周期叠加、合并参考价或计算可执行风险回报；实时资格关闭。\n\n日K 过渡 · 波动 高 / 1H历史趋势 过渡\n\n最近收盘 735.29 · FUTU_OPEND/K_DAY/RTH/QFQ · 事后前复权\n\n历史区域 前交易日 734.58–742.2104\n\n日K合格（仅历史） / 1H合格（仅历史）",
+      "daily": "日K最后完成：2026-11-06 16:00 纽约 · 收盘 735.29\n日K来源：FUTU_OPEND/K_DAY/RTH/QFQ · 复权估值日：2026-11-08\n日K合格（仅历史）",
+      "hourly": "1H最后完成：2026-11-06 16:00 纽约 · 收盘 735.29\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H合格（仅历史）",
+      "dailyStatus": "PASS",
+      "hourlyStatus": "PASS"
+    },
+    {
+      "code": "QQQ",
+      "text": "QQQ\n日K最后完成：2026-11-06 16:00 纽约 · 收盘 656.1\n日K来源：FUTU_OPEND/K_DAY/RTH/QFQ · 复权估值日：2026-11-08\n日K合格（仅历史）\n1H最后完成：2026-11-06 16:00 纽约 · 收盘 656.1\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H合格（仅历史）\n价格尺度未获统一认证；不跨周期叠加、合并参考价或计算可执行风险回报；实时资格关闭。\n\n日K 下跌 · 波动 高 / 1H历史趋势 过渡\n\n最近收盘 656.1 · FUTU_OPEND/K_DAY/RTH/QFQ · 事后前复权\n\n历史区域 前交易日 653.99–664.52\n\n日K合格（仅历史） / 1H合格（仅历史）",
+      "daily": "日K最后完成：2026-11-06 16:00 纽约 · 收盘 656.1\n日K来源：FUTU_OPEND/K_DAY/RTH/QFQ · 复权估值日：2026-11-08\n日K合格（仅历史）",
+      "hourly": "1H最后完成：2026-11-06 16:00 纽约 · 收盘 656.1\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H合格（仅历史）",
+      "dailyStatus": "PASS",
+      "hourlyStatus": "PASS"
+    },
+    {
+      "code": "IWM",
+      "text": "IWM\n日K最后完成：2026-11-06 16:00 纽约 · 收盘 273.67\n日K来源：FUTU_OPEND/K_DAY/RTH/QFQ · 复权估值日：2026-11-08\n日K合格（仅历史）\n1H最后完成：2026-11-06 16:00 纽约 · 收盘 273.67\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H合格（仅历史）\n价格尺度未获统一认证；不跨周期叠加、合并参考价或计算可执行风险回报；实时资格关闭。\n\n日K 过渡 · 波动 高 / 1H历史趋势 过渡\n\n最近收盘 273.67 · FUTU_OPEND/K_DAY/RTH/QFQ · 事后前复权\n\n历史区域 前交易日 270.23–274.55\n\n日K合格（仅历史） / 1H合格（仅历史）",
+      "daily": "日K最后完成：2026-11-06 16:00 纽约 · 收盘 273.67\n日K来源：FUTU_OPEND/K_DAY/RTH/QFQ · 复权估值日：2026-11-08\n日K合格（仅历史）",
+      "hourly": "1H最后完成：2026-11-06 16:00 纽约 · 收盘 273.67\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H合格（仅历史）",
+      "dailyStatus": "PASS",
+      "hourlyStatus": "PASS"
+    },
+    {
+      "code": "SOXX",
+      "text": "SOXX\n日K最后完成：2026-11-06 16:00 纽约 · 收盘 136.53\n日K来源：FUTU_OPEND/K_DAY/RTH/QFQ · 复权估值日：2026-11-08\n日K合格（仅历史）\n1H最后完成：2026-11-06 16:00 纽约 · 收盘 136.53\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H合格（仅历史）\n价格尺度未获统一认证；不跨周期叠加、合并参考价或计算可执行风险回报；实时资格关闭。\n\n日K 下跌 · 波动 高 / 1H历史趋势 过渡\n\n最近收盘 136.53 · FUTU_OPEND/K_DAY/RTH/QFQ · 事后前复权\n\n历史区域 前交易日 133.8–140.21\n\n日K合格（仅历史） / 1H合格（仅历史）",
+      "daily": "日K最后完成：2026-11-06 16:00 纽约 · 收盘 136.53\n日K来源：FUTU_OPEND/K_DAY/RTH/QFQ · 复权估值日：2026-11-08\n日K合格（仅历史）",
+      "hourly": "1H最后完成：2026-11-06 16:00 纽约 · 收盘 136.53\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H合格（仅历史）",
+      "dailyStatus": "PASS",
+      "hourlyStatus": "PASS"
+    },
+    {
+      "code": "SMH",
+      "text": "SMH\n日K最后完成：2026-11-06 16:00 纽约 · 收盘 463.96\n日K来源：FUTU_OPEND/K_DAY/RTH/QFQ · 复权估值日：2026-11-08\n日K合格（仅历史）\n1H最后完成：2026-11-06 16:00 纽约 · 收盘 463.96\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H合格（仅历史）\n价格尺度未获统一认证；不跨周期叠加、合并参考价或计算可执行风险回报；实时资格关闭。\n\n日K 下跌 · 波动 高 / 1H历史趋势 过渡\n\n最近收盘 463.96 · FUTU_OPEND/K_DAY/RTH/QFQ · 事后前复权\n\n历史区域 前交易日 456.435–476.2499\n\n日K合格（仅历史） / 1H合格（仅历史）",
+      "daily": "日K最后完成：2026-11-06 16:00 纽约 · 收盘 463.96\n日K来源：FUTU_OPEND/K_DAY/RTH/QFQ · 复权估值日：2026-11-08\n日K合格（仅历史）",
+      "hourly": "1H最后完成：2026-11-06 16:00 纽约 · 收盘 463.96\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H合格（仅历史）",
+      "dailyStatus": "PASS",
+      "hourlyStatus": "PASS"
+    },
+    {
+      "code": "VOO",
+      "text": "VOO\n日K最后完成：2026-11-06 16:00 纽约 · 收盘 675.99\n日K来源：FUTU_OPEND/K_DAY/RTH/QFQ · 复权估值日：2026-11-08\n日K合格（仅历史）\n1H最后完成：2026-11-06 16:00 纽约 · 收盘 675.99\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H合格（仅历史）\n价格尺度未获统一认证；不跨周期叠加、合并参考价或计算可执行风险回报；实时资格关闭。\n\n日K 下跌 · 波动 高 / 1H历史趋势 过渡\n\n最近收盘 675.99 · FUTU_OPEND/K_DAY/RTH/QFQ · 事后前复权\n\n历史区域 前交易日 675.3–682.25\n\n日K合格（仅历史） / 1H合格（仅历史）",
+      "daily": "日K最后完成：2026-11-06 16:00 纽约 · 收盘 675.99\n日K来源：FUTU_OPEND/K_DAY/RTH/QFQ · 复权估值日：2026-11-08\n日K合格（仅历史）",
+      "hourly": "1H最后完成：2026-11-06 16:00 纽约 · 收盘 675.99\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H合格（仅历史）",
+      "dailyStatus": "PASS",
+      "hourlyStatus": "PASS"
+    },
+    {
+      "code": "IVV",
+      "text": "IVV\n日K最后完成：2026-11-06 16:00 纽约 · 收盘 738.68\n日K来源：FUTU_OPEND/K_DAY/RTH/QFQ · 复权估值日：2026-11-08\n日K合格（仅历史）\n1H最后完成：2026-11-06 16:00 纽约 · 收盘 738.68\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H合格（仅历史）\n价格尺度未获统一认证；不跨周期叠加、合并参考价或计算可执行风险回报；实时资格关闭。\n\n日K 下跌 · 波动 高 / 1H历史趋势 过渡\n\n最近收盘 738.68 · FUTU_OPEND/K_DAY/RTH/QFQ · 事后前复权\n\n历史区域 前交易日 737.86–745.49\n\n日K合格（仅历史） / 1H合格（仅历史）",
+      "daily": "日K最后完成：2026-11-06 16:00 纽约 · 收盘 738.68\n日K来源：FUTU_OPEND/K_DAY/RTH/QFQ · 复权估值日：2026-11-08\n日K合格（仅历史）",
+      "hourly": "1H最后完成：2026-11-06 16:00 纽约 · 收盘 738.68\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H合格（仅历史）",
+      "dailyStatus": "PASS",
+      "hourlyStatus": "PASS"
+    },
+    {
+      "code": "VTI",
+      "text": "VTI\n日K最后完成：2026-11-06 16:00 纽约 · 收盘 361.93\n日K来源：FUTU_OPEND/K_DAY/RTH/QFQ · 复权估值日：2026-11-08\n日K合格（仅历史）\n1H最后完成：2026-11-06 16:00 纽约 · 收盘 361.93\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H合格（仅历史）\n价格尺度未获统一认证；不跨周期叠加、合并参考价或计算可执行风险回报；实时资格关闭。\n\n日K 下跌 · 波动 高 / 1H历史趋势 过渡\n\n最近收盘 361.93 · FUTU_OPEND/K_DAY/RTH/QFQ · 事后前复权\n\n历史区域 前交易日 361.05–364.64\n\n日K合格（仅历史） / 1H合格（仅历史）",
+      "daily": "日K最后完成：2026-11-06 16:00 纽约 · 收盘 361.93\n日K来源：FUTU_OPEND/K_DAY/RTH/QFQ · 复权估值日：2026-11-08\n日K合格（仅历史）",
+      "hourly": "1H最后完成：2026-11-06 16:00 纽约 · 收盘 361.93\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H合格（仅历史）",
+      "dailyStatus": "PASS",
+      "hourlyStatus": "PASS"
+    },
+    {
+      "code": "VEA",
+      "text": "VEA\n日K最后完成：2026-11-06 16:00 纽约 · 收盘 67.9\n日K来源：FUTU_OPEND/K_DAY/RTH/QFQ · 复权估值日：2026-11-08\n日K合格（仅历史）\n1H最后完成：无已验收资料 · 收盘 暂无\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：未提供\n1H资料不合格 · US.VEA/2026-11-06/QFQ：60分钟汇总与同批日K不一致\n价格尺度未获统一认证；不跨周期叠加、合并参考价或计算可执行风险回报；实时资格关闭。\n\n日K 过渡 · 波动 高 / 1H历史趋势 未验收或不足\n\n最近收盘 67.9 · FUTU_OPEND/K_DAY/RTH/QFQ · 事后前复权\n\n历史区域 前交易日 67.525–68.3\n\n日K合格（仅历史） / 1H资料不合格",
+      "daily": "日K最后完成：2026-11-06 16:00 纽约 · 收盘 67.9\n日K来源：FUTU_OPEND/K_DAY/RTH/QFQ · 复权估值日：2026-11-08\n日K合格（仅历史）",
+      "hourly": "1H最后完成：无已验收资料 · 收盘 暂无\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：未提供\n1H资料不合格 · US.VEA/2026-11-06/QFQ：60分钟汇总与同批日K不一致",
+      "dailyStatus": "PASS",
+      "hourlyStatus": "REJECTED"
+    },
+    {
+      "code": "VUG",
+      "text": "VUG\n日K最后完成：2026-11-06 16:00 纽约 · 收盘 82.17\n日K来源：FUTU_OPEND/K_DAY/RTH/QFQ · 复权估值日：2026-11-08\n日K合格（仅历史）\n1H最后完成：2026-11-06 16:00 纽约 · 收盘 82.17\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H合格（仅历史）\n价格尺度未获统一认证；不跨周期叠加、合并参考价或计算可执行风险回报；实时资格关闭。\n\n日K 下跌 · 波动 高 / 1H历史趋势 过渡\n\n最近收盘 82.17 · FUTU_OPEND/K_DAY/RTH/QFQ · 事后前复权\n\n历史区域 前交易日 82–83.24\n\n日K合格（仅历史） / 1H合格（仅历史）",
+      "daily": "日K最后完成：2026-11-06 16:00 纽约 · 收盘 82.17\n日K来源：FUTU_OPEND/K_DAY/RTH/QFQ · 复权估值日：2026-11-08\n日K合格（仅历史）",
+      "hourly": "1H最后完成：2026-11-06 16:00 纽约 · 收盘 82.17\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H合格（仅历史）",
+      "dailyStatus": "PASS",
+      "hourlyStatus": "PASS"
+    },
+    {
+      "code": "IEFA",
+      "text": "IEFA\n日K最后完成：2026-11-06 16:00 纽约 · 收盘 94.8\n日K来源：FUTU_OPEND/K_DAY/RTH/QFQ · 复权估值日：2026-11-08\n日K合格（仅历史）\n1H最后完成：无已验收资料 · 收盘 暂无\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：未提供\n1H资料不合格 · US.IEFA/2026-11-03/QFQ：60分钟汇总与同批日K不一致\n价格尺度未获统一认证；不跨周期叠加、合并参考价或计算可执行风险回报；实时资格关闭。\n\n日K 过渡 · 波动 高 / 1H历史趋势 未验收或不足\n\n最近收盘 94.8 · FUTU_OPEND/K_DAY/RTH/QFQ · 事后前复权\n\n历史区域 前交易日 94.3–95.425\n\n日K合格（仅历史） / 1H资料不合格",
+      "daily": "日K最后完成：2026-11-06 16:00 纽约 · 收盘 94.8\n日K来源：FUTU_OPEND/K_DAY/RTH/QFQ · 复权估值日：2026-11-08\n日K合格（仅历史）",
+      "hourly": "1H最后完成：无已验收资料 · 收盘 暂无\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：未提供\n1H资料不合格 · US.IEFA/2026-11-03/QFQ：60分钟汇总与同批日K不一致",
+      "dailyStatus": "PASS",
+      "hourlyStatus": "REJECTED"
+    },
+    {
+      "code": "VTV",
+      "text": "VTV\n日K最后完成：2026-11-06 16:00 纽约 · 收盘 223.01\n日K来源：FUTU_OPEND/K_DAY/RTH/QFQ · 复权估值日：2026-11-08\n日K合格（仅历史）\n1H最后完成：2026-11-06 16:00 纽约 · 收盘 223.01\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H合格（仅历史）\n价格尺度未获统一认证；不跨周期叠加、合并参考价或计算可执行风险回报；实时资格关闭。\n\n日K 过渡 · 波动 高 / 1H历史趋势 过渡\n\n最近收盘 223.01 · FUTU_OPEND/K_DAY/RTH/QFQ · 事后前复权\n\n历史区域 前交易日 221.305–224.23\n\n日K合格（仅历史） / 1H合格（仅历史）",
+      "daily": "日K最后完成：2026-11-06 16:00 纽约 · 收盘 223.01\n日K来源：FUTU_OPEND/K_DAY/RTH/QFQ · 复权估值日：2026-11-08\n日K合格（仅历史）",
+      "hourly": "1H最后完成：2026-11-06 16:00 纽约 · 收盘 223.01\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H合格（仅历史）",
+      "dailyStatus": "PASS",
+      "hourlyStatus": "PASS"
+    },
+    {
+      "code": "SPYM",
+      "text": "SPYM\n日K最后完成：2026-11-06 16:00 纽约 · 收盘 86.56\n日K来源：FUTU_OPEND/K_DAY/RTH/QFQ · 复权估值日：2026-11-08\n日K合格（仅历史）\n1H最后完成：2026-11-06 16:00 纽约 · 收盘 86.56\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H合格（仅历史）\n价格尺度未获统一认证；不跨周期叠加、合并参考价或计算可执行风险回报；实时资格关闭。\n\n日K 下跌 · 波动 高 / 1H历史趋势 过渡\n\n最近收盘 86.56 · FUTU_OPEND/K_DAY/RTH/QFQ · 事后前复权\n\n历史区域 前交易日 86.46–87.355\n\n日K合格（仅历史） / 1H合格（仅历史）",
+      "daily": "日K最后完成：2026-11-06 16:00 纽约 · 收盘 86.56\n日K来源：FUTU_OPEND/K_DAY/RTH/QFQ · 复权估值日：2026-11-08\n日K合格（仅历史）",
+      "hourly": "1H最后完成：2026-11-06 16:00 纽约 · 收盘 86.56\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H合格（仅历史）",
+      "dailyStatus": "PASS",
+      "hourlyStatus": "PASS"
+    },
+    {
+      "code": "BND",
+      "text": "BND\n日K最后完成：2026-11-06 16:00 纽约 · 收盘 71.59\n日K来源：FUTU_OPEND/K_DAY/RTH/QFQ · 复权估值日：2026-11-08\n日K合格（仅历史）\n1H最后完成：无已验收资料 · 收盘 暂无\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：未提供\n1H资料不合格 · US.BND/2026-09-30/QFQ：60分钟汇总与同批日K不一致\n价格尺度未获统一认证；不跨周期叠加、合并参考价或计算可执行风险回报；实时资格关闭。\n\n日K 上涨 · 波动 正常 / 1H历史趋势 未验收或不足\n\n最近收盘 71.59 · FUTU_OPEND/K_DAY/RTH/QFQ · 事后前复权\n\n历史区域 前交易日 71.505–71.765\n\n日K合格（仅历史） / 1H资料不合格",
+      "daily": "日K最后完成：2026-11-06 16:00 纽约 · 收盘 71.59\n日K来源：FUTU_OPEND/K_DAY/RTH/QFQ · 复权估值日：2026-11-08\n日K合格（仅历史）",
+      "hourly": "1H最后完成：无已验收资料 · 收盘 暂无\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：未提供\n1H资料不合格 · US.BND/2026-09-30/QFQ：60分钟汇总与同批日K不一致",
+      "dailyStatus": "PASS",
+      "hourlyStatus": "REJECTED"
+    },
+    {
+      "code": "VXUS",
+      "text": "VXUS\n日K最后完成：2026-11-06 16:00 纽约 · 收盘 80.92\n日K来源：FUTU_OPEND/K_DAY/RTH/QFQ · 复权估值日：2026-11-08\n日K合格（仅历史）\n1H最后完成：2026-11-06 16:00 纽约 · 收盘 80.92\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H合格（仅历史）\n价格尺度未获统一认证；不跨周期叠加、合并参考价或计算可执行风险回报；实时资格关闭。\n\n日K 过渡 · 波动 高 / 1H历史趋势 过渡\n\n最近收盘 80.92 · FUTU_OPEND/K_DAY/RTH/QFQ · 事后前复权\n\n历史区域 前交易日 80.5522–81.375\n\n日K合格（仅历史） / 1H合格（仅历史）",
+      "daily": "日K最后完成：2026-11-06 16:00 纽约 · 收盘 80.92\n日K来源：FUTU_OPEND/K_DAY/RTH/QFQ · 复权估值日：2026-11-08\n日K合格（仅历史）",
+      "hourly": "1H最后完成：2026-11-06 16:00 纽约 · 收盘 80.92\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H合格（仅历史）",
+      "dailyStatus": "PASS",
+      "hourlyStatus": "PASS"
+    }
+  ],
+  "mismatch": [
+    {
+      "code": "SPY",
+      "text": "SPY\n日K最后完成：2026-11-09 16:00 纽约 · 收盘 736.29\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）\n1H最后完成：2026-11-06 16:00 纽约 · 收盘 735.29\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H历史资料已过期\n价格尺度未获统一认证；不跨周期叠加、合并参考价或计算可执行风险回报；实时资格关闭。\n\n日K 过渡 · 波动 高 / 1H历史趋势（已过期） 过渡\n\n最近收盘 736.29 · ISOLATED_SYNTHETIC_DAY/QFQ · 事后前复权\n\n历史区域 前交易日 734.58–742.2104\n\n日K合格（仅历史） / 1H历史资料已过期",
+      "daily": "日K最后完成：2026-11-09 16:00 纽约 · 收盘 736.29\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）",
+      "hourly": "1H最后完成：2026-11-06 16:00 纽约 · 收盘 735.29\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H历史资料已过期",
+      "dailyStatus": "PASS",
+      "hourlyStatus": "STALE"
+    },
+    {
+      "code": "QQQ",
+      "text": "QQQ\n日K最后完成：2026-11-09 16:00 纽约 · 收盘 657.1\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）\n1H最后完成：2026-11-06 16:00 纽约 · 收盘 656.1\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H历史资料已过期\n价格尺度未获统一认证；不跨周期叠加、合并参考价或计算可执行风险回报；实时资格关闭。\n\n日K 下跌 · 波动 高 / 1H历史趋势（已过期） 过渡\n\n最近收盘 657.1 · ISOLATED_SYNTHETIC_DAY/QFQ · 事后前复权\n\n历史区域 前交易日 653.99–664.52\n\n日K合格（仅历史） / 1H历史资料已过期",
+      "daily": "日K最后完成：2026-11-09 16:00 纽约 · 收盘 657.1\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）",
+      "hourly": "1H最后完成：2026-11-06 16:00 纽约 · 收盘 656.1\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H历史资料已过期",
+      "dailyStatus": "PASS",
+      "hourlyStatus": "STALE"
+    },
+    {
+      "code": "IWM",
+      "text": "IWM\n日K最后完成：2026-11-09 16:00 纽约 · 收盘 274.67\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）\n1H最后完成：2026-11-06 16:00 纽约 · 收盘 273.67\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H历史资料已过期\n价格尺度未获统一认证；不跨周期叠加、合并参考价或计算可执行风险回报；实时资格关闭。\n\n日K 过渡 · 波动 正常 / 1H历史趋势（已过期） 过渡\n\n最近收盘 274.67 · ISOLATED_SYNTHETIC_DAY/QFQ · 事后前复权\n\n历史区域 前一完整交易周 270.23–286.17\n\n日K合格（仅历史） / 1H历史资料已过期",
+      "daily": "日K最后完成：2026-11-09 16:00 纽约 · 收盘 274.67\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）",
+      "hourly": "1H最后完成：2026-11-06 16:00 纽约 · 收盘 273.67\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H历史资料已过期",
+      "dailyStatus": "PASS",
+      "hourlyStatus": "STALE"
+    },
+    {
+      "code": "SOXX",
+      "text": "SOXX\n日K最后完成：2026-11-09 16:00 纽约 · 收盘 137.53\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）\n1H最后完成：2026-11-06 16:00 纽约 · 收盘 136.53\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H历史资料已过期\n价格尺度未获统一认证；不跨周期叠加、合并参考价或计算可执行风险回报；实时资格关闭。\n\n日K 下跌 · 波动 高 / 1H历史趋势（已过期） 过渡\n\n最近收盘 137.53 · ISOLATED_SYNTHETIC_DAY/QFQ · 事后前复权\n\n历史区域 前交易日 133.8–140.21\n\n日K合格（仅历史） / 1H历史资料已过期",
+      "daily": "日K最后完成：2026-11-09 16:00 纽约 · 收盘 137.53\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）",
+      "hourly": "1H最后完成：2026-11-06 16:00 纽约 · 收盘 136.53\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H历史资料已过期",
+      "dailyStatus": "PASS",
+      "hourlyStatus": "STALE"
+    },
+    {
+      "code": "SMH",
+      "text": "SMH\n日K最后完成：2026-11-09 16:00 纽约 · 收盘 464.96\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）\n1H最后完成：2026-11-06 16:00 纽约 · 收盘 463.96\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H历史资料已过期\n价格尺度未获统一认证；不跨周期叠加、合并参考价或计算可执行风险回报；实时资格关闭。\n\n日K 下跌 · 波动 高 / 1H历史趋势（已过期） 过渡\n\n最近收盘 464.96 · ISOLATED_SYNTHETIC_DAY/QFQ · 事后前复权\n\n历史区域 前交易日 456.435–476.2499\n\n日K合格（仅历史） / 1H历史资料已过期",
+      "daily": "日K最后完成：2026-11-09 16:00 纽约 · 收盘 464.96\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）",
+      "hourly": "1H最后完成：2026-11-06 16:00 纽约 · 收盘 463.96\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H历史资料已过期",
+      "dailyStatus": "PASS",
+      "hourlyStatus": "STALE"
+    },
+    {
+      "code": "VOO",
+      "text": "VOO\n日K最后完成：2026-11-09 16:00 纽约 · 收盘 676.99\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）\n1H最后完成：2026-11-06 16:00 纽约 · 收盘 675.99\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H历史资料已过期\n价格尺度未获统一认证；不跨周期叠加、合并参考价或计算可执行风险回报；实时资格关闭。\n\n日K 下跌 · 波动 高 / 1H历史趋势（已过期） 过渡\n\n最近收盘 676.99 · ISOLATED_SYNTHETIC_DAY/QFQ · 事后前复权\n\n历史区域 前交易日 675.3–682.25\n\n日K合格（仅历史） / 1H历史资料已过期",
+      "daily": "日K最后完成：2026-11-09 16:00 纽约 · 收盘 676.99\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）",
+      "hourly": "1H最后完成：2026-11-06 16:00 纽约 · 收盘 675.99\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H历史资料已过期",
+      "dailyStatus": "PASS",
+      "hourlyStatus": "STALE"
+    },
+    {
+      "code": "IVV",
+      "text": "IVV\n日K最后完成：2026-11-09 16:00 纽约 · 收盘 739.68\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）\n1H最后完成：2026-11-06 16:00 纽约 · 收盘 738.68\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H历史资料已过期\n价格尺度未获统一认证；不跨周期叠加、合并参考价或计算可执行风险回报；实时资格关闭。\n\n日K 下跌 · 波动 高 / 1H历史趋势（已过期） 过渡\n\n最近收盘 739.68 · ISOLATED_SYNTHETIC_DAY/QFQ · 事后前复权\n\n历史区域 前交易日 737.86–745.49\n\n日K合格（仅历史） / 1H历史资料已过期",
+      "daily": "日K最后完成：2026-11-09 16:00 纽约 · 收盘 739.68\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）",
+      "hourly": "1H最后完成：2026-11-06 16:00 纽约 · 收盘 738.68\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H历史资料已过期",
+      "dailyStatus": "PASS",
+      "hourlyStatus": "STALE"
+    },
+    {
+      "code": "VTI",
+      "text": "VTI\n日K最后完成：2026-11-09 16:00 纽约 · 收盘 362.93\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）\n1H最后完成：2026-11-06 16:00 纽约 · 收盘 361.93\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H历史资料已过期\n价格尺度未获统一认证；不跨周期叠加、合并参考价或计算可执行风险回报；实时资格关闭。\n\n日K 下跌 · 波动 高 / 1H历史趋势（已过期） 过渡\n\n最近收盘 362.93 · ISOLATED_SYNTHETIC_DAY/QFQ · 事后前复权\n\n历史区域 前交易日 361.05–364.64\n\n日K合格（仅历史） / 1H历史资料已过期",
+      "daily": "日K最后完成：2026-11-09 16:00 纽约 · 收盘 362.93\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）",
+      "hourly": "1H最后完成：2026-11-06 16:00 纽约 · 收盘 361.93\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H历史资料已过期",
+      "dailyStatus": "PASS",
+      "hourlyStatus": "STALE"
+    },
+    {
+      "code": "VEA",
+      "text": "VEA\n日K最后完成：2026-11-09 16:00 纽约 · 收盘 68.9\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）\n1H最后完成：无已验收资料 · 收盘 暂无\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：未提供\n1H资料不合格 · US.VEA/2026-11-06/QFQ：60分钟汇总与同批日K不一致\n价格尺度未获统一认证；不跨周期叠加、合并参考价或计算可执行风险回报；实时资格关闭。\n\n日K 过渡 · 波动 高 / 1H历史趋势 未验收或不足\n\n最近收盘 68.9 · ISOLATED_SYNTHETIC_DAY/QFQ · 事后前复权\n\n历史区域 前一完整交易周 67.525–70.8599\n\n日K合格（仅历史） / 1H资料不合格",
+      "daily": "日K最后完成：2026-11-09 16:00 纽约 · 收盘 68.9\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）",
+      "hourly": "1H最后完成：无已验收资料 · 收盘 暂无\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：未提供\n1H资料不合格 · US.VEA/2026-11-06/QFQ：60分钟汇总与同批日K不一致",
+      "dailyStatus": "PASS",
+      "hourlyStatus": "REJECTED"
+    },
+    {
+      "code": "VUG",
+      "text": "VUG\n日K最后完成：2026-11-09 16:00 纽约 · 收盘 83.17\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）\n1H最后完成：2026-11-06 16:00 纽约 · 收盘 82.17\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H历史资料已过期\n价格尺度未获统一认证；不跨周期叠加、合并参考价或计算可执行风险回报；实时资格关闭。\n\n日K 下跌 · 波动 高 / 1H历史趋势（已过期） 过渡\n\n最近收盘 83.17 · ISOLATED_SYNTHETIC_DAY/QFQ · 事后前复权\n\n历史区域 前交易日 82–83.24\n\n日K合格（仅历史） / 1H历史资料已过期",
+      "daily": "日K最后完成：2026-11-09 16:00 纽约 · 收盘 83.17\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）",
+      "hourly": "1H最后完成：2026-11-06 16:00 纽约 · 收盘 82.17\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H历史资料已过期",
+      "dailyStatus": "PASS",
+      "hourlyStatus": "STALE"
+    },
+    {
+      "code": "IEFA",
+      "text": "IEFA\n日K最后完成：2026-11-09 16:00 纽约 · 收盘 95.8\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）\n1H最后完成：无已验收资料 · 收盘 暂无\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：未提供\n1H资料不合格 · US.IEFA/2026-11-03/QFQ：60分钟汇总与同批日K不一致\n价格尺度未获统一认证；不跨周期叠加、合并参考价或计算可执行风险回报；实时资格关闭。\n\n日K 过渡 · 波动 高 / 1H历史趋势 未验收或不足\n\n最近收盘 95.8 · ISOLATED_SYNTHETIC_DAY/QFQ · 事后前复权\n\n历史区域 前一完整交易周 94.3–98.52\n\n日K合格（仅历史） / 1H资料不合格",
+      "daily": "日K最后完成：2026-11-09 16:00 纽约 · 收盘 95.8\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）",
+      "hourly": "1H最后完成：无已验收资料 · 收盘 暂无\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：未提供\n1H资料不合格 · US.IEFA/2026-11-03/QFQ：60分钟汇总与同批日K不一致",
+      "dailyStatus": "PASS",
+      "hourlyStatus": "REJECTED"
+    },
+    {
+      "code": "VTV",
+      "text": "VTV\n日K最后完成：2026-11-09 16:00 纽约 · 收盘 224.01\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）\n1H最后完成：2026-11-06 16:00 纽约 · 收盘 223.01\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H历史资料已过期\n价格尺度未获统一认证；不跨周期叠加、合并参考价或计算可执行风险回报；实时资格关闭。\n\n日K 过渡 · 波动 高 / 1H历史趋势（已过期） 过渡\n\n最近收盘 224.01 · ISOLATED_SYNTHETIC_DAY/QFQ · 事后前复权\n\n历史区域 前交易日 221.305–224.23\n\n日K合格（仅历史） / 1H历史资料已过期",
+      "daily": "日K最后完成：2026-11-09 16:00 纽约 · 收盘 224.01\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）",
+      "hourly": "1H最后完成：2026-11-06 16:00 纽约 · 收盘 223.01\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H历史资料已过期",
+      "dailyStatus": "PASS",
+      "hourlyStatus": "STALE"
+    },
+    {
+      "code": "SPYM",
+      "text": "SPYM\n日K最后完成：2026-11-09 16:00 纽约 · 收盘 87.56\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）\n1H最后完成：2026-11-06 16:00 纽约 · 收盘 86.56\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H历史资料已过期\n价格尺度未获统一认证；不跨周期叠加、合并参考价或计算可执行风险回报；实时资格关闭。\n\n日K 下跌 · 波动 高 / 1H历史趋势（已过期） 过渡\n\n最近收盘 87.56 · ISOLATED_SYNTHETIC_DAY/QFQ · 事后前复权\n\n历史区域 前一完整交易周 86.245–90.53\n\n日K合格（仅历史） / 1H历史资料已过期",
+      "daily": "日K最后完成：2026-11-09 16:00 纽约 · 收盘 87.56\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）",
+      "hourly": "1H最后完成：2026-11-06 16:00 纽约 · 收盘 86.56\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H历史资料已过期",
+      "dailyStatus": "PASS",
+      "hourlyStatus": "STALE"
+    },
+    {
+      "code": "BND",
+      "text": "BND\n日K最后完成：2026-11-09 16:00 纽约 · 收盘 72.59\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）\n1H最后完成：无已验收资料 · 收盘 暂无\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：未提供\n1H资料不合格 · US.BND/2026-09-30/QFQ：60分钟汇总与同批日K不一致\n价格尺度未获统一认证；不跨周期叠加、合并参考价或计算可执行风险回报；实时资格关闭。\n\n日K 上涨 · 波动 正常 / 1H历史趋势 未验收或不足\n\n最近收盘 72.59 · ISOLATED_SYNTHETIC_DAY/QFQ · 事后前复权\n\n历史区域 最近20个已完成交易日 69.712927399–72.765\n\n日K合格（仅历史） / 1H资料不合格",
+      "daily": "日K最后完成：2026-11-09 16:00 纽约 · 收盘 72.59\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）",
+      "hourly": "1H最后完成：无已验收资料 · 收盘 暂无\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：未提供\n1H资料不合格 · US.BND/2026-09-30/QFQ：60分钟汇总与同批日K不一致",
+      "dailyStatus": "PASS",
+      "hourlyStatus": "REJECTED"
+    },
+    {
+      "code": "VXUS",
+      "text": "VXUS\n日K最后完成：2026-11-09 16:00 纽约 · 收盘 81.92\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）\n1H最后完成：2026-11-06 16:00 纽约 · 收盘 80.92\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H历史资料已过期\n价格尺度未获统一认证；不跨周期叠加、合并参考价或计算可执行风险回报；实时资格关闭。\n\n日K 过渡 · 波动 高 / 1H历史趋势（已过期） 过渡\n\n最近收盘 81.92 · ISOLATED_SYNTHETIC_DAY/QFQ · 事后前复权\n\n历史区域 前一完整交易周 80.5522–84.025\n\n日K合格（仅历史） / 1H历史资料已过期",
+      "daily": "日K最后完成：2026-11-09 16:00 纽约 · 收盘 81.92\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）",
+      "hourly": "1H最后完成：2026-11-06 16:00 纽约 · 收盘 80.92\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H历史资料已过期",
+      "dailyStatus": "PASS",
+      "hourlyStatus": "STALE"
+    }
+  ],
+  "replay": [
+    {
+      "code": "SPY",
+      "text": "SPY\n日K最后完成：2026-11-06 16:00 纽约 · 收盘 735.29\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）\n1H最后完成：2026-11-06 16:00 纽约 · 收盘 735.29\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H合格（仅历史）\n价格尺度未获统一认证；不跨周期叠加、合并参考价或计算可执行风险回报；实时资格关闭。\n\n日K 过渡 · 波动 高 / 1H历史趋势 过渡\n\n最近收盘 735.29 · ISOLATED_SYNTHETIC_DAY/QFQ · 事后前复权\n\n历史区域 前交易日 732.71–765.97\n\n日K合格（仅历史） / 1H合格（仅历史）",
+      "daily": "日K最后完成：2026-11-06 16:00 纽约 · 收盘 735.29\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）",
+      "hourly": "1H最后完成：2026-11-06 16:00 纽约 · 收盘 735.29\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H合格（仅历史）",
+      "dailyStatus": "PASS",
+      "hourlyStatus": "PASS"
+    },
+    {
+      "code": "QQQ",
+      "text": "QQQ\n日K最后完成：2026-11-06 16:00 纽约 · 收盘 656.1\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）\n1H最后完成：2026-11-06 16:00 纽约 · 收盘 656.1\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H合格（仅历史）\n价格尺度未获统一认证；不跨周期叠加、合并参考价或计算可执行风险回报；实时资格关闭。\n\n日K 下跌 · 波动 高 / 1H历史趋势 过渡\n\n最近收盘 656.1 · ISOLATED_SYNTHETIC_DAY/QFQ · 事后前复权\n\n历史区域 前交易日 647.05–683.65\n\n日K合格（仅历史） / 1H合格（仅历史）",
+      "daily": "日K最后完成：2026-11-06 16:00 纽约 · 收盘 656.1\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）",
+      "hourly": "1H最后完成：2026-11-06 16:00 纽约 · 收盘 656.1\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H合格（仅历史）",
+      "dailyStatus": "PASS",
+      "hourlyStatus": "PASS"
+    },
+    {
+      "code": "IWM",
+      "text": "IWM\n日K最后完成：2026-11-06 16:00 纽约 · 收盘 273.67\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）\n1H最后完成：2026-11-06 16:00 纽约 · 收盘 273.67\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H合格（仅历史）\n价格尺度未获统一认证；不跨周期叠加、合并参考价或计算可执行风险回报；实时资格关闭。\n\n日K 过渡 · 波动 高 / 1H历史趋势 过渡\n\n最近收盘 273.67 · ISOLATED_SYNTHETIC_DAY/QFQ · 事后前复权\n\n历史区域 前交易日 270.52–284.7\n\n日K合格（仅历史） / 1H合格（仅历史）",
+      "daily": "日K最后完成：2026-11-06 16:00 纽约 · 收盘 273.67\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）",
+      "hourly": "1H最后完成：2026-11-06 16:00 纽约 · 收盘 273.67\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H合格（仅历史）",
+      "dailyStatus": "PASS",
+      "hourlyStatus": "PASS"
+    },
+    {
+      "code": "SOXX",
+      "text": "SOXX\n日K最后完成：2026-11-06 16:00 纽约 · 收盘 136.53\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）\n1H最后完成：2026-11-06 16:00 纽约 · 收盘 136.53\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H合格（仅历史）\n价格尺度未获统一认证；不跨周期叠加、合并参考价或计算可执行风险回报；实时资格关闭。\n\n日K 下跌 · 波动 高 / 1H历史趋势 过渡\n\n最近收盘 136.53 · ISOLATED_SYNTHETIC_DAY/QFQ · 事后前复权\n\n历史区域 前交易日 130.745–143.73\n\n日K合格（仅历史） / 1H合格（仅历史）",
+      "daily": "日K最后完成：2026-11-06 16:00 纽约 · 收盘 136.53\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）",
+      "hourly": "1H最后完成：2026-11-06 16:00 纽约 · 收盘 136.53\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H合格（仅历史）",
+      "dailyStatus": "PASS",
+      "hourlyStatus": "PASS"
+    },
+    {
+      "code": "SMH",
+      "text": "SMH\n日K最后完成：2026-11-06 16:00 纽约 · 收盘 463.96\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）\n1H最后完成：2026-11-06 16:00 纽约 · 收盘 463.96\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H合格（仅历史）\n价格尺度未获统一认证；不跨周期叠加、合并参考价或计算可执行风险回报；实时资格关闭。\n\n日K 下跌 · 波动 高 / 1H历史趋势 过渡\n\n最近收盘 463.96 · ISOLATED_SYNTHETIC_DAY/QFQ · 事后前复权\n\n历史区域 前交易日 445.59–483.93\n\n日K合格（仅历史） / 1H合格（仅历史）",
+      "daily": "日K最后完成：2026-11-06 16:00 纽约 · 收盘 463.96\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）",
+      "hourly": "1H最后完成：2026-11-06 16:00 纽约 · 收盘 463.96\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H合格（仅历史）",
+      "dailyStatus": "PASS",
+      "hourlyStatus": "PASS"
+    },
+    {
+      "code": "VOO",
+      "text": "VOO\n日K最后完成：2026-11-06 16:00 纽约 · 收盘 675.99\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）\n1H最后完成：2026-11-06 16:00 纽约 · 收盘 675.99\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H合格（仅历史）\n价格尺度未获统一认证；不跨周期叠加、合并参考价或计算可执行风险回报；实时资格关闭。\n\n日K 下跌 · 波动 高 / 1H历史趋势 过渡\n\n最近收盘 675.99 · ISOLATED_SYNTHETIC_DAY/QFQ · 事后前复权\n\n历史区域 前交易日 673.55–704.1\n\n日K合格（仅历史） / 1H合格（仅历史）",
+      "daily": "日K最后完成：2026-11-06 16:00 纽约 · 收盘 675.99\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）",
+      "hourly": "1H最后完成：2026-11-06 16:00 纽约 · 收盘 675.99\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H合格（仅历史）",
+      "dailyStatus": "PASS",
+      "hourlyStatus": "PASS"
+    },
+    {
+      "code": "IVV",
+      "text": "IVV\n日K最后完成：2026-11-06 16:00 纽约 · 收盘 738.68\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）\n1H最后完成：2026-11-06 16:00 纽约 · 收盘 738.68\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H合格（仅历史）\n价格尺度未获统一认证；不跨周期叠加、合并参考价或计算可执行风险回报；实时资格关闭。\n\n日K 下跌 · 波动 高 / 1H历史趋势 过渡\n\n最近收盘 738.68 · ISOLATED_SYNTHETIC_DAY/QFQ · 事后前复权\n\n历史区域 前交易日 735.91–769.39\n\n日K合格（仅历史） / 1H合格（仅历史）",
+      "daily": "日K最后完成：2026-11-06 16:00 纽约 · 收盘 738.68\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）",
+      "hourly": "1H最后完成：2026-11-06 16:00 纽约 · 收盘 738.68\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H合格（仅历史）",
+      "dailyStatus": "PASS",
+      "hourlyStatus": "PASS"
+    },
+    {
+      "code": "VTI",
+      "text": "VTI\n日K最后完成：2026-11-06 16:00 纽约 · 收盘 361.93\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）\n1H最后完成：2026-11-06 16:00 纽约 · 收盘 361.93\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H合格（仅历史）\n价格尺度未获统一认证；不跨周期叠加、合并参考价或计算可执行风险回报；实时资格关闭。\n\n日K 下跌 · 波动 高 / 1H历史趋势 过渡\n\n最近收盘 361.93 · ISOLATED_SYNTHETIC_DAY/QFQ · 事后前复权\n\n历史区域 前交易日 360.3–376.69\n\n日K合格（仅历史） / 1H合格（仅历史）",
+      "daily": "日K最后完成：2026-11-06 16:00 纽约 · 收盘 361.93\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）",
+      "hourly": "1H最后完成：2026-11-06 16:00 纽约 · 收盘 361.93\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H合格（仅历史）",
+      "dailyStatus": "PASS",
+      "hourlyStatus": "PASS"
+    },
+    {
+      "code": "VEA",
+      "text": "VEA\n日K最后完成：2026-11-06 16:00 纽约 · 收盘 67.9\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）\n1H最后完成：无已验收资料 · 收盘 暂无\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：未提供\n1H资料不合格 · US.VEA/2026-11-06/QFQ：60分钟汇总与同批日K不一致\n价格尺度未获统一认证；不跨周期叠加、合并参考价或计算可执行风险回报；实时资格关闭。\n\n日K 过渡 · 波动 高 / 1H历史趋势 未验收或不足\n\n最近收盘 67.9 · ISOLATED_SYNTHETIC_DAY/QFQ · 事后前复权\n\n历史区域 最近20个已完成交易日 67.525–70.8599\n\n日K合格（仅历史） / 1H资料不合格",
+      "daily": "日K最后完成：2026-11-06 16:00 纽约 · 收盘 67.9\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）",
+      "hourly": "1H最后完成：无已验收资料 · 收盘 暂无\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：未提供\n1H资料不合格 · US.VEA/2026-11-06/QFQ：60分钟汇总与同批日K不一致",
+      "dailyStatus": "PASS",
+      "hourlyStatus": "REJECTED"
+    },
+    {
+      "code": "VUG",
+      "text": "VUG\n日K最后完成：2026-11-06 16:00 纽约 · 收盘 82.17\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）\n1H最后完成：2026-11-06 16:00 纽约 · 收盘 82.17\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H合格（仅历史）\n价格尺度未获统一认证；不跨周期叠加、合并参考价或计算可执行风险回报；实时资格关闭。\n\n日K 下跌 · 波动 高 / 1H历史趋势 过渡\n\n最近收盘 82.17 · ISOLATED_SYNTHETIC_DAY/QFQ · 事后前复权\n\n历史区域 前交易日 81.265–85.61\n\n日K合格（仅历史） / 1H合格（仅历史）",
+      "daily": "日K最后完成：2026-11-06 16:00 纽约 · 收盘 82.17\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）",
+      "hourly": "1H最后完成：2026-11-06 16:00 纽约 · 收盘 82.17\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H合格（仅历史）",
+      "dailyStatus": "PASS",
+      "hourlyStatus": "PASS"
+    },
+    {
+      "code": "IEFA",
+      "text": "IEFA\n日K最后完成：2026-11-06 16:00 纽约 · 收盘 94.8\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）\n1H最后完成：无已验收资料 · 收盘 暂无\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：未提供\n1H资料不合格 · US.IEFA/2026-11-03/QFQ：60分钟汇总与同批日K不一致\n价格尺度未获统一认证；不跨周期叠加、合并参考价或计算可执行风险回报；实时资格关闭。\n\n日K 过渡 · 波动 高 / 1H历史趋势 未验收或不足\n\n最近收盘 94.8 · ISOLATED_SYNTHETIC_DAY/QFQ · 事后前复权\n\n历史区域 最近20个已完成交易日 94.3–98.52\n\n日K合格（仅历史） / 1H资料不合格",
+      "daily": "日K最后完成：2026-11-06 16:00 纽约 · 收盘 94.8\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）",
+      "hourly": "1H最后完成：无已验收资料 · 收盘 暂无\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：未提供\n1H资料不合格 · US.IEFA/2026-11-03/QFQ：60分钟汇总与同批日K不一致",
+      "dailyStatus": "PASS",
+      "hourlyStatus": "REJECTED"
+    },
+    {
+      "code": "VTV",
+      "text": "VTV\n日K最后完成：2026-11-06 16:00 纽约 · 收盘 223.01\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）\n1H最后完成：2026-11-06 16:00 纽约 · 收盘 223.01\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H合格（仅历史）\n价格尺度未获统一认证；不跨周期叠加、合并参考价或计算可执行风险回报；实时资格关闭。\n\n日K 过渡 · 波动 高 / 1H历史趋势 过渡\n\n最近收盘 223.01 · ISOLATED_SYNTHETIC_DAY/QFQ · 事后前复权\n\n历史区域 最近20个已完成交易日 219.8–231.99\n\n日K合格（仅历史） / 1H合格（仅历史）",
+      "daily": "日K最后完成：2026-11-06 16:00 纽约 · 收盘 223.01\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）",
+      "hourly": "1H最后完成：2026-11-06 16:00 纽约 · 收盘 223.01\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H合格（仅历史）",
+      "dailyStatus": "PASS",
+      "hourlyStatus": "PASS"
+    },
+    {
+      "code": "SPYM",
+      "text": "SPYM\n日K最后完成：2026-11-06 16:00 纽约 · 收盘 86.56\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）\n1H最后完成：2026-11-06 16:00 纽约 · 收盘 86.56\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H合格（仅历史）\n价格尺度未获统一认证；不跨周期叠加、合并参考价或计算可执行风险回报；实时资格关闭。\n\n日K 下跌 · 波动 高 / 1H历史趋势 过渡\n\n最近收盘 86.56 · ISOLATED_SYNTHETIC_DAY/QFQ · 事后前复权\n\n历史区域 前交易日 86.245–90.155\n\n日K合格（仅历史） / 1H合格（仅历史）",
+      "daily": "日K最后完成：2026-11-06 16:00 纽约 · 收盘 86.56\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）",
+      "hourly": "1H最后完成：2026-11-06 16:00 纽约 · 收盘 86.56\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H合格（仅历史）",
+      "dailyStatus": "PASS",
+      "hourlyStatus": "PASS"
+    },
+    {
+      "code": "BND",
+      "text": "BND\n日K最后完成：2026-11-06 16:00 纽约 · 收盘 71.59\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）\n1H最后完成：无已验收资料 · 收盘 暂无\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：未提供\n1H资料不合格 · US.BND/2026-09-30/QFQ：60分钟汇总与同批日K不一致\n价格尺度未获统一认证；不跨周期叠加、合并参考价或计算可执行风险回报；实时资格关闭。\n\n日K 上涨 · 波动 正常 / 1H历史趋势 未验收或不足\n\n最近收盘 71.59 · ISOLATED_SYNTHETIC_DAY/QFQ · 事后前复权\n\n历史区域 前交易日 71.385–71.7176\n\n日K合格（仅历史） / 1H资料不合格",
+      "daily": "日K最后完成：2026-11-06 16:00 纽约 · 收盘 71.59\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）",
+      "hourly": "1H最后完成：无已验收资料 · 收盘 暂无\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：未提供\n1H资料不合格 · US.BND/2026-09-30/QFQ：60分钟汇总与同批日K不一致",
+      "dailyStatus": "PASS",
+      "hourlyStatus": "REJECTED"
+    },
+    {
+      "code": "VXUS",
+      "text": "VXUS\n日K最后完成：2026-11-06 16:00 纽约 · 收盘 80.92\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）\n1H最后完成：2026-11-06 16:00 纽约 · 收盘 80.92\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H合格（仅历史）\n价格尺度未获统一认证；不跨周期叠加、合并参考价或计算可执行风险回报；实时资格关闭。\n\n日K 过渡 · 波动 高 / 1H历史趋势 过渡\n\n最近收盘 80.92 · ISOLATED_SYNTHETIC_DAY/QFQ · 事后前复权\n\n历史区域 前交易日 80.76–83.23\n\n日K合格（仅历史） / 1H合格（仅历史）",
+      "daily": "日K最后完成：2026-11-06 16:00 纽约 · 收盘 80.92\n日K来源：ISOLATED_SYNTHETIC_DAY/QFQ · 复权估值日：2026-11-10\n日K合格（仅历史）",
+      "hourly": "1H最后完成：2026-11-06 16:00 纽约 · 收盘 80.92\n1H来源：FUTU_OPEND/K_60M/RTH/QFQ · 复权估值日：2026-11-09\n1H合格（仅历史）",
+      "dailyStatus": "PASS",
+      "hourlyStatus": "PASS"
+    }
+  ]
+}

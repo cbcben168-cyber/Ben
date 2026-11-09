@@ -34,6 +34,11 @@ CSS = """<style>
 .dash-candidate{min-height:195px;padding:10px}
 .dash-candidate h4{margin-bottom:4px}
 .dash-candidate p{font-size:13px;line-height:1.35;margin:5px 0}
+.dash-periods{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:8px}
+.dash-period{font-size:12px;line-height:1.4;overflow-wrap:anywhere}
+.dash-candidate .dash-periods{grid-template-columns:1fr;gap:4px}
+.dash-period[data-status="STALE"],.dash-period[data-status="REJECTED"]{color:#ffabb2}
+.dash-scale{font-size:12px;color:#ffd18a;line-height:1.4;margin-top:6px}
 .dash-summary{padding:10px 16px}
 .dash-facts{grid-template-columns:repeat(6,minmax(0,1fr));margin-top:8px;gap:8px}
 .dash-summary .dash-value{font-size:14px}.dash-summary .dash-label{font-size:12px}
@@ -59,7 +64,22 @@ def price(value):
     return text[:-2] if text.endswith('.0') else text
 
 
-def summary(symbol, state, stale, missing, at, historical):
+def period_details(periods):
+    if not periods:
+        return ''
+    rows = []
+    for key in ('daily', 'hourly'):
+        item = periods[key]
+        rows.append(f'<div class="dash-period" data-period="{key}" data-status="{item["status"]}">'
+                    f'<b>{item["label"]}最后完成：{escape(item["completed_text"])}</b> · 收盘 {price(item["close"])}<br>'
+                    f'{item["label"]}来源：{escape(item["source"])} · 复权估值日：{escape(item["valuation_date"])}<br>'
+                    f'{escape(item["description"])}'+
+                    (f' · {escape(item["reason"])}' if item['reason'] else '')+'</div>')
+    return ('<div class="dash-periods">'+''.join(rows)+'</div>'+
+            (f'<div class="dash-scale">{escape(periods["scale_notice"])}</div>' if periods['scale_notice'] else ''))
+
+
+def summary(symbol, state, stale, missing, at, historical, periods=None):
     trend = {'上涨': '↑ 偏多', '下跌': '↓ 偏空', '横盘': '↔ 横盘', '过渡': '↔ 过渡'}.get(state['trend'], '? 无法判断')
     current = '? 无法判断' if stale or missing else trend
     conclusion = '数据太旧不能判断' if stale else '目前无法确定' if missing else '继续等待'
@@ -73,7 +93,8 @@ def summary(symbol, state, stale, missing, at, historical):
                 '<span class="dash-badge dash-red">● 暂停买卖判断</span></div>'
                 f'<div class="dash-facts">{facts}</div>'
                 f'<div class="dash-foot">旧资料趋势 {escape(trend)} · '
-                f'{"历史时点回顾" if historical else "最新可用历史收盘"} · 波动 {escape(str(state["volatility"]).replace("UNKNOWN","目前无法确定"))}</div></section>',
+                f'{"历史时点回顾" if historical else "最新可用历史收盘"} · 波动 {escape(str(state["volatility"]).replace("UNKNOWN","目前无法确定"))}</div>'
+                f'{period_details(periods)}</section>',
                 unsafe_allow_html=True)
 
 
@@ -113,11 +134,13 @@ def action(symbol, manual, plan, setup, stale, basis_blocked=False, price_refs=N
 
 
 def candidate(symbol, status, region, next_step, data_at=None, historical_trend=None,
-              volatility=None, hourly_trend=None, close=None, source=None, data_status=None):
+              volatility=None, hourly_trend=None, close=None, source=None, data_status=None, periods=None):
+    hourly_label = '1H历史趋势（已过期）' if periods and periods['hourly']['stale'] else '1H历史趋势'
+    detail = period_details(periods) if periods else f'<p class="dash-label">历史截至 {escape(data_at or "暂无资料")}</p>'
     st.markdown(f'<article class="dash-candidate" aria-label="{escape(symbol)} 历史观察卡"><h4>{escape(symbol)}</h4>'
-                f'<p class="dash-label">历史截至 {escape(data_at or "暂无资料")}</p>'
+                f'{detail}'
                 f'<p>日K {escape(historical_trend or "资料不足")} · 波动 {escape(str(volatility or "资料不足").replace("UNKNOWN","资料不足"))}'
-                f' / 1H {escape(str(hourly_trend or "未验收").replace("UNKNOWN","未验收或不足"))}</p>'
+                f' / {hourly_label} {escape(str(hourly_trend or "未验收").replace("UNKNOWN","未验收或不足"))}</p>'
                 f'<p>最近收盘 <b>{price(close)}</b> · <span class="dash-label">{escape(source or "来源未知")}</span></p>'
                 f'<p>历史区域 {escape(region)}</p><p class="dash-label">{escape(data_status or status)}</p></article>',
                 unsafe_allow_html=True)

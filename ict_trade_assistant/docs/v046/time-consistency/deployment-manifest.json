@@ -1,0 +1,64 @@
+{
+  "status": "PREPARED_NOT_DEPLOYED",
+  "baseline": "ba99c7bfac8b263cca9bf8a5c69a0cdb3e408c8d",
+  "candidate_ref": "PR #52 HEAD; verify the exact SHA returned with this report and all runtime hashes",
+  "runtime": {
+    "app.py": "a3638ef9037b801a336bdf6c05ea9005f34d243227c6781146ea1e18d6ecf0da",
+    "desk/dashboard_cards.py": "2d839cbfe47fc9b144247c2a471b6365368436cb8444cffe14cecaec8353a368",
+    "desk/decision_home.py": "acc2d583a993e9c8fa0cea269f3a8bb1293bdc09caad46d4a6286f373acc653d",
+    "desk/experiment_ui.py": "a8a3cfbf40ecf95e16ecd93fc5274e452066a6c6bb4de751dc56bd18c12dc67e",
+    "desk/workspace.py": "4c94cbc0f181fee5da4aaa0d5c46261a605d09ef3b7f638133e27d2cd3a2a51a",
+    "desk/futu_hourly.py": "76d2da55ad1e0a0a32c685e9ab82317ea59d9f2854f9b1aa13c29d774f959eb5",
+    "desk/historical_prices.py": "8aab4db19effc922fe7ffab65199dddaaaa3b3ee223daeccc728941138d5a359",
+    "scripts/v04_history_fixture.py": "e4c0a0b81d1b364055d898d8a8273a2cc2eebb29c13c235704279756dab646ea",
+    "desk/history_status.py": "d5e3f00cc8b9a82eef433fdf3b62a0e9cb3ecfd646f9eacb4f14569300d48d17"
+  },
+  "archive": {
+    "source": "C:\\Users\\cbcbe\\Documents\\ChatGPT\\ict_trade_assistant\\.worktrees\\v046-history-workbench\\ict_trade_assistant\\.local\\v046\\hourly_20261109_verified",
+    "files": {
+      "AGG.json": "b0fb9b56c0ae21ea0bf165624e1b1c3509909c5f26aa7117a32f928d378e5769",
+      "BND.json": "8c2fdb85318c88685d29bfbf03fd1395a4000030f66fbd078f35930e0e1112a4",
+      "GLD.json": "06309788daa31e062c1d1eaa8b08bfe33e56d283f45cfdda27760a52b3d97977",
+      "IEFA.json": "7ef87b837f396f3947939df3b73d88601639e576dbd2094f4bdfd57c4d206b2c",
+      "IEMG.json": "037c0082195cf059ce2abddb64574509284b4125801d7de5a515bf57625b38b4",
+      "IJH.json": "d7e8ca171fbdb11655000c6b15a0326b93aa59fad303466a89e534906054cb33",
+      "IVV.json": "5e99f8145b311ccce7cb5fe9cd8d548e1fb7d6157595cbb41e8596dfd6b79b64",
+      "IWF.json": "ebe5bcd6472e675f5b5f6e18e76882332c6f90ed7e0de453462e35b0224d0193",
+      "IWM.json": "ef18da5d8ff65893d95848d0079d69a8daf4a198740663ff3e59f406005792d7",
+      "manifest.json": "ce7fe180f8c3be826689d811ffd957c406289002649a52a85ae3e5521c99fa82",
+      "QQQ.json": "f1163dfbd9cd2a6732db7823214df3d2485a5be64625988dd473080924eaa546",
+      "raw-capture-manifest.json": "f90acae0a6a280cb6905cef1fe4d4c91c2a70501a1c77a93daaae8c364c626cb",
+      "SMH-1M-2026-07-02.json": "9693660f02fa411cd080651d794eaaa8b0adc66a21c4de539921eb72a25b8dbc",
+      "SMH-1M-2026-11-06.json": "80d7c159cc50cd32490f6b8f496cff58c8f2fdef737389572961cfbada7bebfd",
+      "SMH.json": "18849851716bdeb5a63a533043b4dd4320262ce672433e0217a667fc42836ee7",
+      "SOXX.json": "afd5bd8e27d64eab1f9ee1e48596ce4be011dbc37bba5aa25ac80547d0f29382",
+      "SPY.json": "3f87f462c23a78749802fd574b6961136953be42828fc87ec2949392661097c6",
+      "SPYM.json": "75864582df49703b8f23479690b4c6feaa69e5a7a2bd69376aa74d3b81113819",
+      "VEA.json": "3774c4ad63d8390b62f1c288783780503a4085ee876f1f73c2adae98915288af",
+      "VGT.json": "7db2386dcb0e568fa61a63b5dc63ce1adf7f4e6fbb42d89414fe5ea1b7bbb501",
+      "VOO.json": "d39ce1818417f6bf432fea71e00fd70c6331c25493962896d23117233df44030",
+      "VTI.json": "71839c751f7d97080a614d88dc0cd812747d9d1c64c907c7e1388018a8955f0e",
+      "VTV.json": "f54ee08c8e1162550dcf8f62a120295b2ed8bfd75a4eb4c3d5bd9e8e19587296",
+      "VUG.json": "1cfd6bd0c7c688b8cbbc27db30d1c721af87cdd669d1fa8400f660f07838b2c1",
+      "VWO.json": "5413d6bf15c0c75c8e7abc687fd95ec54061d072947902da3df6b6e633410a84",
+      "VXUS.json": "116c5ca14361982d6aec3a2844b7a9e0297d83f2a3c83e5932339c36751518dd",
+      "XLK.json": "6982bcd03a262766c46b34614031c4e12de6c9741acb20183ad033a7b1f0e2b7"
+    },
+    "target_proposed": "data/hourly_history_v046/20261109_ce7fe180"
+  },
+  "environment_new": {
+    "ICT_FUTU_HOURLY_ARCHIVE": "<production-root>/data/hourly_history_v046/20261109_ce7fe180"
+  },
+  "tests": {
+    "unique_passed": 207,
+    "runs": {
+      "original-199.xml": 199,
+      "new-tests.xml": 8,
+      "related-final.xml": 51
+    },
+    "failures": 0,
+    "skipped": 0
+  },
+  "replaces": "docs/v046/deployment-manifest.json",
+  "production_deploy_performed": false
+}

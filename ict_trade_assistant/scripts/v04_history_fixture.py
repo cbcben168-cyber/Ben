@@ -9,6 +9,12 @@ import pandas as pd
 import streamlit as st
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
+from desk.history_runtime import activate_config
+try:
+    HISTORY_CONFIG = activate_config(ROOT)
+except ValueError as exc:
+    st.error(str(exc))
+    st.stop()
 from desk.clock import ET
 import desk.store as store_module
 import desk.provider as provider_module
@@ -65,4 +71,5 @@ workspace_module.now_et=lambda:FIXED
 st.session_state['_history_archive_path']=str(snapshots().archive.path)
 st.session_state['_legacy_history']=snapshots().raw
 st.session_state['_daily_update_root']=str(UPDATE_ROOT)
+st.session_state['_history_runtime_config']=HISTORY_CONFIG
 runpy.run_path(str(ROOT/'app.py'),run_name='__main__')

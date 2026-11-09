@@ -1,0 +1,102 @@
+{
+  "full-299": {
+    "tests": 299,
+    "passed": 294,
+    "failures": [
+      {
+        "nodeid": "tests/test_localization.py::test_chinese_blocked_home[STALE-\\u884c\\u60c5\\u6570\\u636e\\u5df2\\u8fc7\\u671f]",
+        "reason": "RuntimeError: AppTest script run timed out after 3(s)"
+      },
+      {
+        "nodeid": "tests/test_portrait_layout.py::test_four_unique_candidates_not_replaced_by_empty_layout",
+        "reason": "AssertionError: assert 5 == 4\n +  where 5 = len([Button(key='pick_US.SPY_MANUAL', label='1 · SPY · MANUAL · 区域内'), Button(key='pick_US.QQQ_MANUAL', label='2 · QQQ · M...ck_US.SOXX_MANUAL', label='4 · SOXX · MANUAL · 区域内'), Button(key='pick_US.DIA_MANUAL', label='5 · DIA · MANUAL · 区域内')])"
+      },
+      {
+        "nodeid": "tests/test_stability.py::test_chart_failure_is_contained",
+        "reason": "RuntimeError: AppTest script run timed out after 3(s)"
+      },
+      {
+        "nodeid": "tests/test_ui.py::test_navigation_settings_notes",
+        "reason": "assert 10.0 == 25.0"
+      },
+      {
+        "nodeid": "tests/test_v046_time_consistency.py::test_fifteen_cards_and_main_summary_show_both_periods",
+        "reason": "AssertionError: assert (not ElementList() and False)\n +  where ElementList() = AppTest(\\n    _script_path='C:\\\\Users\\\\cbcbe\\\\AppData\\\\Local\\\\Temp\\\\tmpfia09prn\\\\473cd926ecaa68f9691af82f5b5591c3',\\n   ...SpecialBlock(\\n            type='sidebar'\\n        ),\\n        2: SpecialBlock(\\n            type='event'\\n        )\\n    }\\n).exception\n +  and   False = any(<generator object test_fifteen_cards_and_main_summary_show_both_periods.<locals>.<genexpr> at 0x00000204F9FA13C0>)"
+      }
+    ],
+    "skipped": 0
+  },
+  "focused-recheck": {
+    "tests": 7,
+    "passed": 1,
+    "failures": [
+      {
+        "nodeid": "tests/test_localization.py::test_chinese_blocked_home[STALE-\\u884c\\u60c5\\u6570\\u636e\\u5df2\\u8fc7\\u671f]",
+        "reason": "RuntimeError: AppTest script run timed out after 3(s)"
+      },
+      {
+        "nodeid": "tests/test_localization.py::test_chinese_blocked_home[UNAVAILABLE-\\u884c\\u60c5\\u6570\\u636e\\u4e0d\\u53ef\\u7528]",
+        "reason": "RuntimeError: AppTest script run timed out after 3(s)"
+      },
+      {
+        "nodeid": "tests/test_localization.py::test_chinese_blocked_home[INCONSISTENT-\\u884c\\u60c5\\u6570\\u636e\\u4e0d\\u4e00\\u81f4]",
+        "reason": "RuntimeError: AppTest script run timed out after 3(s)"
+      },
+      {
+        "nodeid": "tests/test_portrait_layout.py::test_four_unique_candidates_not_replaced_by_empty_layout",
+        "reason": "AssertionError: assert 5 == 4\n +  where 5 = len([Button(key='pick_US.SPY_MANUAL', label='1 · SPY · MANUAL · 区域内'), Button(key='pick_US.QQQ_MANUAL', label='2 · QQQ · M...ck_US.SOXX_MANUAL', label='4 · SOXX · MANUAL · 区域内'), Button(key='pick_US.DIA_MANUAL', label='5 · DIA · MANUAL · 区域内')])"
+      },
+      {
+        "nodeid": "tests/test_stability.py::test_chart_failure_is_contained",
+        "reason": "RuntimeError: AppTest script run timed out after 3(s)"
+      },
+      {
+        "nodeid": "tests/test_ui.py::test_navigation_settings_notes",
+        "reason": "assert 10.0 == 25.0"
+      }
+    ],
+    "skipped": 0
+  },
+  "accepted-219": {
+    "tests": 219,
+    "passed": 219,
+    "failures": [],
+    "skipped": 0
+  },
+  "targeted-15": {
+    "tests": 15,
+    "passed": 15,
+    "failures": [],
+    "skipped": 0
+  },
+  "baseline-assertions": {
+    "tests": 2,
+    "passed": 0,
+    "failures": [
+      {
+        "nodeid": "tests/test_portrait_layout.py::test_four_unique_candidates_not_replaced_by_empty_layout",
+        "reason": "AssertionError: assert 5 == 4\n +  where 5 = len([Button(key='pick_US.SPY_MANUAL', label='1 · SPY · MANUAL · 区域内'), Button(key='pick_US.QQQ_MANUAL', label='2 · QQQ · M...ck_US.SOXX_MANUAL', label='4 · SOXX · MANUAL · 区域内'), Button(key='pick_US.DIA_MANUAL', label='5 · DIA · MANUAL · 区域内')])"
+      },
+      {
+        "nodeid": "tests/test_ui.py::test_navigation_settings_notes",
+        "reason": "assert 10.0 == 25.0"
+      }
+    ],
+    "skipped": 0
+  },
+  "baseline-timeouts": {
+    "tests": 2,
+    "passed": 0,
+    "failures": [
+      {
+        "nodeid": "tests/test_localization.py::test_chinese_blocked_home[STALE-\\u884c\\u60c5\\u6570\\u636e\\u5df2\\u8fc7\\u671f]",
+        "reason": "RuntimeError: AppTest script run timed out after 3(s)"
+      },
+      {
+        "nodeid": "tests/test_stability.py::test_chart_failure_is_contained",
+        "reason": "RuntimeError: AppTest script run timed out after 3(s)"
+      }
+    ],
+    "skipped": 0
+  }
+}

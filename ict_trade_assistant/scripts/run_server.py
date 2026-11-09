@@ -27,9 +27,24 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--port', type=int, default=8506)
     parser.add_argument('--history', action='store_true', help='使用本地历史入口，不连接OpenD')
+    parser.add_argument('--config', help='持久化历史路径配置；默认 data/history-runtime.json')
+    parser.add_argument('--check-history-config', action='store_true', help='只读校验配置，不启动服务')
     args = parser.parse_args()
     if args.port == 8501:
         parser.error('v0.4隔离开发禁止使用8501；请保留v0.3服务')
+    history_config = None
+    if args.config or args.check_history_config:
+        if not args.history:
+            parser.error('历史配置仅用于 --history 入口')
+    if args.history:
+        from desk.history_runtime import activate_config
+        try:
+            history_config = activate_config(ROOT, args.config)
+        except ValueError as exc:
+            parser.error(str(exc))
+        if args.check_history_config:
+            print(json.dumps(history_config, ensure_ascii=False))
+            return 0
     from desk.diagnostics import initialize
     log = initialize(ROOT)
     suffix = '' if args.port == 8501 else '-' + str(args.port)
@@ -47,7 +62,8 @@ def main():
                 target = ROOT / ('data/runtime' + suffix + '.json')
                 temp = target.with_suffix('.tmp')
                 temp.write_text(json.dumps(dict(pid=os.getpid(), port=args.port, at=time.time(),
-                    uptime_seconds=round(time.monotonic()-began), root=str(ROOT), build_sha256=build)), encoding='utf-8')
+                    uptime_seconds=round(time.monotonic()-began), root=str(ROOT), build_sha256=build,
+                    history_config_sha256=history_config['sha256'] if history_config else None)), encoding='utf-8')
                 temp.replace(target)
             except Exception:
                 log.exception('心跳记录失败')

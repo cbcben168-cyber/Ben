@@ -1,0 +1,29 @@
+{
+  "landscape": {
+    "cards": 15,
+    "columns": "494.323px 494.323px 494.323px 494.323px 494.323px",
+    "dpr": 1.000000015894571,
+    "overflow": false,
+    "viewport": [
+      2560,
+      1441
+    ],
+    "visualScale": 1
+  },
+  "portrait": {
+    "cards": 15,
+    "columns": "457.474px 457.487px 457.487px",
+    "dpr": 1.000000015894571,
+    "overflow": false,
+    "viewport": [
+      1441,
+      2560
+    ],
+    "visualScale": 1
+  },
+  "restart": {
+    "cardsIdentical": true,
+    "summaryIdentical": true,
+    "pricesIdenticalIgnoringEvaluationTime": true
+  }
+}

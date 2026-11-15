@@ -1,0 +1,44 @@
+{
+  "isolated_simulation": true,
+  "events": [
+    {
+      "id": 1,
+      "duplicate": false,
+      "quality": "SIMULATION",
+      "trading_eligible": false
+    },
+    {
+      "id": 2,
+      "duplicate": false,
+      "quality": "SIMULATION",
+      "trading_eligible": false
+    },
+    {
+      "id": 3,
+      "duplicate": false,
+      "quality": "SIMULATION",
+      "trading_eligible": false
+    },
+    {
+      "id": 4,
+      "duplicate": false,
+      "quality": "SIMULATION",
+      "trading_eligible": false
+    },
+    {
+      "id": 5,
+      "duplicate": false,
+      "quality": "SIMULATION",
+      "trading_eligible": false
+    }
+  ],
+  "duplicate": {
+    "id": 4,
+    "duplicate": true,
+    "quality": "SIMULATION",
+    "trading_eligible": false
+  },
+  "unauthorized_rejected": true,
+  "real_tradingview_message_received": false,
+  "phone_delivery_verified": false
+}

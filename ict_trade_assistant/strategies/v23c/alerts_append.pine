@@ -1,0 +1,34 @@
+
+// === V23C_ALERTS_V1: notification-only appendix; original strategy above is byte-preserved ===
+v23cAlertGroup = "V23C Research Alerts"
+v23cEnableAlerts = input.bool(false, "Enable research alerts", group=v23cAlertGroup)
+v23cDailyState = input.bool(true, "Send daily HOLD status", group=v23cAlertGroup)
+v23cConfigurationId = input.string("P0_DEFAULT", "Configuration label (recreate alerts after changing inputs)", group=v23cAlertGroup)
+
+v23cJsonString(s) =>
+    "\"" + str.replace_all(str.replace_all(str.replace_all(s, "\\", "\\\\"), "\"", "\\\""), "\n", " ") + "\""
+
+v23cJsonNumber(n) =>
+    na(n) ? "null" : str.tostring(n, "#.############")
+
+v23cReady = bar_index + 1 >= math.max(emaLongLength, math.max(rsMomentumLength + 1, math.max(breadthEmaLength, atrLength + atrMaLength))) and not na(ema200) and rsReady and not na(qqqBreadthEma) and not na(spBreadthEma) and vixAvailable and vxnAvailable
+v23cIsChart = syminfo.prefix == "NASDAQ" and syminfo.ticker == "QQQ" and timeframe.isdaily and timeframe.multiplier == 1 and syminfo.session == session.regular
+v23cAction = forceFlat ? "FLAT" : increaseSignal ? "INCREASE" : reduceSignal ? "REDUCE" : "HOLD"
+v23cActionText = forceFlat ? "清仓请求" : increaseSignal ? "加仓请求" : reduceSignal ? "减仓请求" : "本次无需调仓"
+v23cEvent = shouldRebalance ? "REQUEST" : "STATE"
+v23cNotice = "QQQ V23C｜日线收盘｜" + v23cActionText + "｜模型目标 " + str.tostring(targetExposurePct, "#.##") + "%｜" + (v23cReady ? "研究提醒，请下一交易时段人工复核" : "资料不齐，仅留档复核")
+
+if v23cEnableAlerts and v23cIsChart and barstate.isrealtime and barstate.isconfirmed and (shouldRebalance or v23cDailyState)
+    string v23cMessage = "{\"schema\":\"V23C_SIGNAL_V1\",\"strategy\":\"QQQ_V23C_P0_AB\",\"source_sha256\":\"bb098c7fa0b5f88299df2f154a30edb2e80a6e0b25e0331cb61c7c9b4e8778e6\""
+    v23cMessage += ",\"message\":" + v23cJsonString(v23cNotice)
+    v23cMessage += ",\"configuration_id\":" + v23cJsonString(v23cConfigurationId)
+    v23cMessage += ",\"model_mode\":" + (usePartialCloseForReduce ? "1" : "0")
+    v23cMessage += ",\"symbol\":\"NASDAQ:QQQ\",\"timeframe\":\"1D\",\"session\":\"RTH\""
+    v23cMessage += ",\"event\":" + v23cJsonString(v23cEvent) + ",\"action\":" + v23cJsonString(v23cAction)
+    v23cMessage += ",\"bar_open_ms\":" + str.tostring(time) + ",\"bar_close_ms\":" + str.tostring(time_close) + ",\"emitted_ms\":" + str.tostring(timenow)
+    v23cMessage += ",\"confirmed\":true,\"realtime\":true,\"close\":" + v23cJsonNumber(close)
+    v23cMessage += ",\"target_exposure_pct\":" + v23cJsonNumber(targetExposurePct) + ",\"model_exposure_pct\":" + v23cJsonNumber(currentExposurePct)
+    v23cMessage += ",\"model_position_qty\":" + v23cJsonNumber(strategy.position_size) + ",\"model_delta_qty\":" + v23cJsonNumber(deltaQty)
+    v23cMessage += ",\"market_level\":" + str.tostring(marketLevel) + ",\"boost_score\":" + str.tostring(boostPermissionScore)
+    v23cMessage += ",\"data_ready\":" + (v23cReady ? "true" : "false") + ",\"external_finality\":\"UNVERIFIED\"}"
+    alert(v23cMessage, alert.freq_once_per_bar_close)

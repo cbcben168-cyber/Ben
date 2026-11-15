@@ -192,6 +192,8 @@ def render_home(selected, data, plan, decision, rows, decisions, replay_asof, wa
                 st.session_state['experiment_period'] = '日K'
             st.button('切换至日K', key='hourly_fallback_daily', on_click=switch_daily)
         summary(selected[3:], state, stale, missing, at_text, historical, periods=periods)
+        from .v23c_ui import compact as v23c_card
+        v23c_card()
         left, right = st.columns([1.7, 1], gap='medium')
         with left:
             with st.container(key='answer-chart'):

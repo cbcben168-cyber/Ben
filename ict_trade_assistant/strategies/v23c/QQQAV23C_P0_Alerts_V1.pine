@@ -1,0 +1,1514 @@
+//@version=6
+strategy(
+    title="QQQ Alpha V23C - P0 execution A/B (research)",
+    shorttitle="V23C-P0-AB",
+    overlay=true,
+    initial_capital=100000,
+    pyramiding=0,
+    commission_type=strategy.commission.percent,
+    commission_value=0.025,
+    process_orders_on_close=false,
+    calc_on_order_fills=false,
+    margin_long=50,
+    margin_short=100
+)
+
+// =====================================================
+// QQQ Alpha V23C - Market Level + Softer Protection
+//
+// V23C 目标：保留 V23B 的回撤改善框架，但减少过度保护、降低交易抖动，并加入 Market Level 指标。
+// 用 Market Level 判断市场状态，用 Boost Permission Score 管理 100% 以上融资仓，Core 尽量保留。
+//
+// 核心逻辑：
+// 1. Base：趋势底仓，优先持有
+// 2. Boost：趋势强时加进攻仓
+// 3. Recovery Add：强趋势回调后恢复时加一点仓
+// 4. ATR Vol Gate：价格弱 + 波动扩张时压 Boost
+// 5. VIX Guard：VIX 高位时限制总仓位
+// 6. Drift Cap：仓位漂移过高时拉回
+// 7. RS Gate：QQQ/SPY 相对强弱弱时限制 Boost / 融资仓
+// 8. Boost Permission Score：趋势、相对强弱、广度、VXN/VIX、Shock 综合打分
+// 9. Smart Profit Protection：普通回调轻保护 Satellite，严重恶化才清 Boost
+// 10. Market Level：0-5 级市场状态，用于观察和后续迭代
+//
+// 不包含 V23 / V24 的：
+// - Late Cycle Add Block
+// - Weekly HTF Guard
+// - Peak Damage Guard
+// - Base Pre-Reduce
+//
+// Look-ahead 检查：
+// - 没有 barmerge.lookahead_on
+// - request.security 使用 lookahead_off
+// - process_orders_on_close=false
+// =====================================================
+
+// ========================
+// Inputs
+// ========================
+
+groupTrend = "1. Trend"
+emaShortLength = input.int(20, "EMA20 Length", minval=3, group=groupTrend)
+emaMidLength = input.int(50, "EMA50 Length", minval=5, group=groupTrend)
+emaLongLength = input.int(200, "EMA200 Length", minval=50, group=groupTrend)
+baseBreakConfirmBars = input.int(3, "Base Break Confirm Bars", minval=1, maxval=10, group=groupTrend)
+
+groupExposure = "2. Exposure"
+baseExposurePct = input.float(100.0, "Base Exposure %", minval=0.0, maxval=130.0, step=5.0, group=groupExposure)
+boostExposurePct = input.float(35.0, "Boost Exposure %", minval=0.0, maxval=100.0, step=5.0, group=groupExposure)
+recoveryAddExposurePct = input.float(10.0, "Recovery Add Exposure %", minval=0.0, maxval=50.0, step=5.0, group=groupExposure)
+// Hard cap: user requirement, never allow target exposure above 135%.
+maxGrossExposurePct = input.float(135.0, "Hard Max Gross Exposure %", minval=50.0, maxval=135.0, step=5.0, group=groupExposure)
+
+normalRebalanceThresholdPct = input.float(8.0, "Normal Rebalance Threshold %", minval=0.5, step=0.5, group=groupExposure)
+reduceRebalanceThresholdPct = input.float(1.0, "Reduce Rebalance Threshold %", minval=0.5, step=0.5, group=groupExposure)
+
+// P0 research only: FALSE reproduces original sell order. TRUE substitutes partial strategy.close().
+usePartialCloseForReduce = input.bool(false, "P0 A/B: partial strategy.close() on RED (experimental)", group=groupExposure)
+
+groupStruct = "3. Daily Structure"
+useStructuralAddonCap = input.bool(true, "Use Structural Addon Cap", group=groupStruct)
+ema50SlopeLookback = input.int(10, "EMA50 Slope Lookback", minval=2, maxval=50, group=groupStruct)
+structRiskConfirmBars = input.int(2, "Structural Risk Confirm Bars", minval=1, maxval=10, group=groupStruct)
+
+softBoostScale = input.float(0.80, "Soft Structure Boost Scale", minval=0.0, maxval=1.0, step=0.05, group=groupStruct)
+hardBoostScale = input.float(0.55, "Hard Structure Boost Scale", minval=0.0, maxval=1.0, step=0.05, group=groupStruct)
+severeBoostScale = input.float(0.00, "Severe Structure Boost Scale", minval=0.0, maxval=1.0, step=0.05, group=groupStruct)
+severeStructureTotalCapPct = input.float(90.0, "Severe Structure Total Cap %", minval=0.0, maxval=130.0, step=5.0, group=groupStruct)
+structVixSoftLevel = input.float(22.0, "Structural VIX Soft Level", step=0.5, group=groupStruct)
+
+groupRecovery = "4. Recovery Add"
+pullbackLookback = input.int(10, "Pullback Lookback Bars", minval=2, maxval=30, group=groupRecovery)
+recoveryMaxAtrRatio = input.float(1.45, "Recovery Max ATR Ratio", minval=0.8, maxval=3.0, step=0.05, group=groupRecovery)
+overExtensionAtr = input.float(2.30, "No Add If Close > EMA20 + ATR x", minval=0.5, maxval=5.0, step=0.1, group=groupRecovery)
+recoveryVixMax = input.float(24.0, "Recovery Add Max VIX", minval=10.0, maxval=50.0, step=0.5, group=groupRecovery)
+
+groupVol = "5. ATR Volatility Gate"
+useVolGate = input.bool(true, "Use ATR Volatility Gate", group=groupVol)
+
+atrLength = input.int(14, "ATR Length", minval=2, group=groupVol)
+atrMaLength = input.int(50, "ATR % MA Length", minval=5, group=groupVol)
+
+atrSoftRatio = input.float(1.35, "ATR Soft Ratio", minval=1.0, maxval=4.0, step=0.05, group=groupVol)
+atrHardRatio = input.float(1.65, "ATR Hard Ratio", minval=1.0, maxval=5.0, step=0.05, group=groupVol)
+atrSevereRatio = input.float(2.00, "ATR Severe Ratio", minval=1.0, maxval=6.0, step=0.05, group=groupVol)
+
+volSoftBoostScale = input.float(0.75, "Vol Soft Boost Scale", minval=0.0, maxval=1.0, step=0.05, group=groupVol)
+volHardBoostScale = input.float(0.50, "Vol Hard Boost Scale", minval=0.0, maxval=1.0, step=0.05, group=groupVol)
+volSevereBoostScale = input.float(0.00, "Vol Severe Boost Scale", minval=0.0, maxval=1.0, step=0.05, group=groupVol)
+
+volSoftTotalCapPct = input.float(135.0, "Vol Soft Total Cap %", minval=0.0, maxval=160.0, step=5.0, group=groupVol)
+volHardTotalCapPct = input.float(120.0, "Vol Hard Total Cap %", minval=0.0, maxval=160.0, step=5.0, group=groupVol)
+volSevereTotalCapPct = input.float(95.0, "Vol Severe Total Cap %", minval=0.0, maxval=130.0, step=5.0, group=groupVol)
+
+groupVix = "6. VIX Guard"
+useVixGuard = input.bool(true, "Use VIX Guard", group=groupVix)
+vixSymbol = input.symbol("CBOE:VIX", "VIX Symbol", group=groupVix)
+
+vixCautionLevel = input.float(28.0, "VIX Caution Level", step=0.5, group=groupVix)
+vixRiskOffLevel = input.float(35.0, "VIX Risk-Off Level", step=0.5, group=groupVix)
+vixPanicLevel = input.float(45.0, "VIX Panic Clear Level", step=0.5, group=groupVix)
+vixSpikePct = input.float(50.0, "VIX 5-Day Spike %", step=1.0, group=groupVix)
+
+vixCautionCapPct = input.float(125.0, "VIX Caution Cap %", minval=0.0, maxval=160.0, step=5.0, group=groupVix)
+vixRiskOffCapPct = input.float(80.0, "VIX Risk-Off Cap %", minval=0.0, maxval=130.0, step=5.0, group=groupVix)
+vixRecoveryCapPct = input.float(115.0, "VIX Recovery Cap %", minval=0.0, maxval=160.0, step=5.0, group=groupVix)
+
+groupDrift = "7. Exposure Drift Guard"
+useHardDriftGuard = input.bool(true, "Use Drift Guard", group=groupDrift)
+driftSoftLevelPct = input.float(142.0, "Drift Soft Level %", minval=100.0, maxval=160.0, step=1.0, group=groupDrift)
+driftHardLevelPct = input.float(148.0, "Drift Hard Level %", minval=100.0, maxval=160.0, step=1.0, group=groupDrift)
+driftSoftResetCapPct = input.float(138.0, "Drift Soft Reset Cap %", minval=80.0, maxval=140.0, step=1.0, group=groupDrift)
+driftHardResetCapPct = input.float(135.0, "Drift Hard Reset Cap %", minval=80.0, maxval=140.0, step=1.0, group=groupDrift)
+driftExtremeLevelPct = input.float(153.0, "Drift Extreme Level %", minval=100.0, maxval=180.0, step=1.0, group=groupDrift)
+driftExtremeResetCapPct = input.float(132.0, "Drift Extreme Reset Cap %", minval=80.0, maxval=140.0, step=1.0, group=groupDrift)
+
+groupRS = "8. Core-Satellite RS Gate"
+useRelativeStrengthGate = input.bool(true, "Use QQQ/SPY Relative Strength Gate", group=groupRS)
+rsLeaderSymbol = input.symbol("NASDAQ:QQQ", "Relative Strength Leader", group=groupRS)
+rsBaseSymbol = input.symbol("AMEX:SPY", "Relative Strength Base", group=groupRS)
+rsEmaLength = input.int(100, "RS Ratio EMA Length", minval=20, maxval=250, group=groupRS)
+rsMomentumLength = input.int(63, "RS Momentum Lookback", minval=10, maxval=252, group=groupRS)
+rsNeutralBoostScale = input.float(0.50, "RS Neutral Boost Scale", minval=0.0, maxval=1.0, step=0.05, group=groupRS)
+rsWeakBoostScale = input.float(0.00, "RS Weak Boost Scale", minval=0.0, maxval=1.0, step=0.05, group=groupRS)
+rsNeutralTotalCapPct = input.float(125.0, "RS Neutral Total Cap %", minval=80.0, maxval=135.0, step=5.0, group=groupRS)
+rsWeakTotalCapPct = input.float(100.0, "RS Weak Total Cap %", minval=50.0, maxval=135.0, step=5.0, group=groupRS)
+
+useShockBoostGuard = input.bool(true, "Use Shock Guard - Clear Boost First", group=groupRS)
+shockDrop5Pct = input.float(-5.0, "Shock 5D Return <= %", maxval=0.0, step=0.5, group=groupRS)
+shockDrop10Pct = input.float(-8.0, "Shock 10D Return <= %", maxval=0.0, step=0.5, group=groupRS)
+shockAtrRatio = input.float(1.35, "Shock ATR Ratio", minval=1.0, maxval=3.0, step=0.05, group=groupRS)
+shockCapPct = input.float(100.0, "Shock Total Cap %", minval=50.0, maxval=135.0, step=5.0, group=groupRS)
+
+groupScore = "9. V23C Boost Permission Score + Market Level"
+useBoostPermissionScore = input.bool(true, "Use Boost Permission Score", group=groupScore)
+useBreadthScore = input.bool(true, "Use Breadth Score", group=groupScore)
+useVxnRiskScore = input.bool(true, "Use VXN Risk Score", group=groupScore)
+qqqEqualWeightSymbol = input.symbol("NASDAQ:QQQE", "QQQ Equal Weight Proxy", group=groupScore)
+spEqualWeightSymbol = input.symbol("AMEX:RSP", "SPY Equal Weight Proxy", group=groupScore)
+breadthEmaLength = input.int(100, "Breadth Ratio EMA Length", minval=20, maxval=250, group=groupScore)
+vxnSymbol = input.symbol("CBOE:VXN", "Nasdaq-100 Volatility Index", group=groupScore)
+vxnSmaLength = input.int(20, "VXN SMA Length", minval=5, maxval=100, group=groupScore)
+scoreFullBoost = input.int(8, "Score Full Boost >=", minval=5, maxval=9, group=groupScore)
+scoreStrongBoost = input.int(7, "Score Strong Boost >=", minval=4, maxval=9, group=groupScore)
+scoreHalfBoost = input.int(6, "Score Half Boost >=", minval=3, maxval=9, group=groupScore)
+scoreSmallBoost = input.int(5, "Score Small Boost >=", minval=2, maxval=9, group=groupScore)
+scoreRiskCap = input.int(4, "Score Risk Cap <=", minval=1, maxval=6, group=groupScore)
+scoreSevereCap = input.int(3, "Score Severe Cap <=", minval=1, maxval=5, group=groupScore)
+scoreRiskCapPct = input.float(100.0, "Score Risk Cap %", minval=50.0, maxval=135.0, step=5.0, group=groupScore)
+scoreSevereCapPct = input.float(80.0, "Score Severe Cap %", minval=0.0, maxval=135.0, step=5.0, group=groupScore)
+useSatelliteProfitProtection = input.bool(true, "Use Smart Satellite Profit Protection", group=groupScore)
+profitProtectOpenPnlPct = input.float(15.0, "Protect If Open PnL >= %", minval=1.0, maxval=50.0, step=1.0, group=groupScore)
+profitProtectMildCapPct = input.float(130.0, "Mild Protection Cap %", minval=100.0, maxval=135.0, step=5.0, group=groupScore)
+profitProtectMildBoostScale = input.float(0.65, "Mild Protection Boost Scale", minval=0.0, maxval=1.0, step=0.05, group=groupScore)
+profitProtectSevereCapPct = input.float(100.0, "Severe Protection Cap %", minval=50.0, maxval=135.0, step=5.0, group=groupScore)
+profitProtectSevereBoostScale = input.float(0.0, "Severe Protection Boost Scale", minval=0.0, maxval=1.0, step=0.05, group=groupScore)
+useProtectionCooldown = input.bool(true, "Use Protection Cooldown", group=groupScore)
+mildProtectionCooldownBars = input.int(5, "Mild Protection Cooldown Bars", minval=0, maxval=30, group=groupScore)
+severeProtectionCooldownBars = input.int(10, "Severe Protection Cooldown Bars", minval=0, maxval=60, group=groupScore)
+
+groupLevel = "10. Market Level"
+showMarketLevel = input.bool(true, "Show Market Level", group=groupLevel)
+useLevelBackground = input.bool(true, "Use Level Background", group=groupLevel)
+
+groupPanel = "11. Funnel Panel"
+showPanel = input.bool(true, "Show Funnel Panel", group=groupPanel)
+showSignals = input.bool(true, "Show Signals", group=groupPanel)
+showBackground = input.bool(true, "Show Background", group=groupPanel)
+panelPositionInput = input.string("Middle Left", "Panel Position", options=["Top Right", "Middle Right", "Bottom Right", "Top Left", "Middle Left", "Bottom Left"], group=groupPanel)
+
+// ========================
+// Helper
+// ========================
+
+clamp(x, lo, hi) =>
+    math.max(lo, math.min(x, hi))
+
+fmtPct(x) =>
+    na(x) ? "NA" : str.tostring(x, "#.00") + "%"
+
+fmtPct1(x) =>
+    na(x) ? "NA" : str.tostring(x, "#.0") + "%"
+
+fmtNum(x) =>
+    na(x) ? "NA" : str.tostring(x, "#.00")
+
+fmtUsd(x) =>
+    na(x) ? "NA" : str.tostring(x, "#.00") + " USD"
+
+// ========================
+// Indicators
+// ========================
+
+isDaily = timeframe.isdaily
+
+ema20 = ta.ema(close, emaShortLength)
+ema50 = ta.ema(close, emaMidLength)
+ema200 = ta.ema(close, emaLongLength)
+
+ema20Ready = not na(ema20)
+ema50Ready = not na(ema50)
+ema200Ready = not na(ema200)
+
+atrValue = ta.atr(atrLength)
+atrPct = close > 0 ? atrValue / close * 100.0 : na
+atrPctMa = ta.sma(atrPct, atrMaLength)
+
+atrRatio =
+     not na(atrPct) and not na(atrPctMa) and atrPctMa > 0 ?
+     atrPct / atrPctMa :
+     na
+
+// ========================
+// Relative Strength: QQQ / SPY
+// ========================
+
+rsLeaderClose = request.security(rsLeaderSymbol, timeframe.period, close, lookahead=barmerge.lookahead_off)
+rsBaseClose = request.security(rsBaseSymbol, timeframe.period, close, lookahead=barmerge.lookahead_off)
+
+rsRatio =
+     not na(rsLeaderClose) and not na(rsBaseClose) and rsBaseClose > 0 ?
+     rsLeaderClose / rsBaseClose :
+     na
+
+rsRatioEma = ta.ema(rsRatio, rsEmaLength)
+
+rsMomentumPct =
+     not na(rsRatio) and not na(rsRatio[rsMomentumLength]) and rsRatio[rsMomentumLength] > 0 ?
+     (rsRatio / rsRatio[rsMomentumLength] - 1.0) * 100.0 :
+     na
+
+rsReady = not na(rsRatio) and not na(rsRatioEma) and not na(rsMomentumPct)
+
+rsStrong =
+     not useRelativeStrengthGate or not rsReady ?
+     true :
+     rsRatio > rsRatioEma and rsMomentumPct > 0
+
+rsNeutral =
+     not useRelativeStrengthGate or not rsReady ?
+     true :
+     rsRatio > rsRatioEma or rsMomentumPct > 0
+
+rsWeak =
+     useRelativeStrengthGate and rsReady and not rsNeutral
+
+float rsBoostScale = 1.0
+if useRelativeStrengthGate and rsReady
+    if rsStrong
+        rsBoostScale := 1.0
+    else if rsNeutral
+        rsBoostScale := rsNeutralBoostScale
+    else
+        rsBoostScale := rsWeakBoostScale
+
+float rsExposureCap = maxGrossExposurePct
+if useRelativeStrengthGate and rsReady
+    if rsStrong
+        rsExposureCap := maxGrossExposurePct
+    else if rsNeutral
+        rsExposureCap := rsNeutralTotalCapPct
+    else
+        rsExposureCap := rsWeakTotalCapPct
+
+rsState =
+     not useRelativeStrengthGate ? "OFF" :
+     not rsReady ? "NA" :
+     rsStrong ? "STRONG" :
+     rsNeutral ? "NEUTRAL" :
+     "WEAK"
+
+// ========================
+// Breadth Proxies: QQQE / QQQ and RSP / SPY
+// ========================
+
+qqqEqualClose = request.security(qqqEqualWeightSymbol, timeframe.period, close, lookahead=barmerge.lookahead_off)
+spEqualClose = request.security(spEqualWeightSymbol, timeframe.period, close, lookahead=barmerge.lookahead_off)
+
+qqqBreadthRatio =
+     not na(qqqEqualClose) and not na(rsLeaderClose) and rsLeaderClose > 0 ?
+     qqqEqualClose / rsLeaderClose :
+     na
+
+spBreadthRatio =
+     not na(spEqualClose) and not na(rsBaseClose) and rsBaseClose > 0 ?
+     spEqualClose / rsBaseClose :
+     na
+
+qqqBreadthEma = ta.ema(qqqBreadthRatio, breadthEmaLength)
+spBreadthEma = ta.ema(spBreadthRatio, breadthEmaLength)
+
+qqqBreadthHealthy = not useBreadthScore or na(qqqBreadthRatio) or na(qqqBreadthEma) ? true : qqqBreadthRatio > qqqBreadthEma
+spBreadthHealthy = not useBreadthScore or na(spBreadthRatio) or na(spBreadthEma) ? true : spBreadthRatio > spBreadthEma
+
+vixClose = request.security(vixSymbol, timeframe.period, close, lookahead=barmerge.lookahead_off)
+vixSma5 = ta.sma(vixClose, 5)
+vixSma20 = ta.sma(vixClose, 20)
+vixAvailable = not na(vixClose)
+
+vxnClose = request.security(vxnSymbol, timeframe.period, close, lookahead=barmerge.lookahead_off)
+vxnSma = ta.sma(vxnClose, vxnSmaLength)
+vxnAvailable = not na(vxnClose)
+vxnRising2 = vxnAvailable and not na(vxnClose[2]) and vxnClose > vxnClose[1] and vxnClose[1] > vxnClose[2]
+vxnRiskOk = not useVxnRiskScore or not vxnAvailable or na(vxnSma) ? true : (vxnClose < vxnSma or not vxnRising2)
+vxnVixRatio = vixAvailable and vxnAvailable and vixClose > 0 ? vxnClose / vixClose : na
+vxnVixRatioRising = not na(vxnVixRatio) and not na(vxnVixRatio[5]) ? vxnVixRatio > vxnVixRatio[5] : false
+
+vixGuardOn = useVixGuard and vixAvailable
+
+vixFalling =
+     vixGuardOn and
+     (
+         (not na(vixSma5) and vixClose < vixSma5) or
+         (not na(vixClose[3]) and vixClose < vixClose[3])
+     )
+
+vixRising2 =
+     vixGuardOn and
+     not na(vixClose[2]) and
+     vixClose > vixClose[1] and
+     vixClose[1] > vixClose[2]
+
+vixSpike5d =
+     vixGuardOn and not na(vixClose[5]) and vixClose[5] > 0 ?
+     (vixClose / vixClose[5] - 1.0) * 100.0 :
+     0.0
+
+dailyReturnPct =
+     not na(close[1]) and close[1] > 0 ?
+     (close / close[1] - 1.0) * 100.0 :
+     0.0
+
+redBodyAtr =
+     close < open and atrValue > 0 ?
+     (open - close) / atrValue :
+     0.0
+
+// ========================
+// VIX Regime
+// ========================
+
+vixSpikeActive =
+     vixGuardOn and
+     vixSpike5d >= vixSpikePct and
+     vixClose >= vixRiskOffLevel
+
+vixPanicActive =
+     vixGuardOn and
+     (
+         vixClose >= vixPanicLevel or
+         (vixSpikeActive and ema50Ready and close < ema50)
+     )
+
+vixRiskOffActive =
+     vixGuardOn and
+     not vixPanicActive and
+     vixClose >= vixRiskOffLevel
+
+vixCautionActive =
+     vixGuardOn and
+     not vixPanicActive and
+     not vixRiskOffActive and
+     vixClose >= vixCautionLevel
+
+vixRecoveryActive =
+     vixGuardOn and
+     (vixCautionActive or vixRiskOffActive) and
+     vixFalling and
+     ema20Ready and
+     close > ema20
+
+vixAllowsBoost =
+     not vixGuardOn or
+     vixClose < vixCautionLevel or
+     vixRecoveryActive
+
+float vixExposureCap = maxGrossExposurePct
+
+if vixPanicActive
+    vixExposureCap := 0.0
+else if vixRiskOffActive and vixRecoveryActive
+    vixExposureCap := vixRecoveryCapPct
+else if vixRiskOffActive
+    vixExposureCap := vixRiskOffCapPct
+else if vixCautionActive and not vixRecoveryActive
+    vixExposureCap := vixCautionCapPct
+else
+    vixExposureCap := maxGrossExposurePct
+
+// ========================
+// Trend Structure
+// ========================
+
+bullStructure =
+     ema200Ready ?
+     (close > ema200 or ema50 > ema200) :
+     (ema20Ready and ema50Ready and ema20 > ema50 and close > ema20)
+
+boostStructure =
+     ema200Ready ?
+     (close > ema20 and ema20 > ema50 and ema50 > ema200) :
+     (ema20Ready and ema50Ready and close > ema20 and ema20 > ema50)
+
+bearStructure =
+     ema200Ready ?
+     (close < ema200 and ema50 < ema200) :
+     (ema20Ready and ema50Ready and close < ema50 and ema20 < ema50)
+
+// ========================
+// Price Structure
+// ========================
+
+priceBelowEma20 = ema20Ready and close < ema20
+priceBelowEma50 = ema50Ready and close < ema50
+priceBelowEma200 = ema200Ready and close < ema200
+
+ema20BelowEma50 = ema20Ready and ema50Ready and ema20 < ema50
+ema50BelowEma200 = ema50Ready and ema200Ready and ema50 < ema200
+
+ema50Falling =
+     ema50Ready and
+     not na(ema50[ema50SlopeLookback]) and
+     ema50 < ema50[ema50SlopeLookback]
+
+distanceFromEma20Atr =
+     ema20Ready and atrValue > 0 ?
+     (close - ema20) / atrValue :
+     na
+
+largeRedDay =
+     dailyReturnPct <= -2.8
+
+largeRedBodyBreak =
+     priceBelowEma20 and
+     redBodyAtr >= 1.10
+
+recoveryFast =
+     ema20Ready and
+     close > ema20 and
+     (
+         not vixGuardOn or
+         vixFalling or
+         (not na(close[3]) and close > close[3])
+     )
+
+// ========================
+// Structural Addon Cap
+// ========================
+
+structVixSoft =
+     vixGuardOn and
+     vixClose >= structVixSoftLevel
+
+structSoftRaw =
+     useStructuralAddonCap and
+     priceBelowEma50 and
+     ema20BelowEma50 and
+     (ema50Falling or structVixSoft)
+
+var int structRiskStreak = 0
+structRiskStreak := structSoftRaw ? structRiskStreak + 1 : 0
+
+structSoftActive =
+     useStructuralAddonCap and
+     structRiskStreak >= structRiskConfirmBars and
+     not recoveryFast
+
+structHardActive =
+     useStructuralAddonCap and
+     structSoftActive and
+     ema50Falling and
+     structVixSoft and
+     priceBelowEma50
+
+structSevereActive =
+     useStructuralAddonCap and
+     priceBelowEma200 and
+     ema50BelowEma200 and
+     ema20BelowEma50 and
+     not recoveryFast
+
+float structuralBoostScale = 1.0
+
+if structSevereActive
+    structuralBoostScale := severeBoostScale
+else if structHardActive
+    structuralBoostScale := hardBoostScale
+else if structSoftActive
+    structuralBoostScale := softBoostScale
+else
+    structuralBoostScale := 1.0
+
+float structuralExposureCap = maxGrossExposurePct
+
+if structSevereActive
+    structuralExposureCap := severeStructureTotalCapPct
+else
+    structuralExposureCap := maxGrossExposurePct
+
+structState =
+     structSevereActive ? "SEVERE" :
+     structHardActive ? "HARD" :
+     structSoftActive ? "SOFT" :
+     "NORMAL"
+
+// ========================
+// ATR Volatility Gate
+// ========================
+
+atrSoftActive =
+     useVolGate and
+     not na(atrRatio) and
+     atrRatio >= atrSoftRatio and
+     priceBelowEma20 and
+     not recoveryFast
+
+atrHardActive =
+     useVolGate and
+     not na(atrRatio) and
+     atrRatio >= atrHardRatio and
+     priceBelowEma50 and
+     not recoveryFast
+
+atrSevereActive =
+     useVolGate and
+     not na(atrRatio) and
+     atrRatio >= atrSevereRatio and
+     priceBelowEma200 and
+     ema20BelowEma50 and
+     not recoveryFast
+
+float volBoostScale = 1.0
+
+if atrSevereActive
+    volBoostScale := volSevereBoostScale
+else if atrHardActive
+    volBoostScale := volHardBoostScale
+else if atrSoftActive
+    volBoostScale := volSoftBoostScale
+else
+    volBoostScale := 1.0
+
+float volExposureCap = maxGrossExposurePct
+
+if atrSevereActive
+    volExposureCap := volSevereTotalCapPct
+else if atrHardActive
+    volExposureCap := volHardTotalCapPct
+else if atrSoftActive
+    volExposureCap := volSoftTotalCapPct
+else
+    volExposureCap := maxGrossExposurePct
+
+volState =
+     atrSevereActive ? "SEVERE" :
+     atrHardActive ? "HARD" :
+     atrSoftActive ? "SOFT" :
+     "NORMAL"
+
+// ========================
+// Base Mode
+// ========================
+
+var int baseBrokenStreak = 0
+baseBrokenStreak := bearStructure ? baseBrokenStreak + 1 : 0
+
+baseHardExit =
+     vixPanicActive or
+     baseBrokenStreak >= baseBreakConfirmBars
+
+baseStartOk =
+     isDaily and
+     not vixPanicActive and
+     bullStructure
+
+var bool baseMode = false
+
+if not isDaily
+    baseMode := false
+else if vixPanicActive
+    baseMode := false
+else if not baseMode and baseStartOk
+    baseMode := true
+else if baseMode and baseHardExit
+    baseMode := false
+
+// ========================
+// Boost Mode
+// ========================
+
+boostEnterOk =
+     baseMode and
+     boostStructure and
+     vixAllowsBoost
+
+boostExitOk =
+     not baseMode or
+     not vixAllowsBoost or
+     (ema50Ready and close < ema50)
+
+var bool boostMode = false
+
+if boostMode and boostExitOk
+    boostMode := false
+else if not boostMode and boostEnterOk
+    boostMode := true
+
+// ========================
+// Recovery Add
+// ========================
+
+pullbackEvent =
+     ema20Ready and
+     (
+         low <= ema20 or
+         close < ema20
+     )
+
+barsSincePullback = ta.barssince(pullbackEvent)
+
+recentPullback =
+     not na(barsSincePullback) and
+     barsSincePullback <= pullbackLookback
+
+notOverExtended =
+     ema20Ready and
+     close <= ema20 + atrValue * overExtensionAtr
+
+overExtended =
+     not notOverExtended
+
+vixRecoveryAddOk =
+     not vixGuardOn or
+     (
+         vixClose <= recoveryVixMax and
+         (
+             vixFalling or
+             vixClose < vixSma5 or
+             vixClose < vixCautionLevel
+         )
+     )
+
+// ========================
+// V23A Boost Permission Score
+// Score answers: when is QQQ worth using >100% satellite exposure?
+// ========================
+
+ret5Pct =
+     not na(close[5]) and close[5] > 0 ?
+     (close / close[5] - 1.0) * 100.0 :
+     0.0
+
+ret10Pct =
+     not na(close[10]) and close[10] > 0 ?
+     (close / close[10] - 1.0) * 100.0 :
+     0.0
+
+trendScore = 0
+trendScore += ema50Ready and close > ema50 ? 1 : 0
+trendScore += ema20Ready and ema50Ready and ema20 > ema50 ? 1 : 0
+trendScore += ema200Ready and close > ema200 ? 1 : 0
+
+rsScore = 0
+rsScore += rsReady and rsRatio > rsRatioEma ? 1 : 0
+rsScore += rsReady and rsMomentumPct > 0 ? 1 : 0
+
+breadthScore = 0
+breadthScore += qqqBreadthHealthy ? 1 : 0
+breadthScore += spBreadthHealthy ? 1 : 0
+
+volRiskScore = vxnRiskOk ? 1 : 0
+shockScore = ret5Pct > shockDrop5Pct and ret10Pct > shockDrop10Pct ? 1 : 0
+
+boostPermissionScore = trendScore + rsScore + breadthScore + volRiskScore + shockScore
+
+float scoreBoostScale = 1.0
+if useBoostPermissionScore
+    if boostPermissionScore >= scoreFullBoost
+        scoreBoostScale := 1.0
+    else if boostPermissionScore >= scoreStrongBoost
+        scoreBoostScale := 0.75
+    else if boostPermissionScore >= scoreHalfBoost
+        scoreBoostScale := 0.50
+    else if boostPermissionScore >= scoreSmallBoost
+        scoreBoostScale := 0.25
+    else
+        scoreBoostScale := 0.0
+
+float scoreExposureCap = maxGrossExposurePct
+if useBoostPermissionScore
+    if boostPermissionScore <= scoreSevereCap
+        scoreExposureCap := scoreSevereCapPct
+    else if boostPermissionScore <= scoreRiskCap
+        scoreExposureCap := scoreRiskCapPct
+    else if boostPermissionScore == scoreSmallBoost
+        scoreExposureCap := 115.0
+    else if boostPermissionScore == scoreHalfBoost
+        scoreExposureCap := 125.0
+    else
+        scoreExposureCap := maxGrossExposurePct
+
+currentExposurePrePct = strategy.equity > 0 ? strategy.position_size * close / strategy.equity * 100.0 : 0.0
+openPnLPrePct = strategy.equity != 0 ? strategy.openprofit / strategy.equity * 100.0 : 0.0
+
+var float satelliteOpenPnlPeakPct = 0.0
+if currentExposurePrePct > 105 and boostMode
+    satelliteOpenPnlPeakPct := math.max(satelliteOpenPnlPeakPct, openPnLPrePct)
+else if currentExposurePrePct <= 100 or not baseMode
+    satelliteOpenPnlPeakPct := 0.0
+
+profitProtectSetup =
+     useSatelliteProfitProtection and
+     currentExposurePrePct > 105 and
+     satelliteOpenPnlPeakPct >= profitProtectOpenPnlPct and
+     not recoveryFast
+
+profitProtectVolRisk =
+     (vixRising2 or vxnRising2 or vxnVixRatioRising or (vxnAvailable and not na(vxnSma) and vxnClose > vxnSma))
+
+profitProtectQualityWeak =
+     boostPermissionScore <= scoreStrongBoost or
+     not qqqBreadthHealthy or
+     not spBreadthHealthy or
+     rsWeak
+
+// Mild protection: lock part of satellite profit during normal pullbacks, but do not fully kill the trend carry.
+satelliteProfitProtectMildActive =
+     profitProtectSetup and
+     priceBelowEma20 and
+     profitProtectVolRisk and
+     profitProtectQualityWeak
+
+// Severe protection: only when price structure breaks more deeply.
+satelliteProfitProtectSevereActive =
+     profitProtectSetup and
+     priceBelowEma50 and
+     profitProtectVolRisk and
+     (rsWeak or boostPermissionScore <= scoreHalfBoost or not qqqBreadthHealthy)
+
+satelliteProfitProtectActive =
+     satelliteProfitProtectMildActive or satelliteProfitProtectSevereActive
+
+var int protectionCooldown = 0
+protectionCooldown := math.max(protectionCooldown - 1, 0)
+if useProtectionCooldown and satelliteProfitProtectSevereActive and not satelliteProfitProtectSevereActive[1]
+    protectionCooldown := severeProtectionCooldownBars
+else if useProtectionCooldown and satelliteProfitProtectMildActive and not satelliteProfitProtectMildActive[1]
+    protectionCooldown := math.max(protectionCooldown, mildProtectionCooldownBars)
+
+protectionCooldownActive = useProtectionCooldown and protectionCooldown > 0
+
+float cooldownBoostScale = protectionCooldownActive ? 0.75 : 1.0
+float cooldownExposureCap = protectionCooldownActive ? 130.0 : maxGrossExposurePct
+
+float profitProtectBoostScale =
+     satelliteProfitProtectSevereActive ? profitProtectSevereBoostScale :
+     satelliteProfitProtectMildActive ? profitProtectMildBoostScale :
+     1.0
+
+float profitProtectExposureCap =
+     satelliteProfitProtectSevereActive ? profitProtectSevereCapPct :
+     satelliteProfitProtectMildActive ? profitProtectMildCapPct :
+     maxGrossExposurePct
+
+scoreState =
+     not useBoostPermissionScore ? "OFF" :
+     boostPermissionScore >= scoreFullBoost ? "FULL" :
+     boostPermissionScore >= scoreStrongBoost ? "STRONG" :
+     boostPermissionScore >= scoreHalfBoost ? "HALF" :
+     boostPermissionScore >= scoreSmallBoost ? "SMALL" :
+     "NO BOOST"
+
+recoveryAddOk =
+     boostMode and
+     boostStructure and
+     recentPullback and
+     close > ema20 and
+     close > close[1] and
+     not priceBelowEma50 and
+     notOverExtended and
+     vixRecoveryAddOk and
+     (na(atrRatio) or atrRatio <= recoveryMaxAtrRatio) and
+     structState == "NORMAL" and
+     volState == "NORMAL" and
+     not largeRedDay and
+     not largeRedBodyBreak and
+     not rsWeak and
+     boostPermissionScore >= scoreHalfBoost and
+     not satelliteProfitProtectActive
+
+// ========================
+// Shock Guard: clears Boost first, keeps Core unless structure is severe
+// ========================
+
+shockReturnHit = ret5Pct <= shockDrop5Pct or ret10Pct <= shockDrop10Pct
+
+shockVixHit =
+     (vixGuardOn and (vixRising2 or (not na(vixSma5) and vixClose > vixSma5) or vixSpike5d >= 25.0)) or
+     (useVxnRiskScore and vxnAvailable and (vxnRising2 or (not na(vxnSma) and vxnClose > vxnSma)))
+
+shockGuardActive =
+     useShockBoostGuard and
+     shockReturnHit and
+     priceBelowEma50 and
+     (not na(atrRatio) and atrRatio >= shockAtrRatio) and
+     shockVixHit and
+     not recoveryFast
+
+// ========================
+// Market Level Indicator
+// 5 = strong bull, 4 = bull, 3 = neutral/pullback, 2 = risk, 1 = bear, 0 = panic
+// ========================
+
+marketLevel =
+     vixPanicActive or (shockGuardActive and priceBelowEma200) ? 0 :
+     structSevereActive or bearStructure or (boostPermissionScore <= scoreSevereCap and priceBelowEma200) ? 1 :
+     shockGuardActive or satelliteProfitProtectSevereActive or boostPermissionScore <= scoreRiskCap ? 2 :
+     priceBelowEma50 or satelliteProfitProtectMildActive or protectionCooldownActive or boostPermissionScore < scoreStrongBoost ? 3 :
+     baseMode and boostMode and boostPermissionScore >= scoreFullBoost and rsStrong and qqqBreadthHealthy and spBreadthHealthy and vxnRiskOk ? 5 :
+     baseMode and boostPermissionScore >= scoreStrongBoost ? 4 :
+     3
+
+marketLevelText =
+     marketLevel == 5 ? "L5 STRONG BULL" :
+     marketLevel == 4 ? "L4 BULL" :
+     marketLevel == 3 ? "L3 NEUTRAL" :
+     marketLevel == 2 ? "L2 RISK" :
+     marketLevel == 1 ? "L1 BEAR" :
+     "L0 PANIC"
+
+marketLevelColor =
+     marketLevel >= 5 ? color.lime :
+     marketLevel == 4 ? color.aqua :
+     marketLevel == 3 ? color.yellow :
+     marketLevel == 2 ? color.orange :
+     color.red
+
+float shockBoostScale = shockGuardActive ? 0.0 : 1.0
+float shockExposureCap = shockGuardActive ? shockCapPct : maxGrossExposurePct
+
+// ========================
+// Drawdown Metrics
+// ========================
+
+var float equityPeak = na
+equityPeak := na(equityPeak) ? strategy.equity : math.max(equityPeak, strategy.equity)
+
+currentDdPct =
+     equityPeak > 0 ?
+     (equityPeak - strategy.equity) / equityPeak * 100.0 :
+     0.0
+
+var float maxDdPctFromPeak = 0.0
+maxDdPctFromPeak := math.max(maxDdPctFromPeak, currentDdPct)
+
+// ========================
+// Exposure Model
+// ========================
+
+combinedAddonScale =
+     math.min(math.min(structuralBoostScale, volBoostScale), math.min(math.min(rsBoostScale, scoreBoostScale), math.min(math.min(shockBoostScale, profitProtectBoostScale), cooldownBoostScale)))
+
+baseComponent = baseMode ? baseExposurePct : 0.0
+boostComponent = boostMode ? boostExposurePct * combinedAddonScale : 0.0
+recoveryAddComponent = recoveryAddOk and not shockGuardActive ? recoveryAddExposurePct : 0.0
+
+targetExposurePct = baseComponent + boostComponent + recoveryAddComponent
+
+targetExposurePct := clamp(targetExposurePct, 0.0, maxGrossExposurePct)
+targetExposurePct := math.min(targetExposurePct, vixExposureCap)
+targetExposurePct := math.min(targetExposurePct, structuralExposureCap)
+targetExposurePct := math.min(targetExposurePct, volExposureCap)
+targetExposurePct := math.min(targetExposurePct, rsExposureCap)
+targetExposurePct := math.min(targetExposurePct, scoreExposureCap)
+targetExposurePct := math.min(targetExposurePct, shockExposureCap)
+targetExposurePct := math.min(targetExposurePct, profitProtectExposureCap)
+targetExposurePct := math.min(targetExposurePct, cooldownExposureCap)
+
+if not isDaily
+    targetExposurePct := 0.0
+
+currentExposurePct =
+     strategy.equity > 0 ?
+     strategy.position_size * close / strategy.equity * 100.0 :
+     0.0
+
+// ========================
+// Drift Guard
+// ========================
+
+driftExtremeReset =
+     useHardDriftGuard and
+     currentExposurePct > driftExtremeLevelPct
+
+driftHardReset =
+     useHardDriftGuard and
+     not driftExtremeReset and
+     currentExposurePct > driftHardLevelPct
+
+driftSoftReset =
+     useHardDriftGuard and
+     not driftExtremeReset and
+     not driftHardReset and
+     currentExposurePct > driftSoftLevelPct
+
+if driftExtremeReset
+    targetExposurePct := math.min(targetExposurePct, driftExtremeResetCapPct)
+else if driftHardReset
+    targetExposurePct := math.min(targetExposurePct, driftHardResetCapPct)
+else if driftSoftReset
+    targetExposurePct := math.min(targetExposurePct, driftSoftResetCapPct)
+
+driftState =
+     driftExtremeReset ? "EXTREME CAP" :
+     driftHardReset ? "HARD CAP" :
+     driftSoftReset ? "SOFT CAP" :
+     currentExposurePct > targetExposurePct + reduceRebalanceThresholdPct ? "ABOVE TARGET" :
+     "OK"
+
+var float maxTargetExposureSeen = 0.0
+var float maxCurrentExposureSeen = 0.0
+
+maxTargetExposureSeen := math.max(maxTargetExposureSeen, targetExposurePct)
+maxCurrentExposureSeen := math.max(maxCurrentExposureSeen, math.abs(currentExposurePct))
+
+exposureDiffPct = targetExposurePct - currentExposurePct
+
+// ========================
+// Rebalance Engine
+// ========================
+
+targetQty =
+     close > 0 and strategy.equity > 0 ?
+     strategy.equity * targetExposurePct / 100.0 / close :
+     0.0
+
+deltaQty = targetQty - strategy.position_size
+
+forceFlat = targetExposurePct == 0.0 and strategy.position_size > 0
+
+forceReduceToTarget =
+     deltaQty < 0 and
+     (
+         currentExposurePct > targetExposurePct + reduceRebalanceThresholdPct or
+         driftSoftReset or
+         driftHardReset
+     )
+
+normalRebalance =
+     deltaQty > 0 and
+     math.abs(exposureDiffPct) >= normalRebalanceThresholdPct
+
+normalReduce =
+     deltaQty < 0 and
+     math.abs(exposureDiffPct) >= reduceRebalanceThresholdPct
+
+shouldRebalance =
+     forceFlat or
+     forceReduceToTarget or
+     normalRebalance or
+     normalReduce
+
+increaseSignal = shouldRebalance and deltaQty > 0
+reduceSignal = shouldRebalance and deltaQty < 0
+
+if shouldRebalance
+    if forceFlat
+        strategy.close_all(comment="Target 0")
+    else if deltaQty > 0
+        strategy.order("Rebalance Long", strategy.long, qty=deltaQty, comment="Increase")
+    else if deltaQty < 0
+        // Keep original execution as A; alternative B tests closing the named long entry.
+        float reduceQty = math.min(math.abs(deltaQty), math.max(strategy.position_size, 0))
+        if usePartialCloseForReduce
+            strategy.close("Rebalance Long", qty=reduceQty, comment="Reduce P0 Partial Close")
+        else
+            strategy.order("Rebalance Reduce", strategy.short, qty=math.abs(deltaQty), comment="Reduce")
+
+// ========================
+// P0 DIAGNOSTICS (no order side effects)
+// Request vs next-bar change. A request plot is NOT proof of a filled market order.
+// ========================
+var int p0ReduceRequests = 0
+var int p0ReduceFullyFilled = 0
+var int p0ReducePartiallyFilled = 0
+var int p0ReduceUnchanged = 0
+var int p0AwaitBar = na
+var float p0AwaitQty = na
+var float p0BeforeQty = na
+var float p0BeforeTarget = na
+
+if not na(p0AwaitBar) and bar_index > p0AwaitBar
+    float filledQty = p0BeforeQty - strategy.position_size
+    float tol = math.max(1.0, p0AwaitQty * 0.001)
+    if filledQty >= p0AwaitQty - tol
+        p0ReduceFullyFilled += 1
+    else if filledQty > tol
+        p0ReducePartiallyFilled += 1
+    else
+        p0ReduceUnchanged += 1
+        if year >= 2026 and month >= 8
+            log.warning("P0 RED not filled at next bar: expected {0} shares, prior {1}, now {2}, target {3}%", p0AwaitQty, p0BeforeQty, strategy.position_size, p0BeforeTarget)
+    p0AwaitBar := na
+
+if shouldRebalance and not forceFlat and deltaQty < 0
+    p0ReduceRequests += 1
+    p0AwaitBar := bar_index
+    p0AwaitQty := math.abs(deltaQty)
+    p0BeforeQty := strategy.position_size
+    p0BeforeTarget := targetExposurePct
+
+plot(p0ReduceRequests, "P0 RED requests", display=display.data_window)
+plot(p0ReduceFullyFilled, "P0 RED next-bar full", display=display.data_window)
+plot(p0ReducePartiallyFilled, "P0 RED next-bar partial", display=display.data_window)
+plot(p0ReduceUnchanged, "P0 RED next-bar unchanged", display=display.data_window)
+plot(strategy.opentrades, "P0 Open trade count", display=display.data_window)
+plot(deltaQty, "P0 Requested delta shares", display=display.data_window)
+plot(usePartialCloseForReduce ? 1 : 0, "P0 execution mode (0=original 1=partial-close)", display=display.data_window)
+
+// ========================
+// Benchmark
+// ========================
+
+var float initialClose = na
+var int initialTime = na
+
+if barstate.isfirst
+    initialClose := close
+    initialTime := time
+
+bhEquity =
+     not na(initialClose) and initialClose > 0 ?
+     strategy.initial_capital * close / initialClose :
+     strategy.initial_capital
+
+stratRet = (strategy.equity / strategy.initial_capital - 1.0) * 100.0
+bhRet = (bhEquity / strategy.initial_capital - 1.0) * 100.0
+alpha = stratRet - bhRet
+
+years = not na(initialTime) ? (time - initialTime) / 31557600000.0 : na
+
+strategyCagr =
+     years > 0 ?
+     (math.pow(strategy.equity / strategy.initial_capital, 1.0 / years) - 1.0) * 100.0 :
+     na
+
+bhCagr =
+     years > 0 and not na(initialClose) ?
+     (math.pow(close / initialClose, 1.0 / years) - 1.0) * 100.0 :
+     na
+
+winRate =
+     strategy.closedtrades > 0 ?
+     strategy.wintrades / strategy.closedtrades * 100.0 :
+     0.0
+
+pf =
+     strategy.grossloss > 0 ?
+     strategy.grossprofit / strategy.grossloss :
+     strategy.grossprofit > 0 ? 999.0 : 0.0
+
+// ========================
+// Trade Stats
+// ========================
+
+var int lastClosedTradeCount = 0
+var float closedProfitSum = 0.0
+var float largestProfit = 0.0
+var float largestLoss = 0.0
+
+if strategy.closedtrades > lastClosedTradeCount
+    for tradeIndex = lastClosedTradeCount to strategy.closedtrades - 1
+        tradeProfit = strategy.closedtrades.profit(tradeIndex)
+        closedProfitSum += tradeProfit
+        largestProfit := math.max(largestProfit, tradeProfit)
+        largestLoss := math.min(largestLoss, tradeProfit)
+    lastClosedTradeCount := strategy.closedtrades
+
+avgTradePnL =
+     strategy.closedtrades > 0 ?
+     closedProfitSum / strategy.closedtrades :
+     0.0
+
+openPnLPct =
+     strategy.equity != 0 ?
+     strategy.openprofit / strategy.equity * 100.0 :
+     0.0
+
+// ========================
+// Margin Diagnostics
+// ========================
+
+liqPrice = strategy.margin_liquidation_price
+
+liqCushionPct =
+     strategy.position_size > 0 and not na(liqPrice) and close > 0 ?
+     (close - liqPrice) / close * 100.0 :
+     na
+
+marginCallApproxBar =
+     strategy.position_size > 0 and
+     not na(liqPrice) and
+     low <= liqPrice
+
+prevMarginCallApproxBar =
+     bar_index > 0 ? marginCallApproxBar[1] : false
+
+var int marginCallApproxCount = 0
+
+if marginCallApproxBar and not prevMarginCallApproxBar
+    marginCallApproxCount += 1
+
+marginRiskText =
+     na(liqCushionPct) ? "NA" :
+     liqCushionPct <= 5 ? "DANGER" :
+     liqCushionPct <= 10 ? "HIGH" :
+     liqCushionPct <= 20 ? "WATCH" :
+     "OK"
+
+// ========================
+// Export Pack - V20 Research
+// 用途：Export chart data 时导出完整日度路径
+// ========================
+
+groupExport = "10. Export Pack"
+
+benchmarkSymbol = input.symbol("NASDAQ:QQQ", "Benchmark Symbol", group=groupExport)
+fundingRatePct = input.float(4.8, "Funding Rate % Annual", minval=0.0, step=0.1, group=groupExport)
+
+benchClose = request.security(benchmarkSymbol, timeframe.period, close, lookahead=barmerge.lookahead_off)
+
+var float benchInitialClose = na
+var int benchInitialTime = na
+
+if na(benchInitialClose) and not na(benchClose)
+    benchInitialClose := benchClose
+    benchInitialTime := time
+
+benchEquity =
+     not na(benchInitialClose) and benchInitialClose > 0 ?
+     strategy.initial_capital * benchClose / benchInitialClose :
+     na
+
+benchYears =
+     not na(benchInitialTime) ?
+     (time - benchInitialTime) / 31557600000.0 :
+     na
+
+benchCagr =
+     benchYears > 0 and not na(benchEquity) ?
+     (math.pow(benchEquity / strategy.initial_capital, 1.0 / benchYears) - 1.0) * 100.0 :
+     na
+
+excessExposurePctForFunding = math.max(currentExposurePct - 100.0, 0.0)
+
+dailyFundingCostUsd =
+     strategy.equity > 0 ?
+     strategy.equity * excessExposurePctForFunding / 100.0 * fundingRatePct / 100.0 / 360.0 :
+     0.0
+
+var float cumulativeFundingCostUsd = 0.0
+
+if barstate.isconfirmed
+    cumulativeFundingCostUsd += dailyFundingCostUsd
+
+fundingAdjustedEquity = strategy.equity - cumulativeFundingCostUsd
+
+fundingAdjustedRetPct =
+     strategy.initial_capital > 0 ?
+     (fundingAdjustedEquity / strategy.initial_capital - 1.0) * 100.0 :
+     na
+
+fundingAdjustedCagr =
+     years > 0 and fundingAdjustedEquity > 0 ?
+     (math.pow(fundingAdjustedEquity / strategy.initial_capital, 1.0 / years) - 1.0) * 100.0 :
+     na
+
+estimatedOrderNotional =
+     shouldRebalance ?
+     math.abs(deltaQty) * close :
+     0.0
+
+baseModeNum = baseMode ? 1 : 0
+boostModeNum = boostMode ? 1 : 0
+recoveryAddNum = recoveryAddOk ? 1 : 0
+
+vixStateNum =
+     vixPanicActive ? 4 :
+     vixRiskOffActive ? 3 :
+     vixCautionActive ? 2 :
+     vixRecoveryActive ? 1 :
+     0
+
+volStateNum =
+     atrSevereActive ? 3 :
+     atrHardActive ? 2 :
+     atrSoftActive ? 1 :
+     0
+
+structStateNum =
+     structSevereActive ? 3 :
+     structHardActive ? 2 :
+     structSoftActive ? 1 :
+     0
+
+rsStateNum =
+     not useRelativeStrengthGate ? 0 :
+     not rsReady ? -1 :
+     rsStrong ? 2 :
+     rsNeutral ? 1 :
+     -2
+
+shockStateNum = shockGuardActive ? 1 : 0
+rsRiskAdjustedCap = math.min(rsExposureCap, shockExposureCap)
+
+// ========================
+// Plots
+// ========================
+
+plot(ema200, title="EMA200", color=color.white, linewidth=2)
+plot(ema50, title="EMA50", color=color.yellow, linewidth=2)
+plot(ema20, title="EMA20", color=color.blue, linewidth=1)
+
+
+// Export plots
+plot(strategy.equity, title="EXPORT Strategy Equity", display=display.data_window)
+plot(strategy.netprofit, title="EXPORT Net Profit USD", display=display.data_window)
+plot(strategy.openprofit, title="EXPORT Open Profit USD", display=display.data_window)
+plot(strategy.position_size, title="EXPORT Position Size", display=display.data_window)
+plot(strategy.position_avg_price, title="EXPORT Position Avg Price", display=display.data_window)
+
+plot(bhEquity, title="EXPORT Chart Symbol B&H Equity", display=display.data_window)
+plot(benchEquity, title="EXPORT Benchmark Equity", display=display.data_window)
+plot(benchCagr, title="EXPORT Benchmark CAGR", display=display.data_window)
+
+plot(fundingAdjustedEquity, title="EXPORT Funding Adjusted Equity", display=display.data_window)
+plot(dailyFundingCostUsd, title="EXPORT Daily Funding Cost USD", display=display.data_window)
+plot(cumulativeFundingCostUsd, title="EXPORT Cumulative Funding Cost USD", display=display.data_window)
+plot(fundingAdjustedRetPct, title="EXPORT Funding Adjusted Return %", display=display.data_window)
+plot(fundingAdjustedCagr, title="EXPORT Funding Adjusted CAGR", display=display.data_window)
+
+plot(targetExposurePct, title="EXPORT Target Exposure %", display=display.data_window)
+plot(currentExposurePct, title="EXPORT Current Exposure %", display=display.data_window)
+plot(exposureDiffPct, title="EXPORT Exposure Diff %", display=display.data_window)
+plot(excessExposurePctForFunding, title="EXPORT Excess Exposure For Funding %", display=display.data_window)
+
+plot(currentDdPct, title="EXPORT Current DD %", display=display.data_window)
+plot(maxDdPctFromPeak, title="EXPORT Max DD From Peak %", display=display.data_window)
+
+plot(estimatedOrderNotional, title="EXPORT Estimated Order Notional", display=display.data_window)
+
+plot(baseModeNum, title="EXPORT Base Mode", display=display.data_window)
+plot(boostModeNum, title="EXPORT Boost Mode", display=display.data_window)
+plot(recoveryAddNum, title="EXPORT Recovery Add", display=display.data_window)
+plot(vixStateNum, title="EXPORT VIX State Num", display=display.data_window)
+plot(volStateNum, title="EXPORT Vol State Num", display=display.data_window)
+plot(structStateNum, title="EXPORT Struct State Num", display=display.data_window)
+plot(rsStateNum, title="EXPORT V23C RS State Num", display=display.data_window)
+plot(rsRatio, title="EXPORT V23C QQQ SPY RS Ratio", display=display.data_window)
+plot(rsMomentumPct, title="EXPORT V23C RS Momentum %", display=display.data_window)
+plot(rsExposureCap, title="EXPORT V23C RS Exposure Cap %", display=display.data_window)
+plot(shockStateNum, title="EXPORT V23C Shock Guard", display=display.data_window)
+plot(shockExposureCap, title="EXPORT V23C Shock Exposure Cap %", display=display.data_window)
+plot(boostPermissionScore, title="EXPORT V23C Boost Permission Score", display=display.data_window)
+plot(scoreExposureCap, title="EXPORT V23C Score Exposure Cap %", display=display.data_window)
+plot(vxnClose, title="EXPORT V23C VXN", display=display.data_window)
+plot(qqqBreadthRatio, title="EXPORT V23C QQQE QQQ Breadth Ratio", display=display.data_window)
+plot(satelliteProfitProtectActive ? 1 : 0, title="EXPORT V23C Satellite Profit Protect", display=display.data_window)
+plot(marketLevel, title="EXPORT V23C Market Level", display=display.data_window)
+plot(protectionCooldown, title="EXPORT V23C Protection Cooldown", display=display.data_window)
+
+// ========================
+// Signal Marks
+// ========================
+
+plotshape(showSignals and increaseSignal, title="Increase Exposure", style=shape.triangleup, location=location.belowbar, color=color.new(color.lime, 0), size=size.tiny, text="INC")
+plotshape(showSignals and reduceSignal, title="Reduce Exposure", style=shape.triangledown, location=location.abovebar, color=color.new(color.red, 0), size=size.tiny, text="RED")
+plotshape(showSignals and recoveryAddOk and not recoveryAddOk[1], title="Recovery Add", style=shape.circle, location=location.belowbar, color=color.new(color.lime, 0), size=size.tiny, text="REC")
+
+plotshape(showSignals and structSoftActive and not structSoftActive[1], title="Structural Risk", style=shape.diamond, location=location.abovebar, color=color.new(color.purple, 0), size=size.tiny, text="RISK")
+plotshape(showSignals and atrSoftActive and not atrSoftActive[1], title="Vol Gate", style=shape.diamond, location=location.abovebar, color=color.new(color.orange, 0), size=size.tiny, text="VOL")
+plotshape(showSignals and vixCautionActive and not vixCautionActive[1], title="VIX Caution", style=shape.diamond, location=location.abovebar, color=color.new(color.orange, 0), size=size.tiny, text="VIX CUT")
+plotshape(showSignals and vixRiskOffActive and not vixRiskOffActive[1], title="VIX Risk-Off", style=shape.diamond, location=location.abovebar, color=color.new(color.red, 0), size=size.tiny, text="VIX RISK")
+plotshape(showSignals and vixPanicActive and not vixPanicActive[1], title="VIX Panic", style=shape.xcross, location=location.abovebar, color=color.new(color.red, 0), size=size.small, text="VIX 0")
+plotshape(showSignals and vixRecoveryActive and not vixRecoveryActive[1], title="VIX Recovery", style=shape.circle, location=location.belowbar, color=color.new(color.aqua, 0), size=size.tiny, text="VIX REC")
+plotshape(showSignals and driftSoftReset, title="Drift Soft Cap", style=shape.diamond, location=location.abovebar, color=color.new(color.fuchsia, 0), size=size.tiny, text="CAP")
+plotshape(showSignals and driftHardReset, title="Drift Hard Cap", style=shape.xcross, location=location.abovebar, color=color.new(color.red, 0), size=size.small, text="CAP X")
+plotshape(showSignals and shockGuardActive and not shockGuardActive[1], title="V23C Shock Guard", style=shape.xcross, location=location.abovebar, color=color.new(color.red, 0), size=size.tiny, text="SHOCK")
+plotshape(showSignals and satelliteProfitProtectActive and not satelliteProfitProtectActive[1], title="V23C Profit Protect", style=shape.diamond, location=location.abovebar, color=color.new(color.orange, 0), size=size.tiny, text="PROT")
+
+// ========================
+// Background
+// ========================
+
+bgColor =
+     not isDaily ? color.new(color.red, 85) :
+     useLevelBackground and marketLevel <= 1 ? color.new(color.red, 84) :
+     useLevelBackground and marketLevel == 2 ? color.new(color.orange, 88) :
+     useLevelBackground and marketLevel == 3 ? color.new(color.yellow, 93) :
+     shockGuardActive ? color.new(color.red, 86) :
+     rsWeak ? color.new(color.purple, 90) :
+     vixPanicActive ? color.new(color.red, 82) :
+     atrSevereActive ? color.new(color.orange, 82) :
+     atrHardActive ? color.new(color.orange, 87) :
+     atrSoftActive ? color.new(color.orange, 92) :
+     structSevereActive ? color.new(color.purple, 84) :
+     structHardActive ? color.new(color.purple, 88) :
+     structSoftActive ? color.new(color.purple, 92) :
+     vixRiskOffActive and not vixRecoveryActive ? color.new(color.red, 88) :
+     vixCautionActive and not vixRecoveryActive ? color.new(color.orange, 88) :
+     vixRecoveryActive ? color.new(color.aqua, 90) :
+     driftHardReset ? color.new(color.red, 88) :
+     driftSoftReset ? color.new(color.fuchsia, 90) :
+     recoveryAddOk ? color.new(color.green, 84) :
+     targetExposurePct == 0 ? color.new(color.red, 90) :
+     boostMode ? color.new(color.green, 88) :
+     baseMode ? color.new(color.yellow, 90) :
+     color.new(color.gray, 92)
+
+bgcolor(showBackground ? bgColor : na, title="Regime Background")
+
+// ========================
+// Funnel Panel
+// ========================
+
+vixState =
+     not useVixGuard ? "OFF" :
+     not vixAvailable ? "NA" :
+     vixPanicActive ? "PANIC 0" :
+     vixRiskOffActive and vixRecoveryActive ? "RISK RECOVERY" :
+     vixRiskOffActive ? "RISK CAP" :
+     vixCautionActive and vixRecoveryActive ? "CAUTION RECOVERY" :
+     vixCautionActive ? "CAUTION CUT" :
+     vixRecoveryActive ? "VIX RECOVERY" :
+     "NORMAL"
+
+volCapText = fmtPct1(volExposureCap)
+
+panelPosition =
+     panelPositionInput == "Top Right" ? position.top_right :
+     panelPositionInput == "Bottom Right" ? position.bottom_right :
+     panelPositionInput == "Top Left" ? position.top_left :
+     panelPositionInput == "Middle Left" ? position.middle_left :
+     panelPositionInput == "Bottom Left" ? position.bottom_left :
+     position.middle_right
+
+if showPanel and barstate.islast
+    var table panel = table.new(panelPosition, 2, 39, bgcolor=color.new(color.black, 0), border_width=1)
+
+    table.cell(panel, 0, 0, "QQQ Alpha V23C", text_color=color.yellow, bgcolor=color.rgb(35, 35, 80))
+    table.cell(panel, 1, 0, alpha >= 0 ? "BEATING B&H" : "LAGGING B&H", text_color=color.white, bgcolor=alpha >= 0 ? color.green : color.red)
+
+    table.cell(panel, 0, 1, "Strategy Return", text_color=color.aqua)
+    table.cell(panel, 1, 1, fmtPct1(stratRet), text_color=color.aqua)
+
+    table.cell(panel, 0, 2, "Buy & Hold", text_color=color.orange)
+    table.cell(panel, 1, 2, fmtPct1(bhRet), text_color=color.orange)
+
+    table.cell(panel, 0, 3, "Alpha", text_color=color.white)
+    table.cell(panel, 1, 3, fmtPct1(alpha), text_color=alpha >= 0 ? color.lime : color.red)
+
+    table.cell(panel, 0, 4, "Strategy CAGR", text_color=color.aqua)
+    table.cell(panel, 1, 4, fmtPct(strategyCagr), text_color=color.aqua)
+
+    table.cell(panel, 0, 5, "B&H CAGR", text_color=color.orange)
+    table.cell(panel, 1, 5, fmtPct(bhCagr), text_color=color.orange)
+
+    table.cell(panel, 0, 6, "Target Exposure", text_color=color.white)
+    table.cell(panel, 1, 6, fmtPct1(targetExposurePct), text_color=targetExposurePct > 100 ? color.lime : color.white)
+
+    table.cell(panel, 0, 7, "Current Exposure", text_color=color.white)
+    table.cell(panel, 1, 7, fmtPct1(currentExposurePct), text_color=currentExposurePct > 150 ? color.red : currentExposurePct > 145 ? color.orange : color.lime)
+
+    table.cell(panel, 0, 8, "Addon Scale", text_color=color.white)
+    table.cell(panel, 1, 8, str.tostring(combinedAddonScale, "#.00"), text_color=combinedAddonScale >= 1 ? color.lime : combinedAddonScale >= 0.5 ? color.orange : color.red)
+
+    table.cell(panel, 0, 9, "Recovery Add", text_color=color.white)
+    table.cell(panel, 1, 9, recoveryAddOk ? "ON" : "OFF", text_color=recoveryAddOk ? color.lime : color.gray)
+
+    table.cell(panel, 0, 10, "Recent Pullback", text_color=color.white)
+    table.cell(panel, 1, 10, recentPullback ? "YES" : "NO", text_color=recentPullback ? color.lime : color.gray)
+
+    table.cell(panel, 0, 11, "Overextended", text_color=color.white)
+    table.cell(panel, 1, 11, overExtended ? "YES" : "NO", text_color=overExtended ? color.orange : color.lime)
+
+    table.cell(panel, 0, 12, "Struct State", text_color=color.white)
+    table.cell(panel, 1, 12, structState, text_color=structState == "NORMAL" ? color.lime : structState == "SOFT" ? color.orange : color.red)
+
+    table.cell(panel, 0, 13, "RS / Vol", text_color=color.white)
+    table.cell(panel, 1, 13, rsState + " / " + volState, text_color=rsStrong ? color.lime : rsNeutral ? color.orange : color.red)
+
+    table.cell(panel, 0, 14, "ATR Ratio", text_color=color.white)
+    table.cell(panel, 1, 14, fmtNum(atrRatio), text_color=atrRatio >= atrHardRatio ? color.red : atrRatio >= atrSoftRatio ? color.orange : color.lime)
+
+    table.cell(panel, 0, 15, "RS Cap", text_color=color.white)
+    table.cell(panel, 1, 15, fmtPct1(rsRiskAdjustedCap), text_color=rsRiskAdjustedCap < maxGrossExposurePct ? color.orange : color.lime)
+
+    table.cell(panel, 0, 16, "VIX State", text_color=color.white)
+    table.cell(panel, 1, 16, vixState, text_color=vixPanicActive or vixRiskOffActive ? color.red : vixCautionActive ? color.orange : color.lime)
+
+    table.cell(panel, 0, 17, "VIX / Cap", text_color=color.white)
+    table.cell(panel, 1, 17, fmtNum(vixClose) + " / " + fmtPct1(vixExposureCap), text_color=vixExposureCap < maxGrossExposurePct ? color.orange : color.lime)
+
+    table.cell(panel, 0, 18, "Exposure Diff", text_color=color.white)
+    table.cell(panel, 1, 18, fmtPct1(exposureDiffPct), text_color=exposureDiffPct < 0 ? color.red : exposureDiffPct > 0 ? color.lime : color.white)
+
+    table.cell(panel, 0, 19, "Max Exposure Seen", text_color=color.white)
+    table.cell(panel, 1, 19, fmtPct1(maxCurrentExposureSeen), text_color=maxCurrentExposureSeen > 150 ? color.red : maxCurrentExposureSeen > 145 ? color.orange : color.lime)
+
+    table.cell(panel, 0, 20, "Max DD From Peak", text_color=color.fuchsia)
+    table.cell(panel, 1, 20, fmtPct(maxDdPctFromPeak), text_color=maxDdPctFromPeak >= 30 ? color.red : maxDdPctFromPeak >= 25 ? color.orange : color.lime)
+
+    table.cell(panel, 0, 21, "Current DD", text_color=color.white)
+    table.cell(panel, 1, 21, fmtPct(currentDdPct), text_color=currentDdPct >= 15 ? color.red : currentDdPct >= 8 ? color.orange : color.lime)
+
+    table.cell(panel, 0, 22, "PF", text_color=color.yellow)
+    table.cell(panel, 1, 22, fmtNum(pf), text_color=pf >= 4 ? color.lime : pf >= 3 ? color.orange : color.red)
+
+    table.cell(panel, 0, 23, "Win Rate", text_color=color.white)
+    table.cell(panel, 1, 23, fmtPct1(winRate), text_color=winRate >= 60 ? color.lime : color.orange)
+
+    table.cell(panel, 0, 24, "Closed Trades", text_color=color.white)
+    table.cell(panel, 1, 24, str.tostring(strategy.closedtrades), text_color=color.white)
+
+    table.cell(panel, 0, 25, "Avg Trade PnL", text_color=color.white)
+    table.cell(panel, 1, 25, fmtUsd(avgTradePnL), text_color=avgTradePnL >= 0 ? color.lime : color.red)
+
+    table.cell(panel, 0, 26, "Largest Loss", text_color=color.white)
+    table.cell(panel, 1, 26, fmtUsd(largestLoss), text_color=largestLoss < 0 ? color.red : color.white)
+
+    table.cell(panel, 0, 27, "Open PnL", text_color=color.white)
+    table.cell(panel, 1, 27, fmtUsd(strategy.openprofit) + " / " + fmtPct1(openPnLPct), text_color=strategy.openprofit >= 0 ? color.lime : color.red)
+
+    table.cell(panel, 0, 28, "Margin Calls*", text_color=color.white)
+    table.cell(panel, 1, 28, str.tostring(marginCallApproxCount) + " approx", text_color=marginCallApproxCount == 0 ? color.lime : color.red)
+
+    table.cell(panel, 0, 29, "Liq Cushion", text_color=color.white)
+    table.cell(panel, 1, 29, fmtPct1(liqCushionPct) + " / " + marginRiskText, text_color=marginRiskText == "OK" ? color.lime : marginRiskText == "WATCH" ? color.orange : color.red)
+
+    table.cell(panel, 0, 30, "Base Broken", text_color=color.white)
+    table.cell(panel, 1, 30, str.tostring(baseBrokenStreak), text_color=baseBrokenStreak == 0 ? color.lime : color.orange)
+
+    table.cell(panel, 0, 31, "EMA20 Distance", text_color=color.white)
+    table.cell(panel, 1, 31, fmtNum(distanceFromEma20Atr) + " ATR", text_color=notOverExtended ? color.lime : color.orange)
+
+    table.cell(panel, 0, 32, "VIX 5D Spike", text_color=color.white)
+    table.cell(panel, 1, 32, fmtPct(vixSpike5d), text_color=vixSpike5d > 20 ? color.orange : color.lime)
+
+    table.cell(panel, 0, 33, "Drift State", text_color=color.white)
+    table.cell(panel, 1, 33, driftState, text_color=driftState == "OK" ? color.lime : driftState == "ABOVE TARGET" ? color.orange : color.red)
+
+    table.cell(panel, 0, 34, "Market Level", text_color=color.white)
+    table.cell(panel, 1, 34, marketLevelText, text_color=marketLevelColor)
+
+    table.cell(panel, 0, 35, "Boost Score", text_color=color.white)
+    table.cell(panel, 1, 35, str.tostring(boostPermissionScore) + " / " + scoreState, text_color=marketLevelColor)
+
+    table.cell(panel, 0, 36, "Cooldown", text_color=color.white)
+    table.cell(panel, 1, 36, str.tostring(protectionCooldown), text_color=protectionCooldownActive ? color.orange : color.gray)
+
+    table.cell(panel, 0, 37, "Base Mode", text_color=color.white)
+    table.cell(panel, 1, 37, baseMode ? "ON" : "OFF", text_color=baseMode ? color.lime : color.red)
+
+    table.cell(panel, 0, 38, "Boost Mode", text_color=color.white)
+    table.cell(panel, 1, 38, boostMode ? "ON" : "OFF", text_color=boostMode ? color.lime : color.gray)
+
+var label timeframeWarning = na
+
+if barstate.islast
+    label.delete(timeframeWarning)
+    if not isDaily
+        timeframeWarning := label.new(bar_index, high, "Use daily chart only", style=label.style_label_down, color=color.red, textcolor=color.white)
+// === V23C_ALERTS_V1: notification-only appendix; original strategy above is byte-preserved ===
+v23cAlertGroup = "V23C Research Alerts"
+v23cEnableAlerts = input.bool(false, "Enable research alerts", group=v23cAlertGroup)
+v23cDailyState = input.bool(true, "Send daily HOLD status", group=v23cAlertGroup)
+v23cConfigurationId = input.string("P0_DEFAULT", "Configuration label (recreate alerts after changing inputs)", group=v23cAlertGroup)
+
+v23cJsonString(s) =>
+    "\"" + str.replace_all(str.replace_all(str.replace_all(s, "\\", "\\\\"), "\"", "\\\""), "\n", " ") + "\""
+
+v23cJsonNumber(n) =>
+    na(n) ? "null" : str.tostring(n, "#.############")
+
+v23cReady = bar_index + 1 >= math.max(emaLongLength, math.max(rsMomentumLength + 1, math.max(breadthEmaLength, atrLength + atrMaLength))) and not na(ema200) and rsReady and not na(qqqBreadthEma) and not na(spBreadthEma) and vixAvailable and vxnAvailable
+v23cIsChart = syminfo.prefix == "NASDAQ" and syminfo.ticker == "QQQ" and timeframe.isdaily and timeframe.multiplier == 1 and syminfo.session == session.regular
+v23cAction = forceFlat ? "FLAT" : increaseSignal ? "INCREASE" : reduceSignal ? "REDUCE" : "HOLD"
+v23cActionText = forceFlat ? "清仓请求" : increaseSignal ? "加仓请求" : reduceSignal ? "减仓请求" : "本次无需调仓"
+v23cEvent = shouldRebalance ? "REQUEST" : "STATE"
+v23cNotice = "QQQ V23C｜日线收盘｜" + v23cActionText + "｜模型目标 " + str.tostring(targetExposurePct, "#.##") + "%｜" + (v23cReady ? "研究提醒，请下一交易时段人工复核" : "资料不齐，仅留档复核")
+
+if v23cEnableAlerts and v23cIsChart and barstate.isrealtime and barstate.isconfirmed and (shouldRebalance or v23cDailyState)
+    string v23cMessage = "{\"schema\":\"V23C_SIGNAL_V1\",\"strategy\":\"QQQ_V23C_P0_AB\",\"source_sha256\":\"bb098c7fa0b5f88299df2f154a30edb2e80a6e0b25e0331cb61c7c9b4e8778e6\""
+    v23cMessage += ",\"message\":" + v23cJsonString(v23cNotice)
+    v23cMessage += ",\"configuration_id\":" + v23cJsonString(v23cConfigurationId)
+    v23cMessage += ",\"model_mode\":" + (usePartialCloseForReduce ? "1" : "0")
+    v23cMessage += ",\"symbol\":\"NASDAQ:QQQ\",\"timeframe\":\"1D\",\"session\":\"RTH\""
+    v23cMessage += ",\"event\":" + v23cJsonString(v23cEvent) + ",\"action\":" + v23cJsonString(v23cAction)
+    v23cMessage += ",\"bar_open_ms\":" + str.tostring(time) + ",\"bar_close_ms\":" + str.tostring(time_close) + ",\"emitted_ms\":" + str.tostring(timenow)
+    v23cMessage += ",\"confirmed\":true,\"realtime\":true,\"close\":" + v23cJsonNumber(close)
+    v23cMessage += ",\"target_exposure_pct\":" + v23cJsonNumber(targetExposurePct) + ",\"model_exposure_pct\":" + v23cJsonNumber(currentExposurePct)
+    v23cMessage += ",\"model_position_qty\":" + v23cJsonNumber(strategy.position_size) + ",\"model_delta_qty\":" + v23cJsonNumber(deltaQty)
+    v23cMessage += ",\"market_level\":" + str.tostring(marketLevel) + ",\"boost_score\":" + str.tostring(boostPermissionScore)
+    v23cMessage += ",\"data_ready\":" + (v23cReady ? "true" : "false") + ",\"external_finality\":\"UNVERIFIED\"}"
+    alert(v23cMessage, alert.freq_once_per_bar_close)

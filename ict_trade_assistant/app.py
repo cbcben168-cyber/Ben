@@ -32,7 +32,7 @@ st.markdown('''<style>.block-container{padding-top:2rem} h1{letter-spacing:-1px}
 .stCaption{color:#a3b4cb}</style>''', unsafe_allow_html=True)
 st.sidebar.title(TEXT['文案1'])
 st.sidebar.caption('v0.4.6 · 历史1H与15只重点观察')
-page = st.sidebar.radio(TEXT['文案3'], ['交易工作台', '事件与备注', '设置与审计', 'SOP 与进度', '其他策略', '交易记录', '期权'])
+page = st.sidebar.radio(TEXT['文案3'], ['交易工作台', '事件与备注', '设置与审计', 'SOP 与进度', '其他策略', '交易记录', '期权'], key='desk_page')
 symbol = (st.sidebar.selectbox(TEXT['文案4'], settings['watchlist'])
           if settings['watchlist'] and page != '交易工作台' else st.session_state.get('desk_symbol'))
 st.sidebar.caption('Futu OpenD · 127.0.0.1:11111\n无账户查询 · 无订单接口')
@@ -161,6 +161,9 @@ elif page == 'SOP 与进度':
     st.markdown(zh('1. 核对权限、时间戳和 Session。\n2. 复核前日 RTH、PRE、NIGHT 和 OR 的完整性。\n3. 设置人工区域与失效价。\n4. 人工核对已完成 K 线，记录 Sweep/MSS/FVG 阶段。\n5. 记录触价原因与备注。'))
     st.info(TEXT['文案23'])
     st.markdown((ROOT/'PROGRESS.md').read_text(encoding='utf-8'))
+elif page == '其他策略':
+    from desk.v23c_ui import render as render_v23c
+    render_v23c()
 else:
     st.title(page)
     st.warning(TEXT['文案24'])
